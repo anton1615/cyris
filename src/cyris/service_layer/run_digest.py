@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from cyris.domain.areas import AreaCatalog
 from cyris.domain.models import (
     NO_LLM_MODEL,
     ArticleState,
@@ -22,7 +23,7 @@ from cyris.domain.triage import RejectReason
 from cyris.service_layer.digest_pipeline import DigestPipeline
 from cyris.service_layer.fetching import fetch_all_articles
 from cyris.service_layer.schedule import Period
-from cyris.service_layer.scoring import score_in_batches, select_scorable
+from cyris.service_layer.scoring import AreaPick, score_in_batches, select_scorable
 from cyris.service_layer.vote_order import VoteOrder
 from cyris.utils.timezone import now_in_timezone
 
@@ -30,6 +31,22 @@ if TYPE_CHECKING:
     from cyris.bootstrap import Deps
 
 logger = logging.getLogger(__name__)
+
+
+def proposal_counts(picks: dict[str, AreaPick], catalog: AreaCatalog) -> dict[str, int]:
+    """Articles per name the model suggested that is not yet an active area.
+
+    A suggestion that resolves to a proposal or to no area at all is a proposal; one that
+    resolves to an active or merged area, or was dismissed, is not counted.
+    """
+    counts: dict[str, int] = {}
+    for pick in picks.values():
+        if not pick.suggest:
+            continue
+        if catalog.place(pick.suggest).kind in ("proposed", "unknown"):
+            name = pick.suggest.strip()
+            counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 @dataclass(frozen=True)
@@ -356,6 +373,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     scorable = select_scorable(pending_articles, force=options.force)
 
     total_usage = UsageStats(model=cfg.app.llm_provider.model or NO_LLM_MODEL)
+    area_picks: dict[str, AreaPick] = {}
 
     persist_tags = None
     if not options.dry_run and deps.tag_store is not None:
@@ -369,14 +387,14 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     if scorable and deps.llm is not None:
         progress(f"Scoring {len(scorable)} articles...")
         try:
-            usage, _picks = await score_in_batches(
+            usage, area_picks = await score_in_batches(
                 scorable,
                 deps.llm,
                 snippet_length=cfg.app.digest.scoring_snippet_length,
                 progress=progress,
                 persist=None if options.dry_run else store.update_scores,
                 persist_tags=persist_tags,
-                area_names=[],
+                area_names=AreaCatalog(cfg.areas).names(),
             )
             total_usage.merge(usage)
         except Exception:
@@ -384,6 +402,15 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
             total_usage.fell_back_to_excerpts = True
     elif scorable:
         logger.info("No LLM configured; skipping scoring for %d articles", len(scorable))
+
+    if deps.area_store is not None and not options.dry_run:
+        try:
+            counts = proposal_counts(area_picks, AreaCatalog(cfg.areas))
+            if counts:
+                deps.area_store.record_proposals(counts, summary["started_at"])
+        except Exception as e:
+            logger.error("Recording area proposals failed: %s", type(e).__name__)
+            summary["area_proposal_error"] = type(e).__name__
 
     # Reload pending articles after scoring
     pending_articles = _newest(

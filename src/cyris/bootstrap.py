@@ -302,6 +302,9 @@ class Deps:
     # no model-agnostic default exists. None skips vote similarity rather than
     # quietly judge one model's corpus by another's number.
     embedding_threshold: float | None = None
+    # The reader's areas: where a run's and an articles score's suggestions are counted.
+    # None under json, which keeps no areas.
+    area_store: Any | None = None
     # Takes the final `run_summary` dict; None under json, where no run row is kept.
     record_run: Callable[[dict], None] | None = None
     # Takes (run_at, period, verdicts) after a vote-similarity pass that embedded;
@@ -365,12 +368,14 @@ def build_deps(
     )
     tag_store = None
     story_store = None
+    area_store = None
     record_run = None
     record_similarity = None
     digest_store = None
     archive_counts: Callable[[], dict[tuple[str, str], int]] = dict
     if d1 is not None:
         from cyris.adapters.store.archive_meta import D1ArchiveMeta
+        from cyris.adapters.store.areas import D1AreaStore
         from cyris.adapters.store.digests import D1DigestStore
         from cyris.adapters.store.runs import D1RunLog
         from cyris.adapters.store.similarity_shadow import D1SimilarityShadow
@@ -386,6 +391,7 @@ def build_deps(
         ).record
         archive_counts = D1ArchiveMeta(d1).article_counts
         digest_store = D1DigestStore(d1)
+        area_store = D1AreaStore(d1)
 
     fetch_sources: list[FetchSource] = []
     if cfg.app.newsletter.worker_url and cfg.app.newsletter.token:
@@ -466,6 +472,7 @@ def build_deps(
             cfg.app.vote_similarity.provider, cfg.app.vote_similarity.model
         ),
         embedding_threshold=embedding_threshold(cfg),
+        area_store=area_store,
         record_run=record_run,
         record_similarity=record_similarity,
         archive_counts=archive_counts,

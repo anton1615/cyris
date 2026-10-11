@@ -1028,8 +1028,11 @@ def articles_score(
     """Score non-news articles via AI for triage ranking."""
     _setup_logging(verbose)
 
+    from cyris.adapters.store.areas import D1AreaStore
     from cyris.bootstrap import build_d1_client, build_store, load_effective_config
+    from cyris.domain.areas import AreaCatalog
     from cyris.domain.models import ArticleState
+    from cyris.service_layer.run_digest import proposal_counts
     from cyris.service_layer.scoring import score_in_batches, select_scorable
 
     try:
@@ -1086,15 +1089,23 @@ def articles_score(
                 except Exception as e:
                     logger.warning("Failed to persist scoring tags: %s", e)
 
-        total_usage, _picks = await score_in_batches(
+        catalog = AreaCatalog(cfg.areas)
+        total_usage, picks = await score_in_batches(
             scorable,
             llm,
             snippet_length=cfg.app.digest.scoring_snippet_length,
             progress=typer.echo,
             persist=persist,
             persist_tags=persist_tags,
-            area_names=[],
+            area_names=catalog.names(),
         )
+        if d1 is not None:
+            try:
+                counts = proposal_counts(picks, catalog)
+                if counts:
+                    D1AreaStore(d1).record_proposals(counts, None)
+            except Exception as e:
+                logger.warning("Recording area proposals failed: %s", type(e).__name__)
 
         cost = total_usage.estimated_cost
         typer.echo(
