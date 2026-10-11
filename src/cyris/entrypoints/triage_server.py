@@ -201,6 +201,7 @@ class TriageServer:
         self._app.router.add_post(r"/api/areas/{id:\d+}/activate", self._handle_activate_area)
         self._app.router.add_post(r"/api/areas/{id:\d+}/dismiss", self._handle_dismiss_area)
         self._app.router.add_post(r"/api/areas/{id:\d+}/merge", self._handle_merge_area)
+        self._app.router.add_post(r"/api/areas/{id:\d+}/sources", self._handle_assign_sources)
         self._app.router.add_put(r"/api/areas/{id:\d+}", self._handle_rename_area)
         self._app.router.add_get("/api/labels", self._handle_get_labels)
         self._app.router.add_post("/api/labels", self._handle_post_label)
@@ -934,6 +935,50 @@ class TriageServer:
         return web.json_response(
             {"ok": True, "id": area_id, "into": into, "note": "Effective next run."}
         )
+
+    async def _handle_assign_sources(self, request: web.Request) -> web.Response:
+        """Place a batch of sources in one active area; each keeps every other field."""
+        if self._area_store is None or self._source_store is None:
+            return self._no_area_table()
+        area_id = int(request.match_info["id"])
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+        names = body.get("sources") if isinstance(body, dict) else None
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            return _refused("sources must be a list of source names.", "sources")
+        try:
+            area = self._area_store.get(area_id)
+            if area is None:
+                return web.json_response(
+                    {"ok": False, "error": f"No area with id {area_id}: reload the page."},
+                    status=404,
+                )
+            if area.status != "active":
+                return web.json_response(
+                    {"ok": False, "error": f"{area.name} is {area.status}, not active."},
+                    status=409,
+                )
+            stored = self._source_store.list_sources()
+            unknown = [name for name in names if name not in stored]
+            if unknown:
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": "Unknown sources: " + ", ".join(unknown),
+                        "field": "sources",
+                        "names": unknown,
+                    },
+                    status=400,
+                )
+            for name in dict.fromkeys(names):
+                self._source_store.upsert(stored[name].model_copy(update={"area_id": area_id}))
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        logger.info("%d sources assigned to area %s", len(set(names)), area_id)
+        return web.json_response({"ok": True, "assigned": len(set(names))})
 
     async def _handle_put_area_order(self, request: web.Request) -> web.Response:
         """Set the order of the active areas: the page's list, top to bottom."""

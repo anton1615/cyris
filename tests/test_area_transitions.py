@@ -5,7 +5,9 @@ from aiohttp.test_utils import TestClient, TestServer
 from fakes import SqliteD1
 
 from cyris.adapters.store.areas import D1AreaStore
+from cyris.adapters.store.source_store import D1SourceStore
 from cyris.domain.areas import AreaCatalog
+from cyris.domain.models import SourceConfig
 from cyris.entrypoints.triage_server import TriageServer
 
 pytestmark = pytest.mark.integration
@@ -19,7 +21,8 @@ def _row(db: SqliteD1, area_id: int, name: str, status: str, position: int = 0) 
 
 
 async def _client(db: SqliteD1) -> TestClient:
-    client = TestClient(TestServer(TriageServer(area_store=D1AreaStore(db))._app))
+    server = TriageServer(area_store=D1AreaStore(db), source_store=D1SourceStore(db))
+    client = TestClient(TestServer(server._app))
     await client.start_server()
     return client
 
@@ -154,3 +157,51 @@ async def test_a_rename_of_the_target_is_seen_through_the_merged_name(
     place = AreaCatalog(D1AreaStore(db).list_areas()).place("Chips")
 
     assert (place.kind, place.area.name) == ("active", "Technology")
+
+
+async def test_assigning_sources_sets_only_their_area(db: SqliteD1) -> None:
+    _row(db, 1, "Tech", "active", position=0)
+    sources = D1SourceStore(db)
+    sources.upsert(SourceConfig(name="a", url="https://a.example/f", tags=["x"], tier="fan"))
+    sources.upsert(SourceConfig(name="b", url="https://b.example/f"))
+    client = await _client(db)
+    try:
+        response = await client.post("/api/areas/1/sources", json={"sources": ["a", "b"]})
+        body = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    assert body == {"ok": True, "assigned": 2}
+    stored = sources.list_sources()
+    assert (stored["a"].area_id, stored["b"].area_id) == (1, 1)
+    assert stored["a"].tags == ["x"]
+    assert stored["a"].tier == "fan"
+
+
+async def test_an_unknown_source_name_is_refused_and_writes_nothing(db: SqliteD1) -> None:
+    _row(db, 1, "Tech", "active", position=0)
+    sources = D1SourceStore(db)
+    sources.upsert(SourceConfig(name="a", url="https://a.example/f", area_id=None))
+    client = await _client(db)
+    try:
+        response = await client.post("/api/areas/1/sources", json={"sources": ["a", "ghost"]})
+        body = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 400
+    assert (body["field"], body["names"]) == ("sources", ["ghost"])
+    assert sources.list_sources()["a"].area_id is None
+
+
+async def test_assigning_to_a_proposal_is_a_409(db: SqliteD1) -> None:
+    _row(db, 4, "Maybe", "proposed")
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    client = await _client(db)
+    try:
+        response = await client.post("/api/areas/4/sources", json={"sources": ["a"]})
+    finally:
+        await client.close()
+
+    assert response.status == 409
