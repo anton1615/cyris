@@ -98,3 +98,59 @@ async def test_dismissing_an_unknown_id_is_a_404(client: TestClient) -> None:
     response = await client.post("/api/areas/99/dismiss")
 
     assert response.status == 404
+
+
+async def test_a_merged_name_keeps_resolving_to_the_active_area(
+    client: TestClient, db: SqliteD1
+) -> None:
+    _row(db, 1, "Tech", "active", position=0)
+    _row(db, 2, "Chips", "proposed")
+
+    response = await client.post("/api/areas/2/merge", json={"into": 1})
+
+    assert response.status == 200
+    chips = D1AreaStore(db).get(2)
+    assert (chips.status, chips.merged_into) == ("merged", 1)
+    assert AreaCatalog(D1AreaStore(db).list_areas()).place("Chips").area.name == "Tech"
+
+    D1AreaStore(db).record_proposals({"Chips": 3}, "r2")
+    assert D1AreaStore(db).get(2).proposal_articles == 0
+    assert len(D1AreaStore(db).list_areas()) == 2
+
+
+async def test_merging_into_a_proposal_or_into_itself_is_refused(
+    client: TestClient, db: SqliteD1
+) -> None:
+    _row(db, 1, "Tech", "active", position=0)
+    _row(db, 2, "Chips", "proposed")
+    _row(db, 5, "Maybe", "proposed")
+
+    into_proposal = await client.post("/api/areas/2/merge", json={"into": 5})
+    into_itself = await client.post("/api/areas/2/merge", json={"into": 2})
+
+    assert (into_proposal.status, into_itself.status) == (400, 400)
+    assert (await into_proposal.json())["field"] == "into"
+    assert (await into_itself.json())["field"] == "into"
+
+
+async def test_merging_an_active_area_is_a_409(client: TestClient, db: SqliteD1) -> None:
+    _row(db, 1, "Tech", "active", position=0)
+    _row(db, 3, "Food", "active", position=1)
+
+    response = await client.post("/api/areas/1/merge", json={"into": 3})
+
+    assert response.status == 409
+    assert D1AreaStore(db).get(1).status == "active"
+
+
+async def test_a_rename_of_the_target_is_seen_through_the_merged_name(
+    client: TestClient, db: SqliteD1
+) -> None:
+    _row(db, 1, "Tech", "active", position=0)
+    _row(db, 2, "Chips", "proposed")
+    await client.post("/api/areas/2/merge", json={"into": 1})
+    await client.put("/api/areas/1", json={"name": "Technology"})
+
+    place = AreaCatalog(D1AreaStore(db).list_areas()).place("Chips")
+
+    assert (place.kind, place.area.name) == ("active", "Technology")

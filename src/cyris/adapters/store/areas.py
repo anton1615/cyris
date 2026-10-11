@@ -121,3 +121,11 @@ class D1AreaStore:
             "UPDATE areas SET status = 'dismissed' WHERE id = ? AND status = 'proposed'",
             [area_id],
         ).changes
+
+    def merge(self, area_id: int, into: int) -> int:
+        """Fold a proposal into an active area; its name still resolves to that area."""
+        return self._db.query(
+            "UPDATE areas SET status = 'merged', merged_into = ? "
+            "WHERE id = ? AND status = 'proposed'",
+            [into, area_id],
+        ).changes
