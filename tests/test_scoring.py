@@ -183,7 +183,9 @@ class TestScoreArticlesBatch:
             )
         )
 
-        result, tags, usage = await score_articles_batch(sample_articles, llm, snippet_length=1000)
+        result, tags, usage, _ = await score_articles_batch(
+            sample_articles, llm, snippet_length=1000, area_names=[]
+        )
 
         assert result["http://a.com"] == (85.0, "en")
         assert result["http://b.com"] == (72.0, "zh")
@@ -194,7 +196,9 @@ class TestScoreArticlesBatch:
     async def test_empty_articles(self):
         from cyris.service_layer.scoring import score_articles_batch
 
-        result, tags, usage = await score_articles_batch([], FakeLLM(), snippet_length=1000)
+        result, tags, usage, _ = await score_articles_batch(
+            [], FakeLLM(), snippet_length=1000, area_names=[]
+        )
         assert result == {}
         assert tags == {}
         assert usage.api_calls == 0
@@ -213,7 +217,9 @@ class TestScoreArticlesBatch:
             )
         )
 
-        result, _, _ = await score_articles_batch(sample_articles, llm, snippet_length=1000)
+        result, _, _, _ = await score_articles_batch(
+            sample_articles, llm, snippet_length=1000, area_names=[]
+        )
 
         # Article 2 has Chinese content, should fallback to "zh"
         assert result["http://b.com"][1] == "zh"
@@ -237,7 +243,9 @@ class TestScoreArticlesBatch:
             )
         )
 
-        scores, tags, _ = await score_articles_batch(sample_articles, llm, snippet_length=1000)
+        scores, tags, _, _ = await score_articles_batch(
+            sample_articles, llm, snippet_length=1000, area_names=[]
+        )
 
         assert scores["http://a.com"] == (80.0, "en")
         assert tags == {"http://a.com": ["rust"]}  # normalized at the source
@@ -256,7 +264,9 @@ class TestScoreArticlesBatch:
             )
         )
 
-        scores, tags, _ = await score_articles_batch(sample_articles, llm, snippet_length=1000)
+        scores, tags, _, _ = await score_articles_batch(
+            sample_articles, llm, snippet_length=1000, area_names=[]
+        )
 
         assert scores["http://a.com"] == (80.0, "en")  # nothing thrown away
         assert tags["http://a.com"] == ["ai"]  # 42 dropped, no TypeError
@@ -267,7 +277,9 @@ class TestScoreArticlesBatch:
 
         llm = FakeLLM(json.dumps({"scores": [{"id": 1, "score": 80, "language": "en"}]}))
 
-        scores, tags, _ = await score_articles_batch(sample_articles, llm, snippet_length=1000)
+        scores, tags, _, _ = await score_articles_batch(
+            sample_articles, llm, snippet_length=1000, area_names=[]
+        )
 
         assert scores["http://a.com"] == (80.0, "en")
         assert tags == {}
@@ -277,7 +289,7 @@ class TestScoreArticlesBatch:
 
         llm = FakeLLM(json.dumps({"scores": [{"id": 1, "score": 75, "language": "en"}]}))
 
-        await score_articles_batch([sample_articles[0]], llm, snippet_length=500)
+        await score_articles_batch([sample_articles[0]], llm, snippet_length=500, area_names=[])
 
         # Verify user prompt was built with custom snippet length
         assert "Score the following articles" in llm.calls[0]["prompt"]
@@ -490,12 +502,13 @@ class TestBatchGuard:
 
         scored: dict[str, tuple[float, str]] = {}
         tagged: dict[str, list[str]] = {}
-        usage = await score_in_batches(
+        usage, _ = await score_in_batches(
             articles,
             llm,
             snippet_length=1000,
             persist=scored.update,
             persist_tags=tagged.update,
+            area_names=[],
         )
 
         first = {f"http://e.com/{n}" for n in range(BATCH_SIZE)}
@@ -621,3 +634,81 @@ class TestScoringAreaPrompt:
             build_filter_system_prompt("en", style_prompt="Plain.").encode()
         ).hexdigest()
         assert digest == "f53b59cc5b15d185d53f5d7d5d8f36e340392ca23af3ec061c4dad801f24b0f8"
+
+
+# --- Area pick parsing (ScoringAreaParse) ---
+
+
+class TestScoringAreaParse:
+    @pytest.fixture
+    def two_articles(self) -> list[StoredArticle]:
+        now = datetime.now(UTC)
+        return [
+            StoredArticle(
+                url=f"http://{name}.com",
+                original_id=i,
+                title=f"Title {name}",
+                content="Body text",
+                published_at=now,
+                source_name="Src",
+                source_tier=Tier.SUMMARIZE,
+                first_seen_at=now,
+            )
+            for i, name in ((1, "a"), (2, "b"))
+        ]
+
+    async def _run(self, articles, entries, names):
+        from cyris.service_layer.scoring import score_articles_batch
+
+        llm = FakeLLM(json.dumps({"scores": entries}))
+        return await score_articles_batch(articles, llm, snippet_length=1000, area_names=names)
+
+    async def test_a_matched_pick_comes_back_in_the_supplied_spelling(self, two_articles):
+        from cyris.service_layer.scoring import AreaPick
+
+        result, _, _, picks = await self._run(
+            two_articles[:1], [{"id": 1, "score": 7, "area": "tech"}], ["Tech"]
+        )
+
+        assert picks["http://a.com"] == AreaPick("Tech", None)
+        assert result["http://a.com"][0] == 7.0
+
+    async def test_an_out_of_set_pick_keeps_the_suggestion_and_the_score(self, two_articles):
+        from cyris.service_layer.scoring import AreaPick
+
+        result, _, _, picks = await self._run(
+            two_articles[:1],
+            [{"id": 1, "score": 5, "area": "Astrology", "suggest_area": "Space"}],
+            ["Tech"],
+        )
+
+        assert picks["http://a.com"] == AreaPick(None, "Space")
+        assert result["http://a.com"][0] == 5.0
+
+    async def test_a_non_string_pick_costs_only_its_entry(self, two_articles):
+        from cyris.service_layer.scoring import AreaPick
+
+        result, _, _, picks = await self._run(
+            two_articles,
+            [
+                {"id": 1, "score": 9, "area": 42},
+                {"id": 2, "score": 6, "area": "Tech"},
+            ],
+            ["Tech"],
+        )
+
+        assert picks["http://a.com"] == AreaPick(None, None)
+        assert result["http://a.com"][0] == 9.0
+        assert picks["http://b.com"] == AreaPick("Tech", None)
+        assert result["http://b.com"][0] == 6.0
+
+    async def test_with_no_areas_every_pick_is_empty(self, two_articles):
+        from cyris.service_layer.scoring import AreaPick
+
+        _, _, _, picks = await self._run(
+            two_articles,
+            [{"id": 1, "score": 1, "area": "Tech"}, {"id": 2, "score": 2, "area": "Food"}],
+            [],
+        )
+
+        assert set(picks.values()) == {AreaPick(None, None)}

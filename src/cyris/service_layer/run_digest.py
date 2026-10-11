@@ -369,13 +369,14 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     if scorable and deps.llm is not None:
         progress(f"Scoring {len(scorable)} articles...")
         try:
-            usage = await score_in_batches(
+            usage, _picks = await score_in_batches(
                 scorable,
                 deps.llm,
                 snippet_length=cfg.app.digest.scoring_snippet_length,
                 progress=progress,
                 persist=None if options.dry_run else store.update_scores,
                 persist_tags=persist_tags,
+                area_names=[],
             )
             total_usage.merge(usage)
         except Exception:

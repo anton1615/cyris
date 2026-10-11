@@ -1086,13 +1086,14 @@ def articles_score(
                 except Exception as e:
                     logger.warning("Failed to persist scoring tags: %s", e)
 
-        total_usage = await score_in_batches(
+        total_usage, _picks = await score_in_batches(
             scorable,
             llm,
             snippet_length=cfg.app.digest.scoring_snippet_length,
             progress=typer.echo,
             persist=persist,
             persist_tags=persist_tags,
+            area_names=[],
         )
 
         cost = total_usage.estimated_cost

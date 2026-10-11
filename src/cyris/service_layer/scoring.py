@@ -1,7 +1,8 @@
 """Article scoring via Claude API."""
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from typing import NamedTuple
 
 from cyris.domain.language import detect_language
 from cyris.domain.models import StoredArticle, Tier, UsageStats
@@ -12,6 +13,25 @@ from cyris.service_layer.prompts import build_scoring_prompt, build_scoring_syst
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 20
+
+
+class AreaPick(NamedTuple):
+    """One article's area: the active name it matched, and a new name it suggests instead."""
+
+    area: str | None
+    suggest: str | None
+
+
+def _parse_pick(entry: dict, area_names: Sequence[str]) -> AreaPick:
+    """A bad or out-of-set pick costs only this entry its area, never the batch."""
+    raw_area = entry.get("area")
+    area = None
+    if isinstance(raw_area, str):
+        wanted = raw_area.strip().casefold()
+        area = next((name for name in area_names if name.casefold() == wanted), None)
+    raw_suggest = entry.get("suggest_area")
+    suggest = raw_suggest.strip() if isinstance(raw_suggest, str) else ""
+    return AreaPick(area, suggest or None)
 
 
 def select_scorable(
@@ -41,33 +61,36 @@ async def score_articles_batch(
     llm: LLMClient,
     *,
     snippet_length: int,
-) -> tuple[dict[str, tuple[float, str]], dict[str, list[str]], UsageStats]:
+    area_names: Sequence[str],
+) -> tuple[dict[str, tuple[float, str]], dict[str, list[str]], UsageStats, dict[str, AreaPick]]:
     """Score a batch of articles via the LLM.
 
     Args:
         articles: Articles to score (max ~20 for optimal batch size).
         llm: LLM client.
         snippet_length: Maximum length of content snippet to include in prompt.
+        area_names: The active areas the model may pick from.
 
     Returns:
-        Tuple of score mapping, tag mapping, and usage stats.
+        Tuple of score mapping, tag mapping, usage stats, and area picks.
         Score mapping is {url: (score, language)}.
     """
     usage = UsageStats(model=llm.model)
 
     if not articles:
-        return {}, {}, usage
+        return {}, {}, usage, {}
 
     id_to_url = {a.original_id: a.url for a in articles}
     id_to_fallback_lang = {a.original_id: detect_language(a.title, a.content) for a in articles}
 
-    system_prompt = build_scoring_system_prompt([])
+    system_prompt = build_scoring_system_prompt(area_names)
     user_prompt = build_scoring_prompt(articles, snippet_length=snippet_length)
 
     data = await complete_json(llm, user_prompt, system=system_prompt, usage=usage)
 
     result: dict[str, tuple[float, str]] = {}
     url_to_tags: dict[str, list[str]] = {}
+    picks: dict[str, AreaPick] = {}
     for entry in data.get("scores", []):
         article_id = entry["id"]
         score = float(entry["score"])
@@ -83,9 +106,10 @@ async def score_articles_batch(
             tags = normalize_tags(raw_tags) if isinstance(raw_tags, list) else []
             if tags:
                 url_to_tags[url] = tags
+            picks[url] = _parse_pick(entry, area_names)
 
     logger.info("Scored %d / %d articles", len(result), len(articles))
-    return result, url_to_tags, usage
+    return result, url_to_tags, usage, picks
 
 
 async def score_in_batches(
@@ -96,7 +120,8 @@ async def score_in_batches(
     progress: Callable[[str], None] = lambda _msg: None,
     persist: Callable[[dict[str, tuple[float, str]]], None] | None = None,
     persist_tags: Callable[[dict[str, list[str]]], None] | None = None,
-) -> UsageStats:
+    area_names: Sequence[str],
+) -> tuple[UsageStats, dict[str, AreaPick]]:
     """Score articles in BATCH_SIZE chunks, persisting each batch as it completes.
 
     Args:
@@ -107,29 +132,33 @@ async def score_in_batches(
         persist: Called with each batch's url→(score, language) mapping.
         persist_tags: Called once, after the last batch, with the accumulated
             URL-to-tags mapping — one write instead of one per batch.
+        area_names: The active areas the model may pick from.
 
     Returns:
-        Accumulated usage stats across all batches.
+        Accumulated usage stats across all batches, and every article's area pick.
     """
     total_usage = UsageStats(model=llm.model)
     total_batches = (len(articles) + BATCH_SIZE - 1) // BATCH_SIZE
     collected_tags: dict[str, list[str]] = {}
+    collected_picks: dict[str, AreaPick] = {}
 
     for i in range(0, len(articles), BATCH_SIZE):
         batch = articles[i : i + BATCH_SIZE]
         progress(f"  Batch {i // BATCH_SIZE + 1}/{total_batches}: {len(batch)} articles...")
 
         try:
-            url_to_score_lang, url_to_tags, usage = await score_articles_batch(
+            url_to_score_lang, url_to_tags, usage, picks = await score_articles_batch(
                 batch,
                 llm,
                 snippet_length=snippet_length,
+                area_names=area_names,
             )
             total_usage.merge(usage)
 
             if persist is not None:
                 persist(url_to_score_lang)
             collected_tags.update(url_to_tags)
+            collected_picks.update(picks)
         except Exception:
             # One bad batch loses its own scores, not the whole run's.
             logger.exception(
@@ -143,4 +172,4 @@ async def score_in_batches(
         except Exception:
             logger.exception("Persisting tags failed; the scores are already written")
 
-    return total_usage
+    return total_usage, collected_picks
