@@ -886,7 +886,6 @@ function renderAreas() {
       ? `merged into ${esc(areaNameOf(area.merged_into))}` : "dismissed"}</li>`).join("")
     : "<li>No closed areas.</li>";
   $("threshold-hint").hidden = birthThreshold !== null;
-  areasNav().classList.remove("dirty");
   if (openArea !== null) openAreaEditor(openArea);
 }
 
@@ -1049,6 +1048,7 @@ const loadAreas = () =>
       birthThreshold = d.birth_threshold;
       if (!d.writable) show("err", NO_AREA_TABLE, "areas-notice");
       renderAreas();
+      renderThreshold();
     })
     .catch((e) => {
       areas = [];
@@ -1056,7 +1056,56 @@ const loadAreas = () =>
       show("err", e === SESSION_EXPIRED ? e.message
         : `Could not load areas: ${e.message || e}. Reload the page to try again.`, "areas-notice");
       renderAreas();
+      renderThreshold();
     });
+
+// The two inputs show what is stored, unless an edit is waiting to be saved.
+const thresholdValues = () => [$("th-articles").value, $("th-issues").value].join();
+const storedThreshold = () => birthThreshold
+  ? [birthThreshold.articles, birthThreshold.issues].join() : ",";
+
+function thresholdEdited() {
+  const dirty = thresholdValues() !== storedThreshold();
+  $("save-threshold").disabled = !dirty || !areasWritable;
+  areasNav().classList.toggle("dirty", dirty && areasWritable);
+}
+
+function renderThreshold() {
+  if (thresholdValues() === storedThreshold()) {
+    $("th-articles").value = birthThreshold?.articles ?? "";
+    $("th-issues").value = birthThreshold?.issues ?? "";
+  }
+  $("th-articles").disabled = !areasWritable;
+  $("th-issues").disabled = !areasWritable;
+  thresholdEdited();
+}
+
+// Only a number that reaches the server is stored; the server refuses the rest by field.
+async function saveThreshold() {
+  const button = $("save-threshold");
+  unrefuse($("threshold-block"));
+  button.disabled = true;
+  show("busy", "Saving…", "areas-notice");
+  try {
+    const data = await post("/api/areas/birth-threshold", {
+      articles: Number($("th-articles").value),
+      issues: Number($("th-issues").value),
+    }, "PUT");
+    birthThreshold = {articles: data.articles, issues: data.issues};
+    show("ok", "Birth threshold saved. It only marks proposals on this page.", "areas-notice");
+    renderAreas();
+    renderThreshold();
+  } catch (err) {
+    if (err.field) refuse([$(`th-${err.field}`)], err.message);
+    else show("err", err.message, "areas-notice");
+    thresholdEdited();
+  }
+}
+
+["th-articles", "th-issues"].forEach((id) => {
+  $(id).addEventListener("input", (e) => { unrefuseEdited(e.target); thresholdEdited(); });
+});
+$("save-threshold").addEventListener("click", saveThreshold);
 
 loadAreas();
 

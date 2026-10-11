@@ -140,6 +140,9 @@ class FakeAreaStore:
     def birth_threshold(self) -> tuple[int, int] | None:
         return self.threshold
 
+    def set_birth_threshold(self, articles: int, issues: int) -> None:
+        self.threshold = (articles, issues)
+
     def get(self, area_id: int) -> Area | None:
         return self.areas.get(area_id)
 
@@ -317,7 +320,7 @@ class Fixture:
     sources: dict[str, SourceConfig]
     values: dict
     topics: dict[str, TrackedTopic] = field(default_factory=dict)
-    areas: dict[int, Area] = field(default_factory=dict)
+    areas: FakeAreaStore | None = None
 
 
 def build_fixture(kind: str) -> Fixture:
@@ -326,7 +329,8 @@ def build_fixture(kind: str) -> Fixture:
     `writable-largest` is `writable` with the page served at the largest type size;
     `writable-health` is `writable` with one feed failing; `writable-topics` is
     `writable` with two tracked topics, one set for another embedding model;
-    `writable-areas` is `writable` with an area table (`writable-areas-empty`, none in it).
+    `writable-areas` is `writable` with an area table and a threshold of 10 and 3 set;
+    `writable-areas-unset` has no threshold, and `writable-areas-empty` no areas.
     Every other writable fixture tracks no topic, so `rowNames` reads sources alone.
     """
     common = {"values": PROBE_VALUES, "sources": _seed_sources()}
@@ -340,19 +344,17 @@ def build_fixture(kind: str) -> Fixture:
         "writable-topics",
         "writable-areas",
         "writable-areas-empty",
+        "writable-areas-unset",
     ):
         settings = FakeSettings()
         store = FakeSourceStore(_seed_sources())
         topics = FakeTopicStore(_seed_topics() if kind == "writable-topics" else {})
         # The area table is absent from every other writable fixture, so its page is read-only.
-        areas = (
-            FakeAreaStore(
-                _seed_areas() if kind == "writable-areas" else {},
-                (10, 3) if kind == "writable-areas" else None,
-            )
-            if kind.startswith("writable-areas")
-            else None
-        )
+        areas = None
+        if kind.startswith("writable-areas"):
+            seeded = kind != "writable-areas-empty"
+            threshold = (10, 3) if kind == "writable-areas" else None
+            areas = FakeAreaStore(_seed_areas() if seeded else {}, threshold)
         # Health only where a check asks for it: its line sits in the name cell
         # that `rowNames` reads.
         health = FakeFeedHealth() if kind == "writable-health" else None
@@ -372,7 +374,7 @@ def build_fixture(kind: str) -> Fixture:
             store.sources,
             server._values,
             topics.topics,
-            areas.areas if areas else {},
+            areas,
         )
     raise ValueError(f"unknown fixture {kind!r}")
 
@@ -482,11 +484,22 @@ def _area_is(area_id: int, **wanted) -> Callable[[Fixture], str | None]:
     """A receipt: the area table holds area `area_id` with exactly these field values."""
 
     def receipt(fixture: Fixture) -> str | None:
-        area = fixture.areas.get(area_id)
+        area = fixture.areas.areas.get(area_id)
         if area is None:
             return f"area {area_id} is not stored"
         wrong = {k: getattr(area, k) for k, v in wanted.items() if getattr(area, k) != v}
         return f"area {area_id} stored {wrong}" if wrong else None
+
+    return receipt
+
+
+def _threshold_is(*wanted: int | None) -> Callable[[Fixture], str | None]:
+    """A receipt: the birth threshold is exactly `wanted` (articles, issues), or unset for None."""
+    expected = None if wanted == (None,) else wanted
+
+    def receipt(fixture: Fixture) -> str | None:
+        stored = fixture.areas.threshold
+        return None if stored == expected else f"birth threshold is {stored}"
 
     return receipt
 
@@ -3504,6 +3517,82 @@ CHECKS += [
         act="await areasListed();",
         script="""expectTapTargets("#area-body .btn, #area-body tr.src-row");""",
         sabotage=restyle("#area-body .btn { height: 30px !important; }"),
+    ),
+]
+
+# The birth threshold: two numbers that only mark proposals on this page.
+CHECKS += [
+    Check(
+        id="areas-threshold-saves",
+        fixture="writable-areas-unset",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            window.__marker = 1;
+            ctx.hint = !$("#threshold-hint").hidden;
+            setValue($("#th-articles"), "10");
+            setValue($("#th-issues"), "3");
+            $("#save-threshold").click();
+            await waitFor(() => $(".pill", $("#proposed-body")), "the threshold mark");
+        """,
+        script="""
+            expect(ctx.hint, "no hint while the threshold is unset");
+            expect(window.__marker === 1, "the page reloaded");
+            expect($("#threshold-hint").hidden, "the hint stays after a save");
+            const notice = $("#areas-notice");
+            const saved = "Birth threshold saved. It only marks proposals on this page.";
+            expect(notice.textContent === saved, `notice: ${notice.textContent}`);
+            expect(!!$(".pill", $("#proposed-body")), "the proposal gained no pill");
+        """,
+        sabotage="""$(".pill", $("#proposed-body")).remove();""",
+        receipt=_threshold_is(10, 3),
+    ),
+    Check(
+        id="areas-threshold-refused",
+        fixture="writable-areas-unset",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            setValue($("#th-articles"), "0");
+            setValue($("#th-issues"), "3");
+            $("#save-threshold").click();
+            await waitFor(() => $("#th-articles").classList.contains("invalid"), "the refusal");
+        """,
+        script="""
+            const field = $("#th-articles");
+            expect(field.getAttribute("aria-invalid") === "true", "Articles is not marked");
+            const note = $("[data-field-error]", $("#threshold-block"));
+            expect(note && note.textContent === "articles must be a whole number of at least 1.",
+                   `note: ${note && note.textContent}`);
+        """,
+        sabotage="""$("#th-articles").removeAttribute("aria-invalid");""",
+        receipt=_threshold_is(None),
+    ),
+    Check(
+        id="areas-threshold-dirty",
+        fixture="writable-areas-unset",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            setValue($("#th-articles"), "4");
+        """,
+        script="""
+            expect(navOf("areas").classList.contains("dirty"), "Areas shows no accent dot");
+            expect(!$("#save-threshold").disabled, "Save is disabled while dirty");
+        """,
+        sabotage="""navOf("areas").classList.remove("dirty");""",
+    ),
+    Check(
+        id="areas-threshold-json",
+        fixture="readonly",
+        path="/settings#areas",
+        act="await areasListed();",
+        script="""
+            const controls = ["#th-articles", "#th-issues", "#save-threshold"];
+            const enabled = controls.filter((id) => !$(id).disabled);
+            expect(!enabled.length, `enabled: ${enabled}`);
+        """,
+        sabotage="""$("#th-articles").disabled = false;""",
     ),
 ]
 

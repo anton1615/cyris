@@ -609,6 +609,10 @@ EXPECTED_IDS = {
     "areas-dismiss-confirms",
     "areas-move-order",
     "areas-tap-375",
+    "areas-threshold-saves",
+    "areas-threshold-refused",
+    "areas-threshold-dirty",
+    "areas-threshold-json",
     "tracking-rows",
     "tracking-empty-is-no-missing-mark",
     "tracking-add",
@@ -735,6 +739,7 @@ def test_every_probe_check_is_named_once_and_can_be_sabotaged():
         "writable-topics",
         "writable-areas",
         "writable-areas-empty",
+        "writable-areas-unset",
     }
     assert set(ids) >= EXPECTED_IDS
 

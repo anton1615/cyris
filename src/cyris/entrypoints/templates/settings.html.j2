@@ -324,7 +324,17 @@
               <tbody id="proposed-body"></tbody>
             </table>
           </div>
-          <p class="small" id="threshold-hint" hidden>Birth threshold not set</p>
+          <div id="threshold-block">
+            <h3 class="label">Birth threshold</h3>
+            <div class="field-row">
+              <div class="field"><label class="label" for="th-articles">Articles</label><input class="input narrow" id="th-articles" type="number" min="1" step="1" autocomplete="off" disabled></div>
+              <div class="field"><label class="label" for="th-issues">Issues</label><input class="input narrow" id="th-issues" type="number" min="1" step="1" autocomplete="off" disabled></div>
+            </div>
+            <div class="actions-line">
+              <button class="btn primary" type="button" id="save-threshold" disabled>Save</button>
+              <p class="small" id="threshold-hint" hidden>Birth threshold not set</p>
+            </div>
+          </div>
           <details class="more"><summary>Closed</summary>
             <ul class="small" id="closed-list"></ul>
           </details>
