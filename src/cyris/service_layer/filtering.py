@@ -31,8 +31,9 @@ async def filter_articles(
 ) -> list[DigestItem]:
     """Send filter-tier articles to Claude for headline extraction, BATCH_SIZE at a time.
 
-    Each batch is one call and is judged on its own. No pass rate is enforced:
-    `FILTER_SYSTEM` asks for merit, not a percentage target.
+    Each batch is judged on its own, one call each. No pass rate is enforced:
+    `FILTER_SYSTEM` asks for merit, not a percentage target. A batch whose call fails
+    falls back to excerpt headlines while the other batches are still judged.
 
     Args:
         articles: Filter-tier articles to process.
@@ -58,6 +59,8 @@ async def filter_articles(
     system_prompt = build_filter_system_prompt(output_language, style_prompt=style_prompt)
 
     items: list[DigestItem] = []
+    kept = 0
+    judged = 0
     for start in range(0, len(articles), BATCH_SIZE):
         batch = articles[start : start + BATCH_SIZE]
         user_prompt = build_filter_prompt(batch, snippet_length=filter_snippet_length)
@@ -73,7 +76,13 @@ async def filter_articles(
                 usage.fell_back_to_excerpts = True
             items.extend(headlines_from_articles(batch, article_scores))
             continue
-        items.extend(_selected_items(data, batch, article_scores))
+        selected = _selected_items(data, batch, article_scores)
+        items.extend(selected)
+        kept += len(selected)
+        judged += len(batch)
+
+    if judged:
+        logger.info("Filter passed %d / %d articles (%.1f%%)", kept, judged, kept / judged * 100)
     return items
 
 
