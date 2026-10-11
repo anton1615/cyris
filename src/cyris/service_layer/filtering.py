@@ -58,19 +58,22 @@ async def filter_articles(
     system_prompt = build_filter_system_prompt(output_language, style_prompt=style_prompt)
 
     items: list[DigestItem] = []
-    try:
-        for start in range(0, len(articles), BATCH_SIZE):
-            batch = articles[start : start + BATCH_SIZE]
-            user_prompt = build_filter_prompt(batch, snippet_length=filter_snippet_length)
+    for start in range(0, len(articles), BATCH_SIZE):
+        batch = articles[start : start + BATCH_SIZE]
+        user_prompt = build_filter_prompt(batch, snippet_length=filter_snippet_length)
+        try:
             data = await complete_json(
                 llm, user_prompt, system=system_prompt, temperature=1.0, usage=usage
             )
-            items.extend(_selected_items(data, batch, article_scores))
-    except Exception:
-        logger.warning("Filter LLM call failed; falling back to excerpt headlines", exc_info=True)
-        if usage is not None:
-            usage.fell_back_to_excerpts = True
-        return headlines_from_articles(articles, article_scores)
+        except Exception:
+            logger.warning(
+                "Filter LLM call failed; falling back to excerpt headlines", exc_info=True
+            )
+            if usage is not None:
+                usage.fell_back_to_excerpts = True
+            items.extend(headlines_from_articles(batch, article_scores))
+            continue
+        items.extend(_selected_items(data, batch, article_scores))
     return items
 
 

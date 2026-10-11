@@ -485,6 +485,94 @@ class TestFilterBatchIdResolution:
         assert items[0].score == 0.7
 
 
+class TestFilterBatchFallback:
+    async def test_failed_middle_batch_falls_back_and_others_are_judged(self):
+        articles = _articles(BATCH_SIZE + 3)
+        llm = _FailingOnCalls([_selecting(0, title="first")], fail_on={1})
+        usage = UsageStats(model="m")
+
+        items = await _run(articles, llm, usage)
+
+        assert [(i.urls, i.passed_through) for i in items] == [
+            ([articles[0].url], False),
+            *[([articles[BATCH_SIZE + k].url], True) for k in range(3)],
+        ]
+        assert usage.fell_back_to_excerpts is True
+        assert len(llm.calls) == 2
+
+    async def test_failed_second_of_three_keeps_first_and_third(self):
+        articles = _articles(2 * BATCH_SIZE + 1)
+        llm = _FailingOnCalls(
+            [_selecting(0, title="first"), _selecting(0, title="third")], fail_on={1}
+        )
+
+        items = await _run(articles, llm)
+
+        assert items[0].urls == [articles[0].url]
+        assert items[0].passed_through is False
+        assert [i.urls for i in items[1 : 1 + BATCH_SIZE]] == [
+            [a.url] for a in articles[BATCH_SIZE : 2 * BATCH_SIZE]
+        ]
+        assert all(i.passed_through for i in items[1 : 1 + BATCH_SIZE])
+        assert items[-1].urls == [articles[2 * BATCH_SIZE].url]
+        assert items[-1].passed_through is False
+        assert len(llm.calls) == 3
+
+    async def test_failed_first_batch_keeps_second(self):
+        articles = _articles(2 * BATCH_SIZE)
+        llm = _FailingOnCalls([_selecting(0)], fail_on={0})
+
+        items = await _run(articles, llm)
+
+        assert [i.urls for i in items[:BATCH_SIZE]] == [[a.url] for a in articles[:BATCH_SIZE]]
+        assert all(i.passed_through for i in items[:BATCH_SIZE])
+        assert items[BATCH_SIZE].urls == [articles[BATCH_SIZE].url]
+        assert items[BATCH_SIZE].passed_through is False
+
+    async def test_every_call_failing_passes_every_article_through(self, caplog):
+        articles = _articles(2 * BATCH_SIZE + 1)
+        llm = FakeLLM(error=RuntimeError("quota"))
+        usage = UsageStats(model="m")
+
+        with caplog.at_level(logging.WARNING):
+            items = await _run(articles, llm, usage)
+
+        assert len(items) == 2 * BATCH_SIZE + 1
+        assert all(i.passed_through for i in items)
+        assert len(llm.calls) == 3
+        assert [r.levelname for r in caplog.records] == ["WARNING"] * 3
+        assert all(r.exc_info for r in caplog.records)
+
+    async def test_unparseable_reply_falls_back_only_its_batch(self):
+        articles = _articles(2 * BATCH_SIZE)
+        llm = FakeLLM([_selecting(0, title="first"), "not json"])
+
+        items = await _run(articles, llm)
+
+        assert items[0].urls == [articles[0].url]
+        assert items[0].passed_through is False
+        assert [i.urls for i in items[1:]] == [[a.url] for a in articles[BATCH_SIZE:]]
+        assert all(i.passed_through for i in items[1:])
+
+    async def test_no_llm_passes_everything_through_without_calls(self, caplog):
+        usage = UsageStats(model="m")
+        with caplog.at_level(logging.WARNING):
+            items = await _run(_articles(2 * BATCH_SIZE + 1), None, usage)
+
+        assert len(items) == 2 * BATCH_SIZE + 1
+        assert all(i.passed_through for i in items)
+        assert usage.fell_back_to_excerpts is True
+        assert len(caplog.records) == 1
+
+    async def test_no_failed_batch_leaves_usage_unmarked_and_logs_no_warning(self, caplog):
+        usage = UsageStats(model="m")
+        with caplog.at_level(logging.WARNING):
+            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_reply()), usage)
+
+        assert usage.fell_back_to_excerpts is False
+        assert caplog.records == []
+
+
 class TestFilterBatchPartition:
     async def test_pool_goes_out_as_bounded_batches_with_one_prompt_shape(self):
         llm = FakeLLM(_reply())
