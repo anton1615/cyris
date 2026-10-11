@@ -11,6 +11,7 @@ what keeps a config holding a plain language name working.
 """
 
 import json
+from collections.abc import Sequence
 from functools import cache
 from importlib.resources import files
 
@@ -268,9 +269,20 @@ Respond in JSON:
 """
 
 
-def build_scoring_system_prompt() -> str:
-    """Build the scoring system prompt."""
-    return SCORING_SYSTEM
+SCORING_AREA_CLAUSE = """\
+
+Areas: the reader files each article under one of these areas, listed in order: {names}.
+Give "area" as exactly one of these names, or null when none fits.
+Give "suggest_area" only when none fits: a short new area name for the article. Otherwise \
+omit it.
+"""
+
+
+def build_scoring_system_prompt(area_names: Sequence[str]) -> str:
+    """The scoring system prompt, offering the active areas as a closed set when there are any."""
+    if not area_names:
+        return SCORING_SYSTEM
+    return SCORING_SYSTEM + SCORING_AREA_CLAUSE.format(names=json.dumps(list(area_names)))
 
 
 def build_scoring_prompt(articles: list, *, snippet_length: int) -> str:

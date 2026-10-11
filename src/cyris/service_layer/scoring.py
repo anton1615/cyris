@@ -61,7 +61,7 @@ async def score_articles_batch(
     id_to_url = {a.original_id: a.url for a in articles}
     id_to_fallback_lang = {a.original_id: detect_language(a.title, a.content) for a in articles}
 
-    system_prompt = build_scoring_system_prompt()
+    system_prompt = build_scoring_system_prompt([])
     user_prompt = build_scoring_prompt(articles, snippet_length=snippet_length)
 
     data = await complete_json(llm, user_prompt, system=system_prompt, usage=usage)

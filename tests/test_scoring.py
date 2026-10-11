@@ -64,7 +64,7 @@ class TestScoringSystem:
     def test_build_scoring_system_prompt(self):
         from cyris.service_layer.prompts import build_scoring_system_prompt
 
-        prompt = build_scoring_system_prompt()
+        prompt = build_scoring_system_prompt([])
         assert "relevance" in prompt.lower()
         assert len(prompt) > 100
 
@@ -566,3 +566,58 @@ def test_scoring_filter_has_one_implementation() -> None:
         assert "select_scorable" in source, path
         assert "NEWS_TAG in a.source_tags" not in source, path
         assert "Tier.FAN" not in source, path
+
+
+# --- Area prompt (ScoringAreaPrompt) ---
+
+# The scoring system prompt as it stood before the area clause; with no areas it must not change.
+PRE_AREA_SCORING_SYSTEM = """\
+You are an article relevance evaluator. Score each article on a 0-100 scale based on \
+personal relevance to the reader's interests.
+
+Scoring criteria (in priority order):
+1. Topic relevance: Does this article cover topics the reader cares about?
+2. Information novelty: Does it contain new information, insights, or perspectives?
+3. Article quality: Is it well-researched, substantive, and actionable?
+
+Calibration anchors:
+- 90-100: Highly relevant. Directly addresses reader's core interests with novel insights.
+- 70-89: Relevant. Covers topics of interest with useful information or analysis.
+- 50-69: Moderately relevant. Related to reader's interests but limited novelty or depth.
+- 30-49: Low relevance. Tangentially related or generic coverage of peripherally interesting topics.
+- 0-29: Not relevant. Off-topic or extremely generic content with no clear connection to interests.
+
+For each article, also detect the primary language: "zh" for Chinese, "en" for English, \
+or the appropriate ISO 639-1 code for other languages.
+For each article, also assign concise topic tags.
+
+Respond in JSON:
+{"scores": [{"id": <article_id>, "score": <0-100>, "language": "<lang_code>", \
+"tags": ["<topic tag>", ...]}]}
+"""
+
+
+class TestScoringAreaPrompt:
+    def test_no_areas_leaves_the_prompt_exactly_as_it_was(self):
+        from cyris.service_layer.prompts import build_scoring_system_prompt
+
+        assert build_scoring_system_prompt([]) == PRE_AREA_SCORING_SYSTEM
+
+    def test_areas_are_offered_in_order_as_a_closed_set(self):
+        from cyris.service_layer.prompts import build_scoring_system_prompt
+
+        prompt = build_scoring_system_prompt(["Tech", "Food"])
+
+        assert prompt.startswith(PRE_AREA_SCORING_SYSTEM)
+        assert prompt.index("Tech") < prompt.index("Food")
+        assert "area" in prompt and "suggest_area" in prompt
+
+    def test_the_filter_prompt_is_byte_identical(self):
+        import hashlib
+
+        from cyris.service_layer.prompts import build_filter_system_prompt
+
+        digest = hashlib.sha256(
+            build_filter_system_prompt("en", style_prompt="Plain.").encode()
+        ).hexdigest()
+        assert digest == "f53b59cc5b15d185d53f5d7d5d8f36e340392ca23af3ec061c4dad801f24b0f8"
