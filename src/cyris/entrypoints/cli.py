@@ -778,6 +778,7 @@ def triage_ui(
     and /labels, the blind-label page."""
     _setup_logging(verbose)
 
+    from cyris.adapters.store.areas import D1AreaStore
     from cyris.adapters.store.blind_labels import D1BlindLabels
     from cyris.adapters.store.d1_store import D1ArticleStore
     from cyris.adapters.store.feed_health import D1FeedHealth
@@ -807,6 +808,7 @@ def triage_ui(
             topic_store=D1TrackedTopicStore(d1) if d1 else None,
             blind_labels=D1BlindLabels(d1) if d1 else None,
             article_store=D1ArticleStore(d1) if d1 else None,
+            area_store=D1AreaStore(d1) if d1 else None,
         )
         await server.start()
         typer.echo(f"Settings:  http://{host}:{port}/settings")

@@ -17,8 +17,7 @@ from cyris.domain.areas import Area
 logger = logging.getLogger(__name__)
 
 _AREA_COLUMNS = (
-    "id, name, position, status, merged_into, proposal_articles, proposal_issues, "
-    "last_proposed_run"
+    "id, name, position, status, merged_into, proposal_articles, proposal_issues, last_proposed_run"
 )
 
 
@@ -71,3 +70,18 @@ class D1AreaStore:
                         name,
                     ],
                 )
+
+    def birth_threshold(self) -> tuple[int, int] | None:
+        """The (articles, issues) a proposal must reach, or None when it was never set."""
+        rows = self._db.query("SELECT articles, issues FROM area_birth_threshold WHERE id = 1").rows
+        if not rows:
+            return None
+        return rows[0]["articles"], rows[0]["issues"]
+
+    def set_birth_threshold(self, articles: int, issues: int) -> None:
+        """Write the one threshold row, replacing whatever it held."""
+        self._db.query(
+            "INSERT INTO area_birth_threshold (id, articles, issues) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET articles = excluded.articles, issues = excluded.issues",
+            [articles, issues],
+        )

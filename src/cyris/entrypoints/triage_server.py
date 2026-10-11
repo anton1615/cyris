@@ -134,6 +134,7 @@ class TriageServer:
         topic_store=None,
         blind_labels=None,
         article_store=None,
+        area_store=None,
     ) -> None:
         self._host = host
         self._port = port
@@ -161,6 +162,8 @@ class TriageServer:
         # written to as votes; both absent on a `backend = "json"` deployment.
         self._blind_labels = blind_labels
         self._article_store = article_store
+        # D1's areas and birth threshold; absent on a `backend = "json"` deployment.
+        self._area_store = area_store
         self._settings_page = render_settings_page()
         self._labels_page = render_labels_page()
         self._app = web.Application()
@@ -179,6 +182,7 @@ class TriageServer:
         self._app.router.add_get("/api/topics", self._handle_get_topics)
         self._app.router.add_post("/api/topics", self._handle_post_topic)
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
+        self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
         self._app.router.add_get("/api/labels", self._handle_get_labels)
         self._app.router.add_post("/api/labels", self._handle_post_label)
         self._app.router.add_get("/settings", self._handle_settings_page)
@@ -802,6 +806,38 @@ class TriageServer:
                 "excerpt": excerpt(card.content),
             }
         return {"answered": answered, "total": total, "item": item}
+
+    def _no_area_table(self) -> web.Response:
+        return web.json_response(
+            {
+                "ok": False,
+                "error": "No writable area table (store backend is not D1).",
+            },
+            status=409,
+        )
+
+    async def _handle_put_birth_threshold(self, request: web.Request) -> web.Response:
+        """The (articles, issues) a proposal must reach to be marked as meeting the threshold."""
+        if self._area_store is None:
+            return self._no_area_table()
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+
+        values = {}
+        for field in ("articles", "issues"):
+            value = body.get(field) if isinstance(body, dict) else None
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                return _refused(f"{field} must be a whole number of at least 1.", field)
+            values[field] = value
+        try:
+            self._area_store.set_birth_threshold(values["articles"], values["issues"])
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        logger.info("Area birth threshold set to %s", values)
+        return web.json_response({"ok": True, **values})
 
     async def _handle_get_labels(self, request: web.Request) -> web.Response:
         if self._blind_labels is None:
