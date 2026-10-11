@@ -105,3 +105,12 @@ class D1AreaStore:
         """Give each active area its index in `ids` as its position."""
         for position, area_id in enumerate(ids):
             self._db.query("UPDATE areas SET position = ? WHERE id = ?", [position, area_id])
+
+    def activate(self, area_id: int) -> int:
+        """Make a proposal active, last in the order; the rows changed, 0 or 1."""
+        return self._db.query(
+            "UPDATE areas SET status = 'active', position = "
+            "(SELECT coalesce(max(position) + 1, 0) FROM areas WHERE status = 'active') "
+            "WHERE id = ? AND status = 'proposed'",
+            [area_id],
+        ).changes

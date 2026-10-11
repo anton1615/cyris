@@ -198,6 +198,7 @@ class TriageServer:
         self._app.router.add_get("/api/areas", self._handle_get_areas)
         self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
         self._app.router.add_put("/api/areas/order", self._handle_put_area_order)
+        self._app.router.add_post(r"/api/areas/{id:\d+}/activate", self._handle_activate_area)
         self._app.router.add_put(r"/api/areas/{id:\d+}", self._handle_rename_area)
         self._app.router.add_get("/api/labels", self._handle_get_labels)
         self._app.router.add_post("/api/labels", self._handle_post_label)
@@ -850,6 +851,40 @@ class TriageServer:
                     if threshold is None
                     else {"articles": threshold[0], "issues": threshold[1]}
                 ),
+            }
+        )
+
+    def _not_proposed(self, area_id: int) -> web.Response:
+        """409 for a proposal-only action on an area that is not a proposal; 404 if it is gone."""
+        area = self._area_store.get(area_id)
+        if area is None:
+            return web.json_response(
+                {"ok": False, "error": f"No area with id {area_id}: reload the page."}, status=404
+            )
+        return web.json_response(
+            {"ok": False, "error": f"{area.name} is {area.status}, not proposed."}, status=409
+        )
+
+    async def _handle_activate_area(self, request: web.Request) -> web.Response:
+        """Confirm a proposal: it joins the closed set the next run offers the model."""
+        if self._area_store is None:
+            return self._no_area_table()
+        area_id = int(request.match_info["id"])
+        try:
+            if not self._area_store.activate(area_id):
+                return self._not_proposed(area_id)
+            area = self._area_store.get(area_id)
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        logger.info("Area %s activated", area_id)
+        return web.json_response(
+            {
+                "ok": True,
+                "id": area.id,
+                "name": area.name,
+                "position": area.position,
+                "note": "Effective next run.",
             }
         )
 
