@@ -910,6 +910,7 @@ on main after the change lands, citing the hash it landed as.
 | 2026-10-08 | `53539bc` | A deploy with no input reads the digest the release recorded in the commit's `image/<short-sha>` tag; `:release` is no longer read by anything (§6). |
 | 2026-10-08 | `f2c5ff6` | Blind labels: `cyris labels draw` keeps a stratified sample of the filter pool in D1 `blind_labels` (§4), `/labels` behind the app Worker records each answer and writes up/down as a human vote (§6), and `cyris labels report` scores the filter and the embedding preference on them. |
 | 2026-10-11 | `83fec39` | Clef vote order: `ClefClient` joins §2 as a direct injection; with `digest.preference_source = "clef"` (§5, grade D) the issue's kept items are ordered by Clef's read of their five nearest up- and downvotes, and any Clef failure gives the whole issue the cosine order (§3.2). |
+| 2026-10-12 | `fa4b7e4`..`da611fa` | Filter batching: the filter tier sends a window to the model in batches of `BATCH_SIZE` (grade A, §5 Batch sizes row) with per-batch ids and per-batch fallback, so no filter request grows with the window; §5's `workers_ai` default keeps gpt-oss for output cost, and the 24k-context concern now names `cluster_news` alone. |
 
 ## 8. Where the core never changes
 
