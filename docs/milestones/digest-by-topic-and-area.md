@@ -37,15 +37,17 @@ depends: [value-by-clicks-and-rank]
 
 ## 分階段計畫
 
-每個階段一個可觀察的結果。所有會改變讀者看到的頁面、或改變 `source_tier` 與 `rejected` 鍵值的階段，都排在第二輪盲標標完之後（約 2026-10-14，vault `pm/cyris/tasks/blind-labels-round-two.md`），因為抽樣以這兩個鍵分層，期中改會混進干擾。這一輪原本是 Clef 排序的驗收輪；Clef 路線 2026-10-11 暫停（`clef-preference-order.md`），盲標改為 Lb 與 Lm 共用的測試集。每個階段的票在 vault `pm/cyris/tasks/`，父卡 `m-digest-by-topic-and-area.md`。
+每個階段一個可觀察的結果。只有一件事要等第二輪盲標抽完（約 2026-10-14，vault `pm/cyris/tasks/blind-labels-round-two.md`）：Lr 的正式站 D1 遷移，因為抽樣查詢以 `source_tier = 'filter'` 為鍵（`src/cyris/adapters/store/blind_labels.py:82`）；抽完之後標記頁與計分只讀 `blind_labels` 表存好的欄位，不再碰它。其餘階段的開發與試用部署都不等：試用租戶從空資料庫開機就是新 schema。原本「改版面的階段都等驗收輪」是為了 Clef 量投票行為，Clef 路線 2026-10-11 暫停（`clef-preference-order.md`）後這條理由不存在，2026-10-12 據此放寬。盲標第二輪改為 Lb 與 Lm 共用的測試集。
+
+為了讓試用者早一點看到差異，2026-10-12 把實作順序定為 L1 → L3 → L4 → Lr → L2：L3 不等 L2，因為卡片預設就是單篇摘要，今天的 Features 卡直接當上層；L2 的掛接是例外路徑、每週約一張卡，對體驗貢獻最小，排最後。Lr 與 L1 不同時開，兩者都動 `SourceConfig` 與 `sources.config`，平行做整合必衝突。每個階段的票在 vault `pm/cyris/tasks/`，父卡 `m-digest-by-topic-and-area.md`。
 
 | 階段 | 結果 | 前置 | 收據 | 改回成本 |
 |---|---|---|---|---|
 | L0 量測 | 知道最近 30 天每天有幾篇 `summarize`、幾篇 `filter`；知道來源第一個標籤的分布 | 無 | 兩組數字都在下方「依據的資料」，2026-10-11 完成 | 零 |
-| Lr 三層與欄位改名 | `Tier` 改為 `Lane`，值改為 `skim`、`read`、`follow`；`sources.yaml` 的鍵與 `sources.config` 改為 `lane`；D1 欄位 `stored_articles.source_tier` 改名 `source_lane`、既有值改寫。這需要專案第一個 schema 遷移機制（一張版本表，開機時依序套用尚未套用的步驟），`docs/architecture.md` §4 加版本表一列，並改寫「第一次開機建表、之後沒有任何東西演化它」那段（`docs/architecture.md:756-761`）；ADR 記為什麼引入遷移以及它解開的 `ADD COLUMN` | 第二輪盲標標完，因為抽樣以 `source_tier = 'filter'` 為鍵（`src/cyris/adapters/store/blind_labels.py:82`） | 正式站 D1 的 `stored_articles` 沒有 `source_tier` 欄、`source_lane` 沒有舊值；`grep` 全 repo 找不到 `Tier`、`source_tier`；託管試用部署從舊 schema 開機一次後 `cyris doctor` 通過，從空資料庫開機一次後也通過 | 中：改名可反向，但遷移機制一旦有了版本號就只能往前加 |
-| L1 領域 | `areas` 表、來源分類、`/settings` 的確認與排序、prompt 的封閉選擇加提案欄位、誕生門檻；每期的 `digests` JSON 記每篇的領域 | 第二輪盲標標完；N5 | `/settings` 顯示 LLM 分出的領域並可改名排序；一期正式站的 `digests` 列每篇都有領域；§4、§5 各一列 | 低：表可以留著不用 |
-| L2 卡片與掛接 | 卡片維持一篇一張；嵌入取前 8 名、LLM 確認同主題的新聞掛在卡片底下並進入論點對照；`cluster_news` 刪除；ADR 記這個例外 | L1；N4、N5 | 正式站一週內至少一張卡片底下出現確認過的新聞、論點各帶出處，且沒有一張卡片硬湊不同主題的對照（人工抽查）；LLM 呼叫數不高於改動前中位數加每天的錨點數；`cluster_news.py` 不在 repo | 低：關掉確認步驟就回單篇摘要 |
-| L3 版面骨架 | 領域區段乘兩層取代七區段；`ui-language.md` 與 email 模板重寫；可省略的頭條；沒有卡片的期就是剩餘新聞的形式 | L1、L2；N1、N6、N7 | 一期正式站以新骨架發布；一期沒有密度高文章的正式站頁面可讀；`ui-language.md` 不再列七區段 | 中：模板與規範整份換 |
+| Lr 三層與欄位改名 | `Tier` 改為 `Lane`，值改為 `skim`、`read`、`follow`；`sources.yaml` 的鍵與 `sources.config` 改為 `lane`；D1 欄位 `stored_articles.source_tier` 改名 `source_lane`、既有值改寫。這需要專案第一個 schema 遷移機制（一張版本表，開機時依序套用尚未套用的步驟），`docs/architecture.md` §4 加版本表一列，並改寫「第一次開機建表、之後沒有任何東西演化它」那段（`docs/architecture.md:756-761`）；ADR 記為什麼引入遷移以及它解開的 `ADD COLUMN` | 程式隨時可做，排在 L1、L3、L4 之後；正式站 D1 遷移在第二輪盲標抽完之後執行，因為抽樣以 `source_tier = 'filter'` 為鍵（`src/cyris/adapters/store/blind_labels.py:82`）；試用部署不等 | 正式站 D1 的 `stored_articles` 沒有 `source_tier` 欄、`source_lane` 沒有舊值；`grep` 全 repo 找不到 `Tier`、`source_tier`；託管試用部署從舊 schema 開機一次後 `cyris doctor` 通過，從空資料庫開機一次後也通過 | 中：改名可反向，但遷移機制一旦有了版本號就只能往前加 |
+| L1 領域 | `areas` 表、來源分類、`/settings` 的確認與排序、prompt 的封閉選擇加提案欄位、誕生門檻；每期的 `digests` JSON 記每篇的領域 | 無，可以現在做；N5 的初值先用影子跑 | `/settings` 顯示 LLM 分出的領域並可改名排序；一期正式站的 `digests` 列每篇都有領域；§4、§5 各一列 | 低：表可以留著不用 |
+| L2 卡片與掛接 | 卡片維持一篇一張；嵌入取前 8 名、LLM 確認同主題的新聞掛在卡片底下並進入論點對照；`cluster_news` 刪除；ADR 記這個例外 | L1、L3、L4；N4、N5。排最後，對試用者體驗貢獻最小 | 正式站一週內至少一張卡片底下出現確認過的新聞、論點各帶出處，且沒有一張卡片硬湊不同主題的對照（人工抽查）；LLM 呼叫數不高於改動前中位數加每天的錨點數；`cluster_news.py` 不在 repo | 低：關掉確認步驟就回單篇摘要 |
+| L3 版面骨架 | 領域區段乘兩層取代七區段；`ui-language.md` 與 email 模板重寫；可省略的頭條；沒有卡片的期就是剩餘新聞的形式 | L1；N6、N7。不等 L2：今天的 Features 卡就是上層，現有的標題列先當下層，L4 再換形式 | 一期正式站以新骨架發布；一期沒有密度高文章的正式站頁面可讀；`ui-language.md` 不再列七區段 | 中：模板與規範整份換 |
 | L4 剩餘新聞的形式 | 掛不上卡片的新聞先以嵌入分群（0.70 起試），再把全部單位分批寫成段落、重要的在前，依 N7 的領域配額截尾；文章狀態不在這裡改，新聞不再寫 `rejected` 是那邊 S6b 的收據 | L3；N7 | 一期正式站每個領域的剩餘新聞以段落顯示，段落引用覆蓋該領域全部單位（截尾前），沒有一列是舊的 The Wire | 低：形式換回清單即可，狀態沒動 |
 | L5 新聞升格 | 值夠高的新聞拿到卡片 | `value-by-clicks-and-rank.md` 的 Q6 與 S5 | 一期正式站有一張錨點是新聞的卡片，且是依值選出 | 低 |
 | L6 領域老化 | 領域權重由點開率衰減回基線，改配額與分界 | `value-by-clicks-and-rank.md` 的 S3 上線並累積 S4 的期數 | 一個領域的配額在半衰期左右的延遲內跟上點開率，用幾週的圖看 | 低：關掉就回基線 |
