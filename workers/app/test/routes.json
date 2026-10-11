@@ -41,6 +41,7 @@
   {"path": "/api/areas", "method": "GET", "kind": "container", "unauth_status": 401},
   {"path": "/api/areas/order", "method": "PUT", "kind": "container", "unauth_status": 401},
   {"path": "/api/sources/suggest-area", "method": "POST", "kind": "container", "unauth_status": 401},
+  {"path": "/api/areas/propose", "method": "POST", "kind": "container", "unauth_status": 401},
   {"path": "/api/areas/birth-threshold", "method": "PUT", "kind": "container", "unauth_status": 401},
   {"path": "/api/zzz-undefined", "method": "GET", "kind": "container", "unauth_status": 401}
 ]

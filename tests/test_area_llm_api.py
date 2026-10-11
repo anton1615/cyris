@@ -10,6 +10,7 @@ from fakes import FakeLLM, SqliteD1
 from cyris.adapters.store.areas import D1AreaStore
 from cyris.adapters.store.source_store import D1SourceStore
 from cyris.diagnostics import doctor
+from cyris.domain.models import SourceConfig
 from cyris.entrypoints.triage_server import TriageServer
 
 pytestmark = pytest.mark.integration
@@ -155,3 +156,76 @@ async def test_no_active_area_or_no_llm_asks_the_model_nothing(db: SqliteD1) -> 
     assert no_llm["suggestion"] is None and "LLM" in no_llm["note"]
     assert no_area["suggestion"] is None
     assert llm.calls == []
+
+
+async def test_proposing_areas_creates_proposals_once(db: SqliteD1) -> None:
+    sources = D1SourceStore(db)
+    for name in ("a", "b", "c"):
+        sources.upsert(SourceConfig(name=name, url=f"https://{name}.example/f"))
+    llm = FakeLLM(json.dumps({"Tech": ["a", "b"], "Space": ["c"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        first = await (await client.post("/api/areas/propose")).json()
+        second = await (await client.post("/api/areas/propose")).json()
+    finally:
+        await client.close()
+
+    assert first["created"] == 1
+    assert first["proposals"][0] == {"id": 1, "name": "Tech", "sources": ["a", "b"]}
+    space = [p for p in first["proposals"] if p["name"] == "Space"][0]
+    assert space["sources"] == ["c"]
+    assert second["created"] == 0
+    assert len(D1AreaStore(db).list_areas()) == 3
+
+
+async def test_a_dismissed_name_is_dropped_and_a_merged_name_takes_its_target(db: SqliteD1) -> None:
+    db.query("UPDATE areas SET status = 'dismissed' WHERE id = 2")
+    _row(db, 6, "Chips", "merged")
+    db.query("UPDATE areas SET merged_into = 1 WHERE id = 6")
+    sources = D1SourceStore(db)
+    sources.upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({"Food": ["a"], "Chips": ["a"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        data = await (await client.post("/api/areas/propose")).json()
+    finally:
+        await client.close()
+
+    assert [(p["id"], p["name"]) for p in data["proposals"]] == [(1, "Tech")]
+    assert len(D1AreaStore(db).list_areas()) == 3
+
+
+async def test_a_model_failure_writes_nothing_and_names_only_the_class(db: SqliteD1) -> None:
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(error=RuntimeError(f"401 key={SECRET}"))
+    client = await _client(db, lambda values: llm)
+    try:
+        response = await client.post("/api/areas/propose")
+        body = await response.text()
+    finally:
+        await client.close()
+
+    assert response.status == 502
+    assert json.loads(body)["error"] == "The model call failed (RuntimeError)."
+    assert SECRET not in body
+    assert len(D1AreaStore(db).list_areas()) == 2
+
+
+async def test_no_llm_or_no_sources_is_refused(db: SqliteD1) -> None:
+    client = await _client(db, lambda values: None)
+    try:
+        D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+        no_llm = await client.post("/api/areas/propose")
+    finally:
+        await client.close()
+
+    empty = SqliteD1()
+    _row(empty, 1, "Tech", "active")
+    client = await _client(empty, lambda values: FakeLLM("{}"))
+    try:
+        no_sources = await client.post("/api/areas/propose")
+    finally:
+        await client.close()
+
+    assert no_llm.status == 409
+    assert no_sources.status == 400

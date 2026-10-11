@@ -129,3 +129,12 @@ class D1AreaStore:
             "WHERE id = ? AND status = 'proposed'",
             [into, area_id],
         ).changes
+
+    def insert_proposed(self, name: str) -> int:
+        """Add a name the model proposed and nothing holds yet, with no counts; its id."""
+        self._db.query(
+            "INSERT INTO areas (name, position, status, proposal_articles, proposal_issues) "
+            "VALUES (?, 0, 'proposed', 0, 0)",
+            [name],
+        )
+        return self._db.query("SELECT id FROM areas WHERE name = ?", [name]).rows[0]["id"]

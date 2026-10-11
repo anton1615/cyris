@@ -202,6 +202,7 @@ class TriageServer:
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
         self._app.router.add_get("/api/areas", self._handle_get_areas)
         self._app.router.add_post("/api/sources/suggest-area", self._handle_suggest_area)
+        self._app.router.add_post("/api/areas/propose", self._handle_propose_areas)
         self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
         self._app.router.add_put("/api/areas/order", self._handle_put_area_order)
         self._app.router.add_post(r"/api/areas/{id:\d+}/activate", self._handle_activate_area)
@@ -1057,6 +1058,50 @@ class TriageServer:
             {"id": area.id, "name": area.name},
             "Suggested from your active areas. Confirm it or choose another.",
         )
+
+    async def _handle_propose_areas(self, request: web.Request) -> web.Response:
+        """Ask the model to group every source into areas, and record the new names as proposals."""
+        if self._area_store is None:
+            return self._no_area_table()
+        sources = self._source_store.list_sources() if self._source_store else self._sources
+        if not sources:
+            return _refused("There are no sources to group yet.", "sources")
+        llm = self._llm()
+        if llm is None:
+            return web.json_response(
+                {"ok": False, "error": "No LLM is configured, so no areas are proposed."},
+                status=409,
+            )
+        try:
+            grouping = await asyncio.wait_for(
+                area_llm.propose_areas(llm, sources), LLM_PROBE_TIMEOUT_SECONDS
+            )
+        except Exception as e:  # noqa: BLE001 - only the class name leaves this handler
+            logger.warning("Proposing areas failed: %s", type(e).__name__)
+            return web.json_response(
+                {"ok": False, "error": f"The model call failed ({type(e).__name__})."},
+                status=502,
+            )
+
+        try:
+            catalog = AreaCatalog(self._area_store.list_areas())
+            proposals = []
+            created = 0
+            for name, members in grouping.items():
+                placed = catalog.place(name)
+                if placed.kind == "dismissed":
+                    continue
+                if placed.kind == "unknown":
+                    area_id = self._area_store.insert_proposed(name)
+                    created += 1
+                    proposals.append({"id": area_id, "name": name, "sources": members})
+                else:
+                    area = placed.area
+                    proposals.append({"id": area.id, "name": area.name, "sources": members})
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        return web.json_response({"ok": True, "proposals": proposals, "created": created})
 
     async def _handle_put_area_order(self, request: web.Request) -> web.Response:
         """Set the order of the active areas: the page's list, top to bottom."""

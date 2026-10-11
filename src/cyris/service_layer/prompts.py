@@ -321,6 +321,13 @@ Areas: {names}
 Respond in JSON: {{"area": "<one area name from the list>"}} or {{"area": null}}
 """
 
+PROPOSE_AREAS_SYSTEM = """\
+You group a reader's news sources into areas of interest. Each area has a short name. Give \
+every source to the area that fits it best, and leave out a source that fits no area.
+
+Respond in JSON: {"<area name>": ["<source name>", ...]}
+"""
+
 
 def build_suggest_area_system_prompt(area_names: Sequence[str]) -> str:
     """The system prompt that makes the model pick one of the given area names."""
@@ -340,3 +347,11 @@ def build_suggest_area_prompt(
             f"Homepage: {homepage or ''}",
         ]
     )
+
+
+def build_propose_areas_prompt(sources: Sequence[tuple[str, str, Sequence[str]]]) -> str:
+    """Every source as (name, url, tags), one line each, for the model to group."""
+    lines = ["Group these sources:"]
+    for name, url, tags in sources:
+        lines.append(f"- {name} ({url}) tags: {', '.join(tags)}")
+    return "\n".join(lines)

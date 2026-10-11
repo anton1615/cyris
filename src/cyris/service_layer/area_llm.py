@@ -4,11 +4,13 @@ Each function takes the LLM client it is given and returns what the model named,
 against the names it was offered. Failures are the caller's to report; nothing here logs.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from cyris.domain.models import SourceConfig
 from cyris.service_layer.ports import LLMClient, complete_json
 from cyris.service_layer.prompts import (
+    PROPOSE_AREAS_SYSTEM,
+    build_propose_areas_prompt,
     build_suggest_area_prompt,
     build_suggest_area_system_prompt,
 )
@@ -33,3 +35,25 @@ async def suggest_area(
         return None
     wanted = picked.strip().casefold()
     return next((name for name in area_names if name.casefold() == wanted), None)
+
+
+async def propose_areas(
+    llm: LLMClient,
+    sources: Mapping[str, SourceConfig],
+) -> dict[str, list[str]]:
+    """The areas the model groups `sources` into, each with its source names, in the model's order.
+
+    A name that is not one of `sources` is dropped, and so is an area that gets no source.
+    """
+    prompt = build_propose_areas_prompt([(s.name, s.url or "", s.tags) for s in sources.values()])
+    data = await complete_json(llm, prompt, system=PROPOSE_AREAS_SYSTEM)
+    if not isinstance(data, dict):
+        raise ValueError("the model's reply is not an object")
+    grouping: dict[str, list[str]] = {}
+    for area, named in data.items():
+        if not isinstance(area, str) or not area.strip() or not isinstance(named, list):
+            continue
+        members = [n for n in named if isinstance(n, str) and n in sources]
+        if members:
+            grouping[area.strip()] = members
+    return grouping
