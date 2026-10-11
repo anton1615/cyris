@@ -114,3 +114,10 @@ class D1AreaStore:
             "WHERE id = ? AND status = 'proposed'",
             [area_id],
         ).changes
+
+    def dismiss(self, area_id: int) -> int:
+        """Reject a proposal; its row and counts stay, so its name is not proposed again."""
+        return self._db.query(
+            "UPDATE areas SET status = 'dismissed' WHERE id = ? AND status = 'proposed'",
+            [area_id],
+        ).changes

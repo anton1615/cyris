@@ -199,6 +199,7 @@ class TriageServer:
         self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
         self._app.router.add_put("/api/areas/order", self._handle_put_area_order)
         self._app.router.add_post(r"/api/areas/{id:\d+}/activate", self._handle_activate_area)
+        self._app.router.add_post(r"/api/areas/{id:\d+}/dismiss", self._handle_dismiss_area)
         self._app.router.add_put(r"/api/areas/{id:\d+}", self._handle_rename_area)
         self._app.router.add_get("/api/labels", self._handle_get_labels)
         self._app.router.add_post("/api/labels", self._handle_post_label)
@@ -887,6 +888,20 @@ class TriageServer:
                 "note": "Effective next run.",
             }
         )
+
+    async def _handle_dismiss_area(self, request: web.Request) -> web.Response:
+        """Reject a proposal; its name is then ignored, not proposed again."""
+        if self._area_store is None:
+            return self._no_area_table()
+        area_id = int(request.match_info["id"])
+        try:
+            if not self._area_store.dismiss(area_id):
+                return self._not_proposed(area_id)
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        logger.info("Area %s dismissed", area_id)
+        return web.json_response({"ok": True, "id": area_id, "note": "Effective next run."})
 
     async def _handle_put_area_order(self, request: web.Request) -> web.Response:
         """Set the order of the active areas: the page's list, top to bottom."""

@@ -69,3 +69,32 @@ async def test_activating_a_dismissed_area_is_a_409(client: TestClient, db: Sqli
 
     assert response.status == 409
     assert D1AreaStore(db).get(3).status == "dismissed"
+
+
+async def test_a_dismissed_name_keeps_its_row_and_stops_counting(
+    client: TestClient, db: SqliteD1
+) -> None:
+    _row(db, 4, "Food", "proposed")
+    db.query("UPDATE areas SET proposal_articles = 3 WHERE id = 4")
+
+    response = await client.post("/api/areas/4/dismiss")
+    D1AreaStore(db).record_proposals({"food": 5}, "r1")
+
+    assert response.status == 200
+    food = D1AreaStore(db).get(4)
+    assert (food.status, food.proposal_articles) == ("dismissed", 3)
+
+
+async def test_dismissing_an_active_area_is_a_409(client: TestClient, db: SqliteD1) -> None:
+    _row(db, 1, "Tech", "active")
+
+    response = await client.post("/api/areas/1/dismiss")
+
+    assert response.status == 409
+    assert D1AreaStore(db).get(1).status == "active"
+
+
+async def test_dismissing_an_unknown_id_is_a_404(client: TestClient) -> None:
+    response = await client.post("/api/areas/99/dismiss")
+
+    assert response.status == 404
