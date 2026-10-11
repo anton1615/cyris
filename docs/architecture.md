@@ -324,6 +324,12 @@ produced a profile. On D1, every candidate it judged also leaves a row in `vote_
 nearest upvoted and downvoted article and both cosines (§4), a record that changes nothing the run
 selects.
 
+**Areas** are the reader's closed set of topics (D1 `areas`, §4, §5). Scoring is offered the active
+names and returns each article's pick; a pick the model could not place, or a suggestion of a new
+name, is counted on a proposed `areas` row for the reader to confirm, and never changes the
+scores. After the digest is built, each item gets the name of its first article's pick or else its
+source's area (`service_layer/area_stamp.py`), before the digest row is saved.
+
 **Topic tracking** runs right after it, over the candidates vote similarity left
 (`service_layer/tracking.py`). Each tracked topic (§4, §5) is a name, one sentence the reader wrote,
 a cosine threshold and the embedding model that threshold was set for. The run embeds each sentence

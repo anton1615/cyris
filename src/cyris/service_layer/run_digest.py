@@ -20,6 +20,7 @@ from cyris.domain.models import (
 )
 from cyris.domain.selection import count_dead_links
 from cyris.domain.triage import RejectReason
+from cyris.service_layer.area_stamp import stamp_areas
 from cyris.service_layer.digest_pipeline import DigestPipeline
 from cyris.service_layer.fetching import fetch_all_articles
 from cyris.service_layer.schedule import Period
@@ -31,6 +32,19 @@ if TYPE_CHECKING:
     from cyris.bootstrap import Deps
 
 logger = logging.getLogger(__name__)
+
+
+def placements_from(picks: dict[str, AreaPick], catalog: AreaCatalog) -> dict[str, str]:
+    """The area each scored article was placed in this run: its pick, or a suggestion now active."""
+    placements: dict[str, str] = {}
+    for url, pick in picks.items():
+        if pick.area:
+            placements[url] = pick.area
+        elif pick.suggest:
+            placed = catalog.place(pick.suggest)
+            if placed.kind == "active" and placed.area is not None:
+                placements[url] = placed.area.name
+    return placements
 
 
 def proposal_counts(picks: dict[str, AreaPick], catalog: AreaCatalog) -> dict[str, int]:
@@ -563,6 +577,19 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     summary["degraded"] = degraded
     summary["received"] = content.articles_received
     summary["included"] = content.articles_included
+
+    # In memory: the saved row and the page carry the stamp, and no other store does.
+    try:
+        catalog = AreaCatalog(cfg.areas)
+        stamp = stamp_areas(
+            content,
+            placements=placements_from(area_picks, catalog),
+            sources=cfg.sources,
+            catalog=catalog,
+        )
+        summary["area_stamp"] = stamp.model_dump()
+    except Exception as e:
+        logger.error("Stamping areas failed: %s", type(e).__name__)
 
     # Its own try/except, like every call below it: this one used to be the
     # single unguarded step between a finished digest and its publish, so a D1

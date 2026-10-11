@@ -196,3 +196,99 @@ def test_an_articles_score_suggestion_is_proposed_with_no_issue(
         "proposal_articles": 1,
         "proposal_issues": 0,
     }
+
+
+def _walk_items(content) -> list:
+    items = []
+    for name in (
+        "featured_articles",
+        "news_clusters",
+        "thematic_summaries",
+        "attention_sections",
+        "fan_sections",
+        "tracked_topics",
+    ):
+        for section in getattr(content, name):
+            items.extend(section.items)
+    return items + content.filtered_headlines
+
+
+async def _run_saved(
+    tmp_path: Path, scoring_reply: str, *, area_store=None, sources=None, areas=()
+):
+    from cyris.adapters.store.digests import D1DigestStore
+    from cyris.domain.models import SourceConfig
+
+    db = SqliteD1()
+    llm = FakeLLM([scoring_reply, SUMMARY_REPLY])
+    deps, _ = make_deps(tmp_path, llm, FakeSource(_articles()))
+    deps.cfg.areas = list(areas)
+    deps.cfg.sources = (
+        sources
+        if sources is not None
+        else {"TechSource": SourceConfig(name="TechSource", url="https://x.example/f", area_id=1)}
+    )
+    summaries: list[dict] = []
+    digest_store = D1DigestStore(db)
+    deps = replace(
+        deps, area_store=area_store, digest_store=digest_store, record_run=summaries.append
+    )
+    report = await run_digest(deps, RunOptions())
+    (key,) = digest_store.issues()
+    return report, summaries, digest_store.load(*key).content
+
+
+async def test_every_saved_item_carries_its_area(tmp_path: Path) -> None:
+    reply = json.dumps(
+        {
+            "scores": [
+                {"id": 1, "score": 80, "language": "en", "tags": ["s"], "area": "Tech"},
+                {"id": 2, "score": 70, "language": "en", "tags": ["s"]},
+                {"id": 3, "score": 60, "language": "en", "tags": ["s"], "area": 7},
+            ]
+        }
+    )
+
+    _, summaries, content = await _run_saved(
+        tmp_path, reply, area_store=D1AreaStore(SqliteD1()), areas=[_active(1, "Tech")]
+    )
+
+    items = _walk_items(content)
+    assert items and all(item.area == "Tech" for item in items)
+    stamp = summaries[-1]["area_stamp"]
+    assert stamp["picked"] + stamp["source"] + stamp["none"] == len(items)
+    assert stamp["source"] >= 1
+
+
+async def test_a_json_run_stamps_no_area(tmp_path: Path) -> None:
+    reply = json.dumps(
+        {"scores": [{"id": i, "score": 50, "language": "en", "tags": ["s"]} for i in (1, 2, 3)]}
+    )
+
+    _, summaries, content = await _run_saved(tmp_path, reply, sources={}, areas=())
+
+    items = _walk_items(content)
+    assert items and all(item.area is None for item in items)
+    assert summaries[-1]["area_stamp"]["none"] == len(items)
+
+
+async def test_a_source_naming_a_missing_area_stamps_none_and_the_run_completes(
+    tmp_path: Path,
+) -> None:
+    from cyris.domain.models import SourceConfig
+
+    reply = json.dumps(
+        {"scores": [{"id": i, "score": 50, "language": "en", "tags": ["s"]} for i in (1, 2, 3)]}
+    )
+    report, _, content = await _run_saved(
+        tmp_path,
+        reply,
+        area_store=D1AreaStore(SqliteD1()),
+        areas=[_active(1, "Tech")],
+        sources={
+            "TechSource": SourceConfig(name="TechSource", url="https://x.example/f", area_id=99)
+        },
+    )
+
+    assert report.status == "ok"
+    assert all(item.area is None for item in _walk_items(content))
