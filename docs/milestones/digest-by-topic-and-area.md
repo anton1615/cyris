@@ -32,7 +32,7 @@ depends: [value-by-clicks-and-rank]
 - **領域權重的輸入是每個曝光的點開率，不是點開次數。** 選舉期間政治新聞本來就暴增，用次數會富者愈富。曝光紀錄是 `value-by-clicks-and-rank.md` S3 已經決定要收的。沒點開不扣分，只靠時間衰減。半衰期和基線下限是 grade D 設定，進 §5。
 - **錨點活幾天，領域權重活幾週。** 一個主題幾期沒有新文章就不再收新聞；領域權重的半衰期以週計。追蹤的主題（`tracked_topics`）今天不過期，老化在那裡只該是 `/settings` 的退休建議，不在這份里程碑的範圍。
 - **email 版面一起改。** `docs/design/ui-language.md:456` 規定 email 的區段順序，骨架換掉時同一個改動裡處理。
-- **每一個 LLM 請求都保持在 100K token 以內，filter 也改分批。** 這是把 pipeline 和模型脫鉤的條件：claude-haiku-5-5 的 $0.10/$0.50 只適用於 100K 以內的提示，超過是 $0.50/$2.50；gpt-6-luna 在 272K 以上整個請求輸入兩倍、輸出 1.5 倍。今天最大的請求是 filter 把一個窗口的新聞一次送進一個 prompt（`docs/architecture.md` §5 的「Provider defaults, and why these values」），實測一天 233 篇、預設 500 字元的摘錄約 22K token，一期約 11K，離門檻十倍（見「依據的資料」）。但這個請求隨來源數線性成長，而且 architecture 過去記過它在 llama 24K context 上會直接失敗。所以 filter 改成每批幾十篇、分批呼叫，和 L4 段落的分批是同一個模式；每批幾篇是 grade A 常數 `BATCH_SIZE`（`service_layer/filtering.py`）。改完之後任何模型的長提示分級都碰不到。
+- **每一個 LLM 請求都保持在 100K token 以內，filter 也改分批。** 這是把 pipeline 和模型脫鉤的條件：claude-haiku-5-5 的 $0.10/$0.50 只適用於 100K 以內的提示，超過是 $0.50/$2.50；gpt-6-luna 在 272K 以上整個請求輸入兩倍、輸出 1.5 倍。過去最大的請求是 filter 把一個窗口的新聞一次送進一個 prompt（`docs/architecture.md` §5 的「Provider defaults, and why these values」），實測一天 233 篇、預設 500 字元的摘錄約 22K token，一期約 11K，離門檻十倍（見「依據的資料」）。但這個請求隨來源數線性成長，而且 architecture 過去記過它在 llama 24K context 上會直接失敗。所以 filter 改成每批幾十篇、分批呼叫，和 L4 段落的分批是同一個模式；每批幾篇是 grade A 常數 `BATCH_SIZE`（`service_layer/filtering.py`）。改完之後任何模型的長提示分級都碰不到。
 - **模型是 grade D 設定，換模型不改程式，但要先過評比。** `build_llm` 已支援 gemini、openai、anthropic 與 ai_gateway（`src/cyris/bootstrap.py:47-73`）。MVP 顯示 haiku 在四種新呼叫上不輸 gemini-3.8-flash 且便宜十倍，gpt-6-luna 便宜十六倍但段落太碎。生產的錢和品質主要花在 filter 的去留、summarize 的評分和 Clef，這三者沒比過，所以換模型排成 Lm 階段，收據是盲標 AUC，不是這份 MVP。時間壓力：gemini-3.8-flash 的導入價 2026-12-31 到期，2027 年起翻倍。
 
 ## 分階段計畫
