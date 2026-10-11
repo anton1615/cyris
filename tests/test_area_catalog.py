@@ -2,7 +2,7 @@
 
 import pytest
 
-from cyris.domain.areas import Area, AreaCatalog
+from cyris.domain.areas import Area, AreaCatalog, meets_birth_threshold
 
 pytestmark = pytest.mark.unit
 
@@ -14,6 +14,8 @@ def _area(
     position: int = 0,
     status: str = "active",
     merged_into: int | None = None,
+    proposal_articles: int = 0,
+    proposal_issues: int = 0,
 ) -> Area:
     return Area(
         id=area_id,
@@ -21,8 +23,8 @@ def _area(
         position=position,
         status=status,
         merged_into=merged_into,
-        proposal_articles=0,
-        proposal_issues=0,
+        proposal_articles=proposal_articles,
+        proposal_issues=proposal_issues,
         last_proposed_run=None,
     )
 
@@ -94,3 +96,23 @@ def test_merged_row_with_missing_or_inactive_target_is_dismissed() -> None:
 
     assert catalog.place("Gone").kind == "dismissed"
     assert catalog.place("Stale").kind == "dismissed"
+
+
+def test_birth_threshold_true_when_both_counts_reach_it() -> None:
+    area = _area(4, "Sport", status="proposed", proposal_articles=12, proposal_issues=3)
+
+    assert meets_birth_threshold(area, (10, 3)) is True
+
+
+def test_birth_threshold_false_when_one_count_falls_short() -> None:
+    area = _area(4, "Sport", status="proposed", proposal_articles=12, proposal_issues=3)
+
+    assert meets_birth_threshold(area, (10, 4)) is False
+
+
+def test_birth_threshold_none_without_threshold_or_for_non_proposed() -> None:
+    proposed = _area(4, "Sport", status="proposed", proposal_articles=12, proposal_issues=3)
+    active = _area(1, "Tech", status="active", proposal_articles=12, proposal_issues=3)
+
+    assert meets_birth_threshold(proposed, None) is None
+    assert meets_birth_threshold(active, (1, 1)) is None

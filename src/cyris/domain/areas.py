@@ -60,3 +60,11 @@ class AreaCatalog:
         if area is not None and area.status == "active":
             return area
         return None
+
+
+def meets_birth_threshold(area: Area, threshold: tuple[int, int] | None) -> bool | None:
+    """Whether a proposal reaches the (articles, issues) birth threshold; annotation only."""
+    if threshold is None or area.status != "proposed":
+        return None
+    articles, issues = threshold
+    return area.proposal_articles >= articles and area.proposal_issues >= issues
