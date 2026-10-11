@@ -13,9 +13,8 @@ from cyris.service_layer.prompts import (
 
 logger = logging.getLogger(__name__)
 
-# Batch size changes nothing a reader sees: every article is still judged, so do not
-# tune it. Bounding each prompt is what keeps the pipeline independent of any model's
-# long-prompt pricing and context tier.
+# Bounding each prompt keeps the pipeline independent of any model's long-prompt pricing
+# and context tier.
 BATCH_SIZE = 20
 
 
@@ -70,7 +69,10 @@ async def filter_articles(
             )
         except Exception:
             logger.warning(
-                "Filter LLM call failed; falling back to excerpt headlines", exc_info=True
+                "Filter batch %d/%d failed; falling back to excerpt headlines",
+                start // BATCH_SIZE + 1,
+                total_batches,
+                exc_info=True,
             )
             if usage is not None:
                 usage.fell_back_to_excerpts = True
