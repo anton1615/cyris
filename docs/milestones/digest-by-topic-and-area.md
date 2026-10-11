@@ -32,7 +32,7 @@ depends: [value-by-clicks-and-rank]
 - **領域權重的輸入是每個曝光的點開率，不是點開次數。** 選舉期間政治新聞本來就暴增，用次數會富者愈富。曝光紀錄是 `value-by-clicks-and-rank.md` S3 已經決定要收的。沒點開不扣分，只靠時間衰減。半衰期和基線下限是 grade D 設定，進 §5。
 - **錨點活幾天，領域權重活幾週。** 一個主題幾期沒有新文章就不再收新聞；領域權重的半衰期以週計。追蹤的主題（`tracked_topics`）今天不過期，老化在那裡只該是 `/settings` 的退休建議，不在這份里程碑的範圍。
 - **email 版面一起改。** `docs/design/ui-language.md:456` 規定 email 的區段順序，骨架換掉時同一個改動裡處理。
-- **每一個 LLM 請求都保持在 100K token 以內，filter 也改分批。** 這是把 pipeline 和模型脫鉤的條件：claude-haiku-5-5 的 $0.10/$0.50 只適用於 100K 以內的提示，超過是 $0.50/$2.50；gpt-6-luna 在 272K 以上整個請求輸入兩倍、輸出 1.5 倍。今天最大的請求是 filter 把一個窗口的新聞一次送進一個 prompt（`docs/architecture.md:543-545`），實測一天 233 篇、預設 500 字元的摘錄約 22K token，一期約 11K，離門檻十倍（見「依據的資料」）。但這個請求隨來源數線性成長，而且 architecture 已經記了它在 llama 24K context 上會直接失敗。所以 filter 改成每批幾十篇、分批呼叫，和 L4 段落的分批是同一個模式；每批幾篇是 grade D 設定。改完之後任何模型的長提示分級都碰不到。
+- **每一個 LLM 請求都保持在 100K token 以內，filter 也改分批。** 這是把 pipeline 和模型脫鉤的條件：claude-haiku-5-5 的 $0.10/$0.50 只適用於 100K 以內的提示，超過是 $0.50/$2.50；gpt-6-luna 在 272K 以上整個請求輸入兩倍、輸出 1.5 倍。今天最大的請求是 filter 把一個窗口的新聞一次送進一個 prompt（`docs/architecture.md` §5 的「Provider defaults, and why these values」），實測一天 233 篇、預設 500 字元的摘錄約 22K token，一期約 11K，離門檻十倍（見「依據的資料」）。但這個請求隨來源數線性成長，而且 architecture 過去記過它在 llama 24K context 上會直接失敗。所以 filter 改成每批幾十篇、分批呼叫，和 L4 段落的分批是同一個模式；每批幾篇是 grade A 常數 `BATCH_SIZE`（`service_layer/filtering.py`）。改完之後任何模型的長提示分級都碰不到。
 - **模型是 grade D 設定，換模型不改程式，但要先過評比。** `build_llm` 已支援 gemini、openai、anthropic 與 ai_gateway（`src/cyris/bootstrap.py:47-73`）。MVP 顯示 haiku 在四種新呼叫上不輸 gemini-3.8-flash 且便宜十倍，gpt-6-luna 便宜十六倍但段落太碎。生產的錢和品質主要花在 filter 的去留、summarize 的評分和 Clef，這三者沒比過，所以換模型排成 Lm 階段，收據是盲標 AUC，不是這份 MVP。時間壓力：gemini-3.8-flash 的導入價 2026-12-31 到期，2027 年起翻倍。
 
 ## 分階段計畫
@@ -49,7 +49,7 @@ depends: [value-by-clicks-and-rank]
 | L4 剩餘新聞的形式 | 掛不上卡片的新聞先以嵌入分群（0.70 起試），再把全部單位分批寫成段落、重要的在前，依 N7 的領域配額截尾；文章狀態不在這裡改，新聞不再寫 `rejected` 是那邊 S6b 的收據 | L3；N7 | 一期正式站每個領域的剩餘新聞以段落顯示，段落引用覆蓋該領域全部單位（截尾前），沒有一列是舊的 The Wire | 低：形式換回清單即可，狀態沒動 |
 | L5 新聞升格 | 值夠高的新聞拿到卡片 | `value-by-clicks-and-rank.md` 的 Q6 與 S5 | 一期正式站有一張錨點是新聞的卡片，且是依值選出 | 低 |
 | L6 領域老化 | 領域權重由點開率衰減回基線，改配額與分界 | `value-by-clicks-and-rank.md` 的 S3 上線並累積 S4 的期數 | 一個領域的配額在半衰期左右的延遲內跟上點開率，用幾週的圖看 | 低：關掉就回基線 |
-| Lb filter 分批 | filter 的去留判斷改成每批 N 篇、多次呼叫，N 是 grade D 設定；一個請求的大小不再隨窗口成長 | 無，可以現在做 | 最忙的一天（301 篇）每個請求都在 N 篇以內；同一批盲標、同一模型，離線各跑一次不分批與分批的 filter，分批減不分批的 AUC 配對差 95% 區間下界不低於 0（0.598 是抽樣當下的保留狀態，混了上限截斷與 vote similarity 壓制，不是 filter 單獨的數字，不能當基準）；`docs/architecture.md` §5 的 llama 段落改寫；N 若是 grade D，§5 加一列 | 低：N 設成窗口大小就是今天 |
+| Lb filter 分批 | filter 的去留判斷改成每批 N 篇、多次呼叫，N 是 grade A 常數 `BATCH_SIZE`；一個請求的大小不再隨窗口成長 | 無，可以現在做 | 最忙的一天（301 篇）每個請求都在 N 篇以內；同一批盲標、同一模型，離線各跑一次不分批與分批的 filter，分批減不分批的 AUC 配對差 95% 區間下界不低於 0（0.598 是抽樣當下的保留狀態，混了上限截斷與 vote similarity 壓制，不是 filter 單獨的數字，不能當基準）；`docs/architecture.md` §5 的 llama 段落已改寫；N 是 grade A，§5 的 Batch sizes 列已記它 | 低：N 設成窗口大小就是今天 |
 | Lm 模型評比 | 用同兩天的候選池，以生產的 filter、評分、Clef prompt 跑 gemini-3.8-flash、claude-haiku-5-5、gpt-6-luna，推理等級設成一樣；對照第二輪盲標算 AUC，連同 MVP 四種呼叫的費用列成一表；另加一臂「主力 LLM 帶同樣 5 篇相近投票標題問同一題」和 Clef 對照，決定 Clef 去留 | Lb，否則 filter 的比較仍是一個大請求；第二輪盲標標完；三個 client 要有共用的推理等級參數（`src/cyris/adapters/openai_client.py:64` 固定 low，Gemini 與 Anthropic client 沒有參數）；確認 AI Gateway 目錄有 `anthropic/claude-haiku-5-5` 與 `openai/gpt-6-luna` 的名字（未驗證） | 一張表：三個模型乘四個指標（filter AUC、評分 AUC、帶投票證據的排序 AUC、每天費用），Clef 列在排序那一欄旁邊；若換，`/settings` 改一個 grade D 值，程式不動；2026-12-31 前做完 | 零：只是量測 |
 
 - **L0 可以現在做。** 密度高文章的分布由人類對正式站 D1 查（資料庫名稱取自 `workers/rss/wrangler.toml:17`）：

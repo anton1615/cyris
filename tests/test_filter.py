@@ -9,7 +9,8 @@ import pytest
 from fakes import FakeLLM
 
 from cyris.domain.models import Article, Tier, UsageStats
-from cyris.service_layer.filtering import filter_articles
+from cyris.service_layer import filtering
+from cyris.service_layer.filtering import BATCH_SIZE, filter_articles
 
 pytestmark = pytest.mark.unit
 
@@ -362,3 +363,118 @@ async def test_an_id_naming_no_position_links_nothing(raw_id, caplog):
 
     assert items[0].urls == []
     assert len(caplog.records) == 1  # a model that rewrites ids is visible in the log
+
+
+def _articles(n: int) -> list[Article]:
+    return [
+        Article(
+            id=f"a{i}",
+            title=f"Article {i}",
+            url=f"https://ex.com/{i}",
+            content="Content",
+            published_at=datetime(2026, 9, 17, 10, 0, tzinfo=UTC),
+            source_name="S",
+            source_tier=Tier.FILTER,
+        )
+        for i in range(n)
+    ]
+
+
+def _selecting(*ids, title="t"):
+    return json.dumps({"selected": [{"id": i, "title": title, "source": "S"} for i in ids]})
+
+
+def _reply():
+    return json.dumps({"selected": []})
+
+
+class _FailingOnCalls(FakeLLM):
+    """FakeLLM whose calls at the indexes in `fail_on` raise; the others answer in order."""
+
+    def __init__(self, responses, fail_on=(), **kwargs):
+        super().__init__(responses, **kwargs)
+        self._fail_on = set(fail_on)
+
+    async def complete(self, prompt, **kwargs):
+        index = len(self.calls)
+        if index in self._fail_on:
+            self.calls.append({"prompt": prompt, **kwargs})
+            raise RuntimeError(f"call {index} failed")
+        return await super().complete(prompt, **kwargs)
+
+
+async def _run(articles, llm, usage=None, article_scores=None):
+    return await filter_articles(
+        articles,
+        llm,
+        usage,
+        article_scores,
+        filter_snippet_length=500,
+        output_language="zh-Hant",
+        style_prompt="",
+    )
+
+
+def _filter_messages(caplog, prefix):
+    return [r.getMessage() for r in caplog.records if r.getMessage().startswith(prefix)]
+
+
+class TestFilterBatchPartition:
+    async def test_pool_goes_out_as_bounded_batches_with_one_prompt_shape(self):
+        llm = FakeLLM(_reply())
+
+        await _run(_articles(2 * BATCH_SIZE + 1), llm)
+
+        ids = [re.findall(r"^\[(\d+)\]", c["prompt"], flags=re.MULTILINE) for c in llm.calls]
+        assert ids == [
+            [str(i) for i in range(BATCH_SIZE)],
+            [str(i) for i in range(BATCH_SIZE)],
+            ["0"],
+        ]
+        assert {c["temperature"] for c in llm.calls} == {1.0}
+        assert len({c["system"] for c in llm.calls}) == 1
+
+    async def test_titles_arrive_once_each_in_input_order(self):
+        articles = _articles(2 * BATCH_SIZE + 1)
+        llm = FakeLLM(_reply())
+
+        await _run(articles, llm)
+
+        titles = [
+            t
+            for c in llm.calls
+            for t in re.findall(r"^\[\d+\] \(.*?\) (.*)$", c["prompt"], flags=re.MULTILINE)
+        ]
+        assert titles == [a.title for a in articles]
+
+    @pytest.mark.parametrize(("count", "calls"), [(BATCH_SIZE, 1), (BATCH_SIZE + 1, 2)])
+    async def test_call_count_follows_the_batch_boundary(self, count, calls):
+        llm = FakeLLM(_reply())
+
+        await _run(_articles(count), llm)
+
+        assert len(llm.calls) == calls
+
+    async def test_batch_size_is_read_at_call_time(self, monkeypatch):
+        monkeypatch.setattr(filtering, "BATCH_SIZE", 2)
+        llm = FakeLLM(_reply())
+
+        await _run(_articles(5), llm)
+
+        sizes = [len(re.findall(r"^\[\d+\]", c["prompt"], flags=re.MULTILINE)) for c in llm.calls]
+        assert sizes == [2, 2, 1]
+
+    async def test_usage_counts_every_batch_call(self):
+        usage = UsageStats(model="m")
+
+        await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_reply()), usage)
+
+        assert usage.api_calls == 3
+        assert usage.input_tokens == 1500
+        assert usage.fell_back_to_excerpts is False
+
+    async def test_empty_pool_makes_no_call(self):
+        llm = FakeLLM(_reply())
+
+        assert await _run([], llm) == []
+        assert len(llm.calls) == 0

@@ -483,7 +483,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 
 | Setting | Grade | Today | Target |
 |---|---|---|---|
-| Batch sizes | A | `BATCH_SIZE` in `service_layer/scoring.py` and on each embedder in `adapters/embedding.py` | unchanged |
+| Batch sizes | A | `BATCH_SIZE` in `service_layer/filtering.py` and `service_layer/scoring.py`, and on each embedder in `adapters/embedding.py` | unchanged |
 | RSS Worker read ceiling | A | `WORKER_ROW_CEILING` in `adapters/fetch/rss_worker_source.py`, mirroring the clamp on `GET /articles` in `workers/rss/src/index.js` | done 2026-10-02 — a memory bound, not the run cap: every row carries full feed content. It is sent by value because the Worker's default without one is lower; `tests/test_rss_worker_source.py` holds the two equal |
 | Feed health thresholds: unhealthy at 3 consecutive failed polls, or no stored article for 30 days (never included) | A | `UNHEALTHY_FAILURE_STREAK`, `QUIET_DAYS` in `adapters/store/feed_health.py` | done 2026-10-08 — one Substack 429 is routine, three hourly polls failing in a row is not; feeds publish weekly or monthly, so a shorter silence is noise. `cyris doctor` and `/settings` both judge through `FeedHealth.problems`, so neither copies a number |
 | Pages publish timing: the 180s budget and 120s run reserve, the stage and alias poll counts and intervals, the 20s per-request timeout and a deploy attempt's worst case | A | `adapters/output/publish.py`, `adapters/output/pages_deploy.py` | unchanged — reasons in the comments beside each constant; `tests/test_publish.py` pins the budget against `RUN_SLEEP_AFTER` in `workers/app/src/index.js`, and what the budget does not cover is in *Publishing* (§6) |
@@ -541,11 +541,14 @@ names a provider but no model, plus the similarity cutoff each embedding model i
 calibrated at. The file holds values; the reasons are here, so that changing a number
 means reading why it is that number.
 
-**`workers_ai` defaults to `@cf/openai/gpt-oss-120b`, not `llama-3.3-70b`.** The filter
-tier sends a window's articles as one un-batched prompt, and llama's 24k context leaves
-no headroom on a busy window — the run does not degrade, it fails. gpt-oss has 128k. It
-is also about 3x cheaper on output (68,182 against 204,805 neurons per M output tokens),
-which is the smaller reason but points the same way.
+**`workers_ai` defaults to `@cf/openai/gpt-oss-120b`, not `llama-3.3-70b`.** The main reason
+is output cost: gpt-oss is about 3x cheaper on output (68,182 against 204,805 neurons per M
+output tokens). The context window is the other reason, and it still applies to
+`cluster_news`, which sends every news article of a window in one prompt
+(`service_layer/cluster_news.py:68-75`): llama's 24k context leaves no headroom on a busy
+window, and the run does not degrade, it fails. gpt-oss has 128k. The filter tier no longer
+grows with the window, because its prompt is bounded by `BATCH_SIZE` in
+`service_layer/filtering.py`.
 
 **`ai_gateway` defaults to `google/gemini-3.8-flash`.** It is the model production runs through
 `gemini`, under the name the gateway catalog gives it, so switching providers changes the path and

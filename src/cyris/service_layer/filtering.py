@@ -13,6 +13,11 @@ from cyris.service_layer.prompts import (
 
 logger = logging.getLogger(__name__)
 
+# Batch size changes nothing a reader sees: every article is still judged, so do not
+# tune it. Bounding each prompt is what keeps the pipeline independent of any model's
+# long-prompt pricing and context tier.
+BATCH_SIZE = 20
+
 
 async def filter_articles(
     articles: list[Article],
@@ -24,10 +29,10 @@ async def filter_articles(
     output_language: str,
     style_prompt: str,
 ) -> list[DigestItem]:
-    """Send filter-tier articles to Claude for headline extraction.
+    """Send filter-tier articles to Claude for headline extraction, BATCH_SIZE at a time.
 
-    All articles are sent in a single batch for cross-comparison. No pass rate is
-    enforced: `FILTER_SYSTEM` asks for merit, not a percentage target.
+    Each batch is one call and is judged on its own. No pass rate is enforced:
+    `FILTER_SYSTEM` asks for merit, not a percentage target.
 
     Args:
         articles: Filter-tier articles to process.
@@ -40,30 +45,37 @@ async def filter_articles(
     if not articles:
         return []
 
-    articles_to_process = articles
-
     # Degraded mode: no LLM → keep the articles as plain excerpts
     if llm is None:
         logger.warning("No LLM configured; filter tier falls back to excerpt headlines")
         if usage is not None:
             usage.fell_back_to_excerpts = True
-        return headlines_from_articles(articles_to_process, article_scores)
+        return headlines_from_articles(articles, article_scores)
 
-    logger.info("Filtering %d articles through the LLM", len(articles_to_process))
+    logger.info("Filtering %d articles through the LLM", len(articles))
 
-    user_prompt = build_filter_prompt(articles_to_process, snippet_length=filter_snippet_length)
     system_prompt = build_filter_system_prompt(output_language, style_prompt=style_prompt)
 
+    items: list[DigestItem] = []
     try:
-        data = await complete_json(
-            llm, user_prompt, system=system_prompt, temperature=1.0, usage=usage
-        )
+        for start in range(0, len(articles), BATCH_SIZE):
+            batch = articles[start : start + BATCH_SIZE]
+            user_prompt = build_filter_prompt(batch, snippet_length=filter_snippet_length)
+            data = await complete_json(
+                llm, user_prompt, system=system_prompt, temperature=1.0, usage=usage
+            )
+            items.extend(_selected_items(data, articles, article_scores))
     except Exception:
         logger.warning("Filter LLM call failed; falling back to excerpt headlines", exc_info=True)
         if usage is not None:
             usage.fell_back_to_excerpts = True
-        return headlines_from_articles(articles_to_process, article_scores)
+        return headlines_from_articles(articles, article_scores)
+    return items
 
+
+def _selected_items(
+    data: dict, pool: list[Article], article_scores: dict[str, float] | None
+) -> list[DigestItem]:
     items = []
     for entry in data.get("selected", []):
         required_fields = {"id", "title", "source"}
@@ -87,8 +99,8 @@ async def filter_articles(
                 entry,
             )
             continue
-        position = echoed_position(entry["id"], len(articles_to_process))
-        source_article = articles_to_process[position] if position is not None else None
+        position = echoed_position(entry["id"], len(pool))
+        source_article = pool[position] if position is not None else None
         if source_article is None:
             logger.warning("Filter returned unknown article id %r; item has no link", entry["id"])
         article_url = source_article.url if source_article else ""
@@ -103,11 +115,4 @@ async def filter_articles(
                 score=score,
             )
         )
-
-    logger.info(
-        "Filter passed %d / %d articles (%.1f%%)",
-        len(items),
-        len(articles_to_process),
-        len(items) / len(articles_to_process) * 100 if articles_to_process else 0,
-    )
     return items
