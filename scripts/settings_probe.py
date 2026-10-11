@@ -156,6 +156,17 @@ class FakeAreaStore:
         for position, area_id in enumerate(ids):
             self.areas[area_id] = self.areas[area_id].model_copy(update={"position": position})
 
+    def activate(self, area_id: int) -> int:
+        """A proposal goes active last in the order; the rows changed, 0 or 1, as in D1."""
+        area = self.areas[area_id]
+        if area.status != "proposed":
+            return 0
+        position = 1 + max(
+            (a.position for a in self.areas.values() if a.status == "active"), default=-1
+        )
+        self.areas[area_id] = area.model_copy(update={"status": "active", "position": position})
+        return 1
+
     def dismiss(self, area_id: int) -> int:
         """A proposal leaves `proposed` for `dismissed`; the rows changed, 0 or 1, as in D1."""
         area = self.areas[area_id]
@@ -504,6 +515,15 @@ def _threshold_is(*wanted: int | None) -> Callable[[Fixture], str | None]:
     return receipt
 
 
+def _stored_in_area(fixture: Fixture, area_id: int) -> str | None:
+    """Both seeded sources the proposal named hold `area_id`, and the proposal is active."""
+    for name in ("Simon Willison", "Hacker News"):
+        problem = _stored(name, area_id=area_id)(fixture)
+        if problem:
+            return problem
+    return _area_is(area_id, status="active")(fixture)
+
+
 def _last_call(wanted: dict) -> Callable[[Fixture], str | None]:
     """A receipt: the settings store's last write was exactly `wanted`."""
 
@@ -530,6 +550,27 @@ await settingsLoaded();
 setValue($("#type-scale"), "{value}");
 saveOf("digest").click();
 await waitFor(() => settled(noticeOf("digest")) && saveOf("digest").disabled, "the save");
+"""
+
+
+# The propose answer names X with two seeded sources; every POST the page makes is logged in
+# `window.__calls`, and the activate and assign go to the real fixture server.
+PROPOSE_ANSWER = """
+window.__calls = [];
+const realFetch = window.fetch;
+window.fetch = (input, init) => {
+  if (init && init.method && init.method !== "GET") {
+    window.__calls.push([String(input), init.method, init.body || null]);
+  }
+  if (String(input).endsWith("/api/areas/propose") && init && init.method === "POST") {
+    const answer = {ok: true, created: 0, proposals: [
+      {id: 3, name: "X", sources: ["Simon Willison", "Hacker News"]},
+    ]};
+    return Promise.resolve(new Response(JSON.stringify(answer),
+      {headers: {"Content-Type": "application/json"}}));
+  }
+  return realFetch(input, init);
+};
 """
 
 
@@ -3370,6 +3411,7 @@ CHECKS += [
             expect(visible(notice) && notice.textContent.includes("No writable area table"),
                    `notice: ${notice.textContent}`);
             expect(same(areaNames(), []), `rows: ${areaNames()}`);
+            expect($("#propose-areas").disabled, "Propose is enabled");
         """,
         sabotage="""$("#areas-notice").hidden = true;""",
     ),
@@ -3593,6 +3635,84 @@ CHECKS += [
             expect(!enabled.length, `enabled: ${enabled}`);
         """,
         sabotage="""$("#th-articles").disabled = false;""",
+    ),
+]
+
+# Confirm turns a proposal into an active area and assigns the checked sources to it.
+PROPOSE_CLICK = """
+await areasListed();
+$("#propose-areas").click();
+await waitFor(() => $(".sources-check", $("#proposed-body")), "the checklist");
+"""
+CHECKS += [
+    Check(
+        id="areas-propose-confirm",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=PROPOSE_ANSWER,
+        act=f"""
+            {PROPOSE_CLICK}
+            ctx.checked = $$(".sources-check input:checked", $("#proposed-body")).length;
+            $("[data-confirm='3']").click();
+            await waitFor(() => areaNames().includes("X"), "X to become active");
+        """,
+        script="""
+            expect(ctx.checked === 2, `checked before Confirm: ${ctx.checked}`);
+            const sent = window.__calls.map(([url, method, body]) => [url, method, body]);
+            expect(same(sent, [
+              ["/api/areas/propose", "POST", "{}"],
+              ["/api/areas/3/activate", "POST", null],
+              ["/api/areas/3/sources", "POST",
+               JSON.stringify({sources: ["Simon Willison", "Hacker News"]})],
+            ]), `calls: ${JSON.stringify(sent)}`);
+            expect(same(areaNames(), ["Tech", "Food", "X"]), `rows: ${areaNames()}`);
+        """,
+        sabotage="""window.__calls.length = 0;""",
+        receipt=lambda fixture: _stored_in_area(fixture, 3),
+    ),
+    Check(
+        id="areas-propose-unchecked",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=PROPOSE_ANSWER,
+        act=f"""
+            {PROPOSE_CLICK}
+            $$(".sources-check input").find((input) => input.value === "Hacker News").click();
+            $("[data-confirm='3']").click();
+            await waitFor(() => areaNames().includes("X"), "X to become active");
+        """,
+        script="""
+            const assign = window.__calls.find(([url]) => url === "/api/areas/3/sources");
+            expect(assign && assign[2] === JSON.stringify({sources: ["Simon Willison"]}),
+                   `assign: ${JSON.stringify(assign)}`);
+        """,
+        sabotage="""window.__calls.length = 0;""",
+        receipt=_stored("Simon Willison", area_id=3),
+    ),
+    Check(
+        id="areas-propose-refused",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=answer_post(
+            "/api/areas/propose",
+            """Promise.resolve(new Response(JSON.stringify({ok: false,
+              error: "The model call failed (TimeoutError)."}),
+              {status: 502, headers: {"Content-Type": "application/json"}}))""",
+        ),
+        act="""
+            await areasListed();
+            $("#propose-areas").click();
+            await waitFor(() => visible($("#areas-notice")) && !$("#propose-areas").disabled,
+                          "the notice");
+        """,
+        script="""
+            const notice = $("#areas-notice");
+            expect(notice.classList.contains("err"), `notice: ${notice.className}`);
+            expect(notice.textContent === "The model call failed (TimeoutError).",
+                   `notice: ${notice.textContent}`);
+            expect(!$("#propose-areas").disabled, "Propose is still disabled");
+        """,
+        sabotage="""$("#propose-areas").disabled = true;""",
     ),
 ]
 

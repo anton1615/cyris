@@ -854,6 +854,29 @@ const areaNameOf = (id) => areas.find((area) => area.id === id)?.name ?? "";
 
 // Which editor is open: null for none, else the area's id.
 let openArea = null;
+// The sources each proposal named by the last propose answer, held in page memory.
+let proposalSources = {};
+// Proposals whose activate has landed, so their next Confirm sends only the assign.
+const activated = new Set();
+
+// A proposal from the last propose answer shows its sources, all checked, and its Confirm.
+const proposalRow = (area) => {
+  const sources = proposalSources[area.id];
+  return sources ? `
+      <tr class="proposal" data-proposal="${area.id}"><td colspan="2">
+        <fieldset class="sources-check">
+          <legend class="label">Sources</legend>
+          ${sources.map((name) => `<label class="choice">
+            <input type="checkbox" value="${esc(name)}" checked>
+            <span class="name">${esc(name)}</span>
+          </label>`).join("")}
+        </fieldset>
+        <div class="actions-line">
+          <button class="btn primary" type="button" data-confirm="${area.id}">Confirm</button>
+          <div class="notice" role="status" hidden></div>
+        </div>
+      </td></tr>` : "";
+};
 
 const areaRow = (id) => document.querySelector(`tr.src-row[data-id="${id}"]`);
 
@@ -879,7 +902,7 @@ function renderAreas() {
         <td class="name">${esc(area.name)}</td>
         <td class="small">${area.proposal_articles} articles / ${area.proposal_issues} issues${
           meetsThreshold(area) ? ' <span class="pill">Meets birth threshold</span>' : ""}</td>
-      </tr>`).join("")
+      </tr>${proposalRow(area)}`).join("")
     : `<tr><td colspan="2" class="small">No proposals yet.</td></tr>`;
   $("closed-list").innerHTML = closed.length
     ? closed.map((area) => `<li>${esc(area.name)} — ${area.status === "merged"
@@ -997,6 +1020,56 @@ function toggleArea(id) {
   else document.querySelector("tr.editor #a-name").focus();
 }
 
+// Confirm activates a proposal, then assigns the sources still checked to it. A failure
+// after the activate keeps the row open, and its button retries the assign alone.
+async function confirmProposal(id, button) {
+  const row = button.closest("tr.proposal");
+  const notice = row.querySelector(".notice");
+  const name = areaNameOf(id);
+  const sources = [...row.querySelectorAll("input:checked")].map((input) => input.value);
+  button.disabled = true;
+  try {
+    if (!activated.has(id)) {
+      await post(`/api/areas/${id}/activate`, null);
+      activated.add(id);
+    }
+    const data = await post(`/api/areas/${id}/sources`, {sources});
+    activated.delete(id);
+    delete proposalSources[id];
+    await loadAreas();
+    show("ok", `${name} is active. ${data.assigned} sources assigned. Effective next run.`,
+         "areas-notice");
+  } catch (err) {
+    const retry = activated.has(id);
+    show("err", retry
+      ? `${name} is active, but its sources were not assigned. ${err.message} Press Retry to try again.`
+      : err.message, notice);
+    button.textContent = retry ? "Retry" : "Confirm";
+    button.disabled = false;
+  }
+}
+
+$("proposed-body").addEventListener("click", (e) => {
+  const button = e.target.closest("[data-confirm]");
+  if (button) confirmProposal(Number(button.dataset.confirm), button);
+});
+
+$("propose-areas").addEventListener("click", async () => {
+  const button = $("propose-areas");
+  button.disabled = true;
+  show("busy", "Proposing areas from your sources…", "areas-notice");
+  try {
+    const data = await post("/api/areas/propose", {});
+    proposalSources = Object.fromEntries(data.proposals.map((p) => [p.id, p.sources]));
+    await loadAreas();
+    show("ok", `${data.created} new areas proposed. Check each one's sources, then Confirm.`,
+         "areas-notice");
+  } catch (err) {
+    show("err", err.message, "areas-notice");
+    button.disabled = !areasWritable;
+  }
+});
+
 // Swaps the area with its neighbour and saves the whole active order.
 async function moveArea(id, step) {
   const order = activeAreas().map((area) => area.id);
@@ -1046,6 +1119,7 @@ const loadAreas = () =>
       areas = d.areas;
       areasWritable = d.writable;
       birthThreshold = d.birth_threshold;
+      $("propose-areas").disabled = !d.writable;
       if (!d.writable) show("err", NO_AREA_TABLE, "areas-notice");
       renderAreas();
       renderThreshold();
@@ -1053,6 +1127,7 @@ const loadAreas = () =>
     .catch((e) => {
       areas = [];
       areasWritable = false;
+      $("propose-areas").disabled = true;
       show("err", e === SESSION_EXPIRED ? e.message
         : `Could not load areas: ${e.message || e}. Reload the page to try again.`, "areas-notice");
       renderAreas();
