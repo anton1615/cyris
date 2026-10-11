@@ -14,6 +14,7 @@ from cyris.adapters.output import html_digest
 from cyris.adapters.store.feed_health import FeedHealth
 from cyris.config import SETTINGS_FIELDS
 from cyris.diagnostics.doctor import probe_discord, probe_embedder
+from cyris.domain.areas import Area, meets_birth_threshold
 from cyris.domain.models import NEWSLETTER_SOURCE_TYPE, SourceConfig, TrackedTopic
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,18 @@ def _values_note(keys: list[str]) -> str:
     if len(live) == len(keys):
         return "Pages show it within a minute."
     return f"{', '.join(live)}: pages show it within a minute. The rest: effective next run."
+
+
+_AREA_GROUP = {"active": 0, "proposed": 1, "dismissed": 2, "merged": 3}
+
+
+def _area_order(area: Area) -> tuple[int, int, int, int]:
+    """Active by position, proposals by how much evidence they have, then the rest by id."""
+    if area.status == "active":
+        return (0, area.position, 0, area.id)
+    if area.status == "proposed":
+        return (1, -area.proposal_issues, -area.proposal_articles, area.id)
+    return (_AREA_GROUP[area.status], 0, 0, area.id)
 
 
 def _health_json(health: FeedHealth | None, now: datetime) -> dict[str, Any] | None:
@@ -182,6 +195,7 @@ class TriageServer:
         self._app.router.add_get("/api/topics", self._handle_get_topics)
         self._app.router.add_post("/api/topics", self._handle_post_topic)
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
+        self._app.router.add_get("/api/areas", self._handle_get_areas)
         self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
         self._app.router.add_get("/api/labels", self._handle_get_labels)
         self._app.router.add_post("/api/labels", self._handle_post_label)
@@ -806,6 +820,36 @@ class TriageServer:
                 "excerpt": excerpt(card.content),
             }
         return {"answered": answered, "total": total, "item": item}
+
+    async def _handle_get_areas(self, request: web.Request) -> web.Response:
+        """Every area with its status and counts, in the order the page lists them."""
+        if self._area_store is None:
+            return web.json_response({"writable": False, "areas": [], "birth_threshold": None})
+        try:
+            areas = self._area_store.list_areas()
+            threshold = self._area_store.birth_threshold()
+        except Exception as e:  # noqa: BLE001 - the reason goes to the log, not the page
+            logger.error("Reading areas failed: %s", type(e).__name__)
+            return web.json_response(
+                {"ok": False, "error": "The area table could not be read."}, status=500
+            )
+        return web.json_response(
+            {
+                "writable": True,
+                "areas": [
+                    {
+                        **area.model_dump(),
+                        "meets_birth_threshold": meets_birth_threshold(area, threshold),
+                    }
+                    for area in sorted(areas, key=_area_order)
+                ],
+                "birth_threshold": (
+                    None
+                    if threshold is None
+                    else {"articles": threshold[0], "issues": threshold[1]}
+                ),
+            }
+        )
 
     def _no_area_table(self) -> web.Response:
         return web.json_response(
