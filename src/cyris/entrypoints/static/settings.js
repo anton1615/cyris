@@ -2,7 +2,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[<>&"]/g, (c) => `&#${c.charCodeAt(0)};`);
 let state = null;
 
-const TABS = ["model", "digest", "pipeline", "notifications", "sources", "tracking"];
+const TABS = ["model", "digest", "pipeline", "notifications", "sources", "areas", "tracking"];
 const SETTINGS_NOTICES = ["model-result", "digest-result", "pipeline-result", "notify-result"];
 
 // The category lives in the hash, not the path: the Worker guards /settings by
@@ -834,6 +834,70 @@ const loadSources = () =>
     });
 
 loadSources();
+
+// Areas: the active ones in order, the proposals waiting for a decision, and the
+// closed ones, from one read. A deployment without an area table is read-only.
+let areas = [];
+let areasWritable = false;
+// The (articles, issues) a proposal must reach to be marked; null until it is set.
+let birthThreshold = null;
+
+const NO_AREA_TABLE = "No writable area table here — the areas live in the D1 store this deployment lacks.";
+
+const areasNav = () => document.querySelector('.settings-nav a[data-tab="areas"]');
+
+const meetsThreshold = (area) => birthThreshold !== null && area.status === "proposed"
+  && area.proposal_articles >= birthThreshold.articles
+  && area.proposal_issues >= birthThreshold.issues;
+
+const areaNameOf = (id) => areas.find((area) => area.id === id)?.name ?? "";
+
+function renderAreas() {
+  const active = areas.filter((area) => area.status === "active");
+  const proposed = areas.filter((area) => area.status === "proposed");
+  const closed = areas.filter((area) => area.status === "dismissed" || area.status === "merged");
+  $("area-body").innerHTML = active.length
+    ? active.map((area) => `
+      <tr class="src-row" data-id="${area.id}" tabindex="0">
+        <td class="name">${esc(area.name)}</td>
+      </tr>`).join("")
+    : `<tr><td class="small">No areas yet.</td></tr>`;
+  $("proposed-body").innerHTML = proposed.length
+    ? proposed.map((area) => `
+      <tr class="src-row" data-id="${area.id}" tabindex="0">
+        <td class="name">${esc(area.name)}</td>
+        <td class="small">${area.proposal_articles} articles / ${area.proposal_issues} issues${
+          meetsThreshold(area) ? ' <span class="pill">Meets birth threshold</span>' : ""}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="2" class="small">No proposals yet.</td></tr>`;
+  $("closed-list").innerHTML = closed.length
+    ? closed.map((area) => `<li>${esc(area.name)} — ${area.status === "merged"
+      ? `merged into ${esc(areaNameOf(area.merged_into))}` : "dismissed"}</li>`).join("")
+    : "<li>No closed areas.</li>";
+  $("threshold-hint").hidden = birthThreshold !== null;
+  areasNav().classList.remove("dirty");
+}
+
+const loadAreas = () =>
+  fetch("/api/areas")
+    .then((r) => (r.status === 401 ? Promise.reject(SESSION_EXPIRED) : r.json()))
+    .then((d) => {
+      if (!d.areas) throw new Error(d.error);
+      areas = d.areas;
+      areasWritable = d.writable;
+      birthThreshold = d.birth_threshold;
+      if (!d.writable) show("err", NO_AREA_TABLE, "areas-notice");
+      renderAreas();
+    })
+    .catch((e) => {
+      areas = [];
+      areasWritable = false;
+      show("err", e === SESSION_EXPIRED ? e.message
+        : `Could not load areas: ${e.message || e}. Reload the page to try again.`, "areas-notice");
+      renderAreas();
+    });
+
+loadAreas();
 
 // Tracked topics: the same table and in-place editor as sources. An empty list
 // is a valid answer, so Tracking never takes the missing dot.

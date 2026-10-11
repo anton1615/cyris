@@ -821,6 +821,7 @@ tr.editor[inert] .form { opacity: .4; }
         <a class="label missing" href="#settings/pipeline" data-tab="pipeline">Pipeline <span class="nav-dots"><span class="missing-dot"></span><span class="dirty-dot"></span></span></a>
         <a class="label" href="#settings/notifications" data-tab="notifications">Notifications <span class="nav-dots"><span class="missing-dot"></span><span class="dirty-dot"></span></span></a>
         <a class="label" href="#settings/sources" data-tab="sources">Sources <span class="nav-dots"><span class="missing-dot"></span><span class="dirty-dot"></span></span></a>
+        <a class="label" href="#settings/areas" data-tab="areas">Areas <span class="nav-dots"><span class="missing-dot"></span><span class="dirty-dot"></span></span></a>
         <a class="label" href="#settings/tracking" data-tab="tracking">Tracking <span class="nav-dots"><span class="missing-dot"></span><span class="dirty-dot"></span></span></a>
       </nav>
 
@@ -1035,6 +1036,32 @@ tr.editor[inert] .form { opacity: .4; }
             <table class="src">
               <thead><tr><th class="label">Name</th><th class="label">Type</th><th class="label">Tier</th><th class="label">Feed or sender</th><th class="label">Tags</th></tr></thead>
               <tbody id="src-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- AREAS: the three lists from one read; the rows and the threshold controls follow the Tracking tab's pattern -->
+        <div class="tab" data-tab="areas" hidden>
+          <div class="tab-head">
+            <h2 class="heading">Areas</h2>
+            <p class="small">The areas the model files each article under, and the proposals waiting for you.</p>
+          </div>
+          <h3 class="label">Areas</h3>
+          <div class="table-wrap">
+            <table class="src">
+              <thead><tr><th class="label">Name</th></tr></thead>
+              <tbody>
+                <tr class="src-row" tabindex="0"><td class="name">Tech</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h3 class="label">Proposed</h3>
+          <div class="table-wrap">
+            <table class="src">
+              <thead><tr><th class="label">Name</th><th class="label">Counts</th></tr></thead>
+              <tbody>
+                <tr class="src-row" tabindex="0"><td class="name">Food</td><td class="small">12 articles / 3 issues <span class="pill">Meets birth threshold</span></td></tr>
+              </tbody>
             </table>
           </div>
         </div>

@@ -599,6 +599,10 @@ EXPECTED_IDS = {
     "sources-empty-all",
     "readonly-settings",
     "readonly-sources",
+    "areas-lists",
+    "areas-empty-no-missing-mark",
+    "areas-readonly-json",
+    "areas-read-failure",
     "tracking-rows",
     "tracking-empty-is-no-missing-mark",
     "tracking-add",
@@ -723,6 +727,8 @@ def test_every_probe_check_is_named_once_and_can_be_sabotaged():
         "writable-largest",
         "writable-health",
         "writable-topics",
+        "writable-areas",
+        "writable-areas-empty",
     }
     assert set(ids) >= EXPECTED_IDS
 

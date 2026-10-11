@@ -548,13 +548,26 @@ async def test_settings_never_asks_the_browser_to_confirm(triage: TestClient, pa
     assert not _uses_confirm(await _served(triage, path))
 
 
-SETTINGS_HASHES = ["#model", "#digest", "#pipeline", "#notifications", "#sources", "#tracking"]
+SETTINGS_HASHES = [
+    "#model",
+    "#digest",
+    "#pipeline",
+    "#notifications",
+    "#sources",
+    "#areas",
+    "#tracking",
+]
 
 
 def _hash_targets(html: str) -> set[str]:
     """The element ids a category hash would scroll to, which it must never do."""
     ids = set(re.findall(r'\bid="([^"]+)"', html))
     return ids & {category.lstrip("#") for category in SETTINGS_HASHES}
+
+
+def test_the_settings_hashes_are_the_ui_language_table() -> None:
+    table = re.findall(r"^\| `(#\w+)` \|", UI_SPEC.read_text(), re.MULTILINE)
+    assert table == SETTINGS_HASHES
 
 
 def test_an_element_named_like_a_category_is_reported() -> None:

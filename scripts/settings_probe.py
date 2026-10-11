@@ -52,6 +52,7 @@ from cyris.adapters.notify import mask_discord_webhook_url
 from cyris.adapters.store.feed_health import FeedHealth
 from cyris.config import GRADE_D_KEYS, LLMProviderConfig
 from cyris.diagnostics.doctor import Check as DoctorCheck
+from cyris.domain.areas import Area
 from cyris.domain.models import SourceConfig, Tier, TrackedTopic
 from cyris.entrypoints.triage_server import TriageServer
 
@@ -126,6 +127,20 @@ class FakeTopicStore:
         return 1 if self.topics.pop(name, None) else 0
 
 
+class FakeAreaStore:
+    """Stands in for the D1 `areas` and `area_birth_threshold` tables; `areas` is the receipt."""
+
+    def __init__(self, areas: dict[int, Area], threshold: tuple[int, int] | None) -> None:
+        self.areas = areas
+        self.threshold = threshold
+
+    def list_areas(self) -> list[Area]:
+        return [self.areas[i] for i in sorted(self.areas)]
+
+    def birth_threshold(self) -> tuple[int, int] | None:
+        return self.threshold
+
+
 # The probe values embed with workers_ai's default model, @cf/baai/bge-m3.
 PROBE_EMBEDDING_MODEL = "@cf/baai/bge-m3"
 
@@ -179,6 +194,63 @@ def _seed_sources() -> dict[str, SourceConfig]:
     return {source.name: source for source in listed}
 
 
+def _seed_areas() -> dict[int, Area]:
+    """Two active areas, a proposal at 12 articles / 3 issues, a dismissed one and a merged one."""
+    listed = [
+        Area(
+            id=1,
+            name="Tech",
+            position=0,
+            status="active",
+            merged_into=None,
+            proposal_articles=0,
+            proposal_issues=0,
+            last_proposed_run=None,
+        ),
+        Area(
+            id=2,
+            name="Food",
+            position=1,
+            status="active",
+            merged_into=None,
+            proposal_articles=0,
+            proposal_issues=0,
+            last_proposed_run=None,
+        ),
+        Area(
+            id=3,
+            name="X",
+            position=0,
+            status="proposed",
+            merged_into=None,
+            proposal_articles=12,
+            proposal_issues=3,
+            last_proposed_run=None,
+        ),
+        Area(
+            id=4,
+            name="Old",
+            position=0,
+            status="dismissed",
+            merged_into=None,
+            proposal_articles=2,
+            proposal_issues=1,
+            last_proposed_run=None,
+        ),
+        Area(
+            id=5,
+            name="Sports",
+            position=0,
+            status="merged",
+            merged_into=1,
+            proposal_articles=4,
+            proposal_issues=2,
+            last_proposed_run=None,
+        ),
+    ]
+    return {area.id: area for area in listed}
+
+
 _PROBE_VALUES = {
     "general.digest_schedule": ["08:00", "20:00"],
     "general.timezone": "Asia/Taipei",
@@ -224,6 +296,7 @@ class Fixture:
     sources: dict[str, SourceConfig]
     values: dict
     topics: dict[str, TrackedTopic] = field(default_factory=dict)
+    areas: dict[int, Area] = field(default_factory=dict)
 
 
 def build_fixture(kind: str) -> Fixture:
@@ -231,26 +304,55 @@ def build_fixture(kind: str) -> Fixture:
 
     `writable-largest` is `writable` with the page served at the largest type size;
     `writable-health` is `writable` with one feed failing; `writable-topics` is
-    `writable` with two tracked topics, one set for another embedding model.
+    `writable` with two tracked topics, one set for another embedding model;
+    `writable-areas` is `writable` with an area table (`writable-areas-empty`, none in it).
     Every other writable fixture tracks no topic, so `rowNames` reads sources alone.
     """
     common = {"values": PROBE_VALUES, "sources": _seed_sources()}
     if kind == "readonly":
         server = TriageServer(**common)
         return Fixture(server._app, None, server._sources, server._values)
-    if kind in ("writable", "writable-largest", "writable-health", "writable-topics"):
+    if kind in (
+        "writable",
+        "writable-largest",
+        "writable-health",
+        "writable-topics",
+        "writable-areas",
+        "writable-areas-empty",
+    ):
         settings = FakeSettings()
         store = FakeSourceStore(_seed_sources())
         topics = FakeTopicStore(_seed_topics() if kind == "writable-topics" else {})
+        # The area table is absent from every other writable fixture, so its page is read-only.
+        areas = (
+            FakeAreaStore(
+                _seed_areas() if kind == "writable-areas" else {},
+                (10, 3) if kind == "writable-areas" else None,
+            )
+            if kind.startswith("writable-areas")
+            else None
+        )
         # Health only where a check asks for it: its line sits in the name cell
         # that `rowNames` reads.
         health = FakeFeedHealth() if kind == "writable-health" else None
         server = TriageServer(
-            settings=settings, source_store=store, feed_health=health, topic_store=topics, **common
+            settings=settings,
+            source_store=store,
+            feed_health=health,
+            topic_store=topics,
+            area_store=areas,
+            **common,
         )
         if kind == "writable-largest":
             server._settings_page = at_largest_type_scale(server._settings_page)
-        return Fixture(server._app, settings, store.sources, server._values, topics.topics)
+        return Fixture(
+            server._app,
+            settings,
+            store.sources,
+            server._values,
+            topics.topics,
+            areas.areas if areas else {},
+        )
     raise ValueError(f"unknown fixture {kind!r}")
 
 
@@ -3180,6 +3282,71 @@ CHECKS += [
         receipt=_topic_gone("Chips"),
     ),
 ]
+# Areas: the active ones, the proposals and the closed ones, from one read.
+CHECKS += [
+    Check(
+        id="areas-lists",
+        fixture="writable-areas",
+        path="/settings#areas",
+        act="await areasListed();",
+        script="""
+            expect(same(areaNames(), ["Tech", "Food"]), `Areas: ${areaNames()}`);
+            const proposed = $$("#proposed-body tr.src-row").map((row) => row.textContent);
+            expect(proposed.length === 1 && proposed[0].includes("12 articles / 3 issues"),
+                   `proposed: ${proposed}`);
+            expect(!!$(".pill", $("#proposed-body")), "no Meets birth threshold pill");
+            const closed = $$("#closed-list li").map((item) => item.textContent);
+            expect(same(closed, ["Old — dismissed", "Sports — merged into Tech"]),
+                   `closed: ${closed}`);
+        """,
+        sabotage="""$(".pill", $("#proposed-body")).remove();""",
+    ),
+    Check(
+        id="areas-empty-no-missing-mark",
+        fixture="writable-areas-empty",
+        path="/settings#areas",
+        act="await areasListed();",
+        script="""
+            const rows = $$("#area-body tr").map((row) => row.textContent.trim());
+            expect(same(rows, ["No areas yet."]), `rows: ${rows}`);
+            expect(!navOf("areas").classList.contains("missing"), "Areas is marked missing");
+        """,
+        sabotage="""navOf("areas").classList.add("missing");""",
+    ),
+    Check(
+        id="areas-readonly-json",
+        fixture="readonly",
+        path="/settings#areas",
+        act="await areasListed();",
+        script="""
+            const notice = $("#areas-notice");
+            expect(visible(notice) && notice.textContent.includes("No writable area table"),
+                   `notice: ${notice.textContent}`);
+            expect(same(areaNames(), []), `rows: ${areaNames()}`);
+        """,
+        sabotage="""$("#areas-notice").hidden = true;""",
+    ),
+    Check(
+        id="areas-read-failure",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=answer_get(
+            "/api/areas",
+            """Promise.resolve(new Response(JSON.stringify({ok: false, error: "boom"}),
+              {status: 500, headers: {"Content-Type": "application/json"}}))""",
+        ),
+        act="""
+            await waitFor(() => visible($("#areas-notice")), "the notice");
+        """,
+        script="""
+            const notice = $("#areas-notice");
+            expect(notice.classList.contains("err"), `notice: ${notice.className}`);
+            expect(!$("#area-body [data-loading]"), "the loading row is stuck");
+            expect(same(areaNames(), []), `rows: ${areaNames()}`);
+        """,
+        sabotage="""$("#areas-notice").classList.remove("err");""",
+    ),
+]
 # The page fits at the largest type size too.
 CHECKS += [
     largest_twin(check, check.id.replace("fits-", "fits-largest-"), "writable-largest")
@@ -3224,13 +3391,18 @@ const noticeOf = (tab) => $(".actions-line .notice", $(`form.tab[data-tab="${tab
 const settled = (notice) => visible(notice) && notice.getAttribute("aria-busy") !== "true";
 const eachCategory = async (measure) => {
   const problems = [];
-  for (const tab of ["model", "digest", "pipeline", "notifications", "sources", "tracking"]) {
+  for (const tab of ["model", "digest", "pipeline", "notifications", "sources", "areas",
+                     "tracking"]) {
     location.hash = tab;
     await waitFor(() => same(panels(), [tab]), tab);
     problems.push(...measure(tab));
   }
   return problems;
 };
+const areaNames = () =>
+  $$("#area-body tr.src-row").map((row) => $("td", row).textContent);
+const areasListed = () =>
+  waitFor(() => $$("#area-body tr").length && !$("#area-body [data-loading]"), "the area list");
 const topicNames = () =>
   $$("#topic-body tr.src-row").map((row) => $("td", row).firstChild.textContent);
 const topicsListed = () =>
