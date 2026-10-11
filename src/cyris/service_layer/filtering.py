@@ -14,7 +14,7 @@ from cyris.service_layer.prompts import (
 logger = logging.getLogger(__name__)
 
 # Bounding each prompt keeps the pipeline independent of any model's long-prompt pricing
-# and context tier.
+# and context tier; every article is still judged, batch by batch.
 BATCH_SIZE = 20
 
 
