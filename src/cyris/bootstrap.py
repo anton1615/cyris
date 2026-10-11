@@ -235,6 +235,7 @@ def load_effective_config(config_path: Path, sources_path: Path) -> Config:
     here, because a host run and a container run resolving settings differently
     is the failure this exists to prevent — so a D1 read error propagates.
     """
+    from cyris.adapters.store.areas import D1AreaStore
     from cyris.adapters.store.d1 import apply_schema
     from cyris.adapters.store.source_store import D1SourceStore
     from cyris.adapters.store.tracked_topics import D1TrackedTopicStore
@@ -257,6 +258,7 @@ def load_effective_config(config_path: Path, sources_path: Path) -> Config:
     # The table alone, empty included: sources.yaml is not a D1 deployment's list.
     cfg.sources = D1SourceStore(d1).list_sources()
     cfg.tracked_topics = D1TrackedTopicStore(d1).list_topics()
+    cfg.areas = D1AreaStore(d1).list_areas()
     return cfg
 
 

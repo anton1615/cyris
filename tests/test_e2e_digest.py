@@ -326,6 +326,8 @@ EXPECTED_D1 = [
     "SELECT sources",
     # An empty table: the run tracks no topic, so it embeds nothing.
     "SELECT tracked_topics",
+    # An empty table: the run names no area, so the model gets no closed set.
+    "SELECT areas",
     # The stored issues the site might lack; a first run has none, so no manifest read.
     "SELECT digests",
     # The vote: find the voted article, reject it, stamp it as a human verdict.
