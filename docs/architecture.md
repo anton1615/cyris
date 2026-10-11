@@ -545,8 +545,9 @@ means reading why it is that number.
 is output cost: gpt-oss is about 3x cheaper on output (68,182 against 204,805 neurons per M
 output tokens). The context window is the other reason, and it still applies to
 `cluster_news`, which sends every news article of a window in one prompt
-(`service_layer/cluster_news.py:68-75`): llama's 24k context leaves no headroom on a busy
-window, and the run does not degrade, it fails. gpt-oss has 128k. The filter tier no longer
+(`cluster_news()` in `service_layer/cluster_news.py`): llama's 24k context leaves no headroom
+on a busy window, so clustering fails, every news article falls through to the filter
+unclustered, and the digest loses its news clusters. gpt-oss has 128k. The filter tier no longer
 grows with the window, because its prompt is bounded by `BATCH_SIZE` in
 `service_layer/filtering.py`.
 
