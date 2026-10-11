@@ -23,6 +23,7 @@
   },
   "baked": {
     "scoring.batch_size": "cyris.service_layer.scoring:BATCH_SIZE",
+    "filtering.batch_size": "cyris.service_layer.filtering:BATCH_SIZE",
     "embedding.workers_ai.batch_size": "cyris.adapters.embedding:WorkersAIEmbedder.BATCH_SIZE",
     "embedding.gemini.batch_size": "cyris.adapters.embedding:GeminiEmbedder.BATCH_SIZE",
     "rss_worker.row_ceiling": "cyris.adapters.fetch.rss_worker_source:WORKER_ROW_CEILING",
