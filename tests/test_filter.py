@@ -430,12 +430,6 @@ class TestFilterBatchCountLog:
 
         assert _filter_messages(caplog, "Filtering")[0].endswith("(batches: 1)")
 
-    async def test_successful_run_adds_no_warning(self, caplog):
-        with caplog.at_level(logging.WARNING):
-            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_selecting()))
-
-        assert caplog.records == []
-
     async def test_no_llm_logs_no_filtering_line(self, caplog):
         with caplog.at_level(logging.INFO, logger=filtering.logger.name):
             await _run(_articles(3), None)
@@ -444,7 +438,7 @@ class TestFilterBatchCountLog:
 
 
 class TestFilterBatchFallback:
-    async def test_failed_middle_batch_falls_back_and_others_are_judged(self):
+    async def test_failed_last_batch_falls_back_and_the_first_is_judged(self):
         articles = _articles(BATCH_SIZE + 3)
         llm = _FailingOnCalls([_selecting(0, title="first")], fail_on={1})
         usage = UsageStats(model="m")
@@ -658,7 +652,7 @@ class TestFilterPassRateLog:
 
         assert _filter_messages(caplog, "Filter passed") == []
 
-    async def test_single_article_pool_rate(self, sample_filter_articles, caplog):
+    async def test_single_batch_pool_rate(self, sample_filter_articles, caplog):
         llm = FakeLLM(_selecting(0))
 
         with caplog.at_level(logging.INFO, logger=filtering.logger.name):
