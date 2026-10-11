@@ -852,16 +852,27 @@ const meetsThreshold = (area) => birthThreshold !== null && area.status === "pro
 
 const areaNameOf = (id) => areas.find((area) => area.id === id)?.name ?? "";
 
+// Which editor is open: null for none, else the area's id.
+let openArea = null;
+
+const areaRow = (id) => document.querySelector(`tr.src-row[data-id="${id}"]`);
+
+const activeAreas = () => areas.filter((area) => area.status === "active");
+
 function renderAreas() {
-  const active = areas.filter((area) => area.status === "active");
+  const active = activeAreas();
   const proposed = areas.filter((area) => area.status === "proposed");
   const closed = areas.filter((area) => area.status === "dismissed" || area.status === "merged");
   $("area-body").innerHTML = active.length
-    ? active.map((area) => `
+    ? active.map((area, i) => `
       <tr class="src-row" data-id="${area.id}" tabindex="0">
         <td class="name">${esc(area.name)}</td>
+        <td><div class="actions-line">
+          <button class="btn secondary" type="button" data-move="-1"${i === 0 ? " disabled" : ""}>Up</button>
+          <button class="btn secondary" type="button" data-move="1"${i === active.length - 1 ? " disabled" : ""}>Down</button>
+        </div></td>
       </tr>`).join("")
-    : `<tr><td class="small">No areas yet.</td></tr>`;
+    : `<tr><td colspan="2" class="small">No areas yet.</td></tr>`;
   $("proposed-body").innerHTML = proposed.length
     ? proposed.map((area) => `
       <tr class="src-row" data-id="${area.id}" tabindex="0">
@@ -876,7 +887,157 @@ function renderAreas() {
     : "<li>No closed areas.</li>";
   $("threshold-hint").hidden = birthThreshold !== null;
   areasNav().classList.remove("dirty");
+  if (openArea !== null) openAreaEditor(openArea);
 }
+
+// The destructive confirm: the first press arms the button, a second within three seconds acts.
+function armThen(button, label, act) {
+  let timer;
+  const disarm = () => {
+    clearTimeout(timer);
+    button.classList.remove("armed");
+    button.textContent = label;
+  };
+  button.addEventListener("click", () => {
+    if (!button.classList.contains("armed")) {
+      button.classList.add("armed");
+      button.textContent = "Press again to confirm";
+      timer = setTimeout(disarm, 3000);
+      return;
+    }
+    disarm();
+    act();
+  });
+}
+
+// Resolves to the response, or null once the failure is shown in the editor, which stays open.
+function openAreaEditor(id) {
+  const area = areas.find((x) => x.id === id);
+  const anchor = area && areaRow(id);
+  if (!anchor) {
+    openArea = null;
+    return null;
+  }
+  const ed = $("area-editor-tpl").content.firstElementChild.cloneNode(true);
+  const q = (selector) => ed.querySelector(selector);
+  anchor.after(ed);
+  anchor.classList.add("open");
+  q(".editor-title").textContent = `Editing ${area.name}`;
+  q("#a-name").value = area.name;
+  const save = q('[data-act="save"]');
+  const acts = ["activate", "dismiss", "merge"].map((act) => q(`[data-act="${act}"]`));
+  const into = q("#a-into");
+  const targets = activeAreas().filter((x) => x.id !== id);
+  into.replaceChildren(...targets.map((x) => new Option(x.name, String(x.id))));
+  q("[data-proposed]").hidden = area.status !== "proposed";
+  const refreshEditor = () => {
+    save.disabled = !areasWritable || !q("#a-name").value.trim() || q("#a-name").value === area.name;
+    acts.forEach((button) => { button.disabled = !areasWritable; });
+    q('[data-act="merge"]').disabled = !areasWritable || !targets.length;
+  };
+  const editorEdited = () => {
+    ed.querySelectorAll(".notice, [data-field-error]").forEach((n) => { n.hidden = true; });
+    ed.querySelectorAll(".invalid").forEach(clearRefusal);
+    refreshEditor();
+  };
+  ed.addEventListener("input", editorEdited);
+  ed.addEventListener("change", editorEdited);
+  refreshEditor();
+  if (!areasWritable) show("err", NO_AREA_TABLE, q(".notice"));
+  const writeArea = async (url, method, body, doing) => {
+    const notice = q(".notice");
+    ed.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    show("busy", doing, notice);
+    try {
+      return await post(url, body, method);
+    } catch (err) {
+      const control = err.field && q(`[name="${err.field}"]`);
+      if (control) refuse([control], err.message);
+      else show("err", err.message, notice);
+      return null;
+    } finally {
+      refreshEditor();
+    }
+  };
+  const finish = async (text) => {
+    openArea = null;
+    await loadAreas();
+    show("ok", text, "areas-notice");
+    areaRow(id)?.focus();
+  };
+  q('[data-act="cancel"]').addEventListener("click", () => {
+    openArea = null;
+    renderAreas();
+    areaRow(id)?.focus();
+  });
+  save.addEventListener("click", async () => {
+    const name = q("#a-name").value.trim();
+    const data = await writeArea(`/api/areas/${id}`, "PUT", {name}, "Saving…");
+    if (data) await finish(`${data.name} saved. ${data.note}`);
+  });
+  q('[data-act="activate"]').addEventListener("click", async () => {
+    const data = await writeArea(`/api/areas/${id}/activate`, "POST", null, "Activating…");
+    if (data) await finish(`${area.name} activated. ${data.note}`);
+  });
+  armThen(q('[data-act="dismiss"]'), "Dismiss", async () => {
+    const data = await writeArea(`/api/areas/${id}/dismiss`, "POST", null, "Dismissing…");
+    if (data) await finish(`${area.name} dismissed. ${data.note}`);
+  });
+  armThen(q('[data-act="merge"]'), "Merge", async () => {
+    const target = Number(into.value);
+    const data = await writeArea(`/api/areas/${id}/merge`, "POST", {into: target}, "Merging…");
+    if (data) await finish(`${area.name} merged into ${areaNameOf(target)}. ${data.note}`);
+  });
+  return ed;
+}
+
+function toggleArea(id) {
+  openArea = openArea === id ? null : id;
+  renderAreas();
+  if (openArea === null) areaRow(id)?.focus();
+  else document.querySelector("tr.editor #a-name").focus();
+}
+
+// Swaps the area with its neighbour and saves the whole active order.
+async function moveArea(id, step) {
+  const order = activeAreas().map((area) => area.id);
+  const at = order.indexOf(id), to = at + step;
+  if (to < 0 || to >= order.length) return;
+  [order[at], order[to]] = [order[to], order[at]];
+  show("busy", "Saving order…", "areas-notice");
+  try {
+    const data = await post("/api/areas/order", {ids: order}, "PUT");
+    await loadAreas();
+    show("ok", `Order saved. ${data.note}`, "areas-notice");
+    areaRow(id)?.focus();
+  } catch (err) {
+    show("err", err.message, "areas-notice");
+  }
+}
+
+const areaBodyClick = (e) => {
+  const move = e.target.closest("[data-move]");
+  if (move) {
+    moveArea(Number(move.closest("tr").dataset.id), Number(move.dataset.move));
+    return;
+  }
+  if (e.target.closest("button, a, input, select")) return;
+  const row = e.target.closest("tr.src-row");
+  if (row) toggleArea(Number(row.dataset.id));
+};
+
+const areaBodyKeydown = (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.src-row")) {
+    // Space would otherwise scroll the page.
+    e.preventDefault();
+    toggleArea(Number(e.target.dataset.id));
+  }
+};
+
+["area-body", "proposed-body"].forEach((id) => {
+  $(id).addEventListener("click", areaBodyClick);
+  $(id).addEventListener("keydown", areaBodyKeydown);
+});
 
 const loadAreas = () =>
   fetch("/api/areas")

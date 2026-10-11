@@ -313,8 +313,8 @@
           <h3 class="label">Areas</h3>
           <div class="table-wrap">
             <table class="src">
-              <thead><tr><th class="label">Name</th></tr></thead>
-              <tbody id="area-body"><tr data-loading><td class="small">Loading areas…</td></tr></tbody>
+              <thead><tr><th class="label">Name</th><th class="label">Order</th></tr></thead>
+              <tbody id="area-body"><tr data-loading><td colspan="2" class="small">Loading areas…</td></tr></tbody>
             </table>
           </div>
           <h3 class="label">Proposed</h3>
@@ -380,6 +380,29 @@
         <div class="actions-line">
           <button class="btn danger" type="button" data-act="retire">Retire</button>
           <div class="notice" role="status" hidden></div>
+        </div>
+      </div>
+    </div></td></tr>
+  </template>
+
+  <template id="area-editor-tpl">
+    <tr class="editor"><td colspan="2"><div class="editor-body">
+      <h3 class="label editor-title"></h3>
+      <div class="form">
+        <div class="field"><label class="label" for="a-name">Name</label><input class="input" id="a-name" name="name" type="text" autocomplete="off"></div>
+      </div>
+      <div class="editor-foot">
+        <div class="actions-line">
+          <button class="btn primary" type="button" data-act="save" disabled>Save name</button>
+          <button class="btn secondary" type="button" data-act="cancel">Cancel</button>
+          <div class="notice" role="status" hidden></div>
+        </div>
+        <div class="actions-line" data-proposed hidden>
+          <button class="btn primary" type="button" data-act="activate">Activate</button>
+          <button class="btn danger" type="button" data-act="dismiss">Dismiss</button>
+          <label class="label" for="a-into">Merge into</label>
+          <select class="select" id="a-into" name="into"></select>
+          <button class="btn danger" type="button" data-act="merge">Merge</button>
         </div>
       </div>
     </div></td></tr>

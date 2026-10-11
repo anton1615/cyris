@@ -140,6 +140,27 @@ class FakeAreaStore:
     def birth_threshold(self) -> tuple[int, int] | None:
         return self.threshold
 
+    def get(self, area_id: int) -> Area | None:
+        return self.areas.get(area_id)
+
+    def name_taken(self, name: str, except_id: int) -> bool:
+        return any(a.name == name and a.id != except_id for a in self.areas.values())
+
+    def rename(self, area_id: int, name: str) -> None:
+        self.areas[area_id] = self.areas[area_id].model_copy(update={"name": name})
+
+    def set_order(self, ids: list[int]) -> None:
+        for position, area_id in enumerate(ids):
+            self.areas[area_id] = self.areas[area_id].model_copy(update={"position": position})
+
+    def dismiss(self, area_id: int) -> int:
+        """A proposal leaves `proposed` for `dismissed`; the rows changed, 0 or 1, as in D1."""
+        area = self.areas[area_id]
+        if area.status != "proposed":
+            return 0
+        self.areas[area_id] = area.model_copy(update={"status": "dismissed"})
+        return 1
+
 
 # The probe values embed with workers_ai's default model, @cf/baai/bge-m3.
 PROBE_EMBEDDING_MODEL = "@cf/baai/bge-m3"
@@ -455,6 +476,19 @@ def _topic_stored(name: str, **wanted) -> Callable[[Fixture], str | None]:
 def _topic_gone(name: str) -> Callable[[Fixture], str | None]:
     """A receipt: the topic store no longer holds `name`."""
     return lambda fixture: f"{name} is still stored" if name in fixture.topics else None
+
+
+def _area_is(area_id: int, **wanted) -> Callable[[Fixture], str | None]:
+    """A receipt: the area table holds area `area_id` with exactly these field values."""
+
+    def receipt(fixture: Fixture) -> str | None:
+        area = fixture.areas.get(area_id)
+        if area is None:
+            return f"area {area_id} is not stored"
+        wrong = {k: getattr(area, k) for k, v in wanted.items() if getattr(area, k) != v}
+        return f"area {area_id} stored {wrong}" if wrong else None
+
+    return receipt
 
 
 def _last_call(wanted: dict) -> Callable[[Fixture], str | None]:
@@ -3347,6 +3381,132 @@ CHECKS += [
         sabotage="""$("#areas-notice").classList.remove("err");""",
     ),
 ]
+# Area rows: rename, reorder and the arm-then-confirm Dismiss, on the Areas tab.
+CHECKS += [
+    Check(
+        id="areas-rename",
+        fixture="writable-areas",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            areaRowOf("Tech").click();
+            await waitFor(editor, "the editor");
+            setValue($("#a-name", editor()), "Technology");
+            editorAct("save").click();
+            await waitFor(() => areaNames().includes("Technology"), "the renamed row");
+        """,
+        script="""
+            expect(same(areaNames(), ["Technology", "Food"]), `rows: ${areaNames()}`);
+            const notice = $("#areas-notice");
+            expect(notice.textContent === "Technology saved. Effective next run.",
+                   `notice: ${notice.textContent}`);
+        """,
+        sabotage="""$("#area-body tr.src-row td").textContent = "Tech";""",
+        receipt=_area_is(1, name="Technology"),
+    ),
+    Check(
+        id="areas-rename-conflict",
+        fixture="writable-areas",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            areaRowOf("Tech").click();
+            await waitFor(editor, "the editor");
+            setValue($("#a-name", editor()), "Food");
+            editorAct("save").click();
+            await waitFor(() => $("#a-name", editor()).classList.contains("invalid"),
+                          "the refusal");
+        """,
+        script="""
+            const field = $("#a-name", editor());
+            expect(field.getAttribute("aria-invalid") === "true", "the name is not marked");
+            const note = $("[data-field-error]", editor());
+            expect(note && note.textContent === "Another area already has the name Food.",
+                   `note: ${note && note.textContent}`);
+            expect(same(areaNames(), ["Tech", "Food"]), `rows: ${areaNames()}`);
+        """,
+        sabotage="""$("#a-name", editor()).removeAttribute("aria-invalid");""",
+        receipt=_area_is(1, name="Tech"),
+    ),
+    Check(
+        id="areas-dismiss-arms",
+        fixture="writable-areas",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            areaRowOf("X").click();
+            await waitFor(editor, "the editor");
+            editorAct("dismiss").click();
+            await waitFor(() => editorAct("dismiss").classList.contains("armed"), "the arm");
+            ctx.armed = editorAct("dismiss").textContent;
+            ctx.open = !!areaRowOf("X");
+            await sleep(3300);
+        """,
+        script="""
+            expect(ctx.armed === "Press again to confirm", `the first press read ${ctx.armed}`);
+            expect(ctx.open, "the proposal left the list on the first press");
+            const dismiss = editorAct("dismiss");
+            expect(dismiss.textContent === "Dismiss", `after 3s it reads ${dismiss.textContent}`);
+            expect(!dismiss.classList.contains("armed"), "still armed after 3s");
+        """,
+        sabotage="""
+            editorAct("dismiss").classList.add("armed");
+            editorAct("dismiss").textContent = "Press again to confirm";
+        """,
+        receipt=_area_is(3, status="proposed"),
+    ),
+    Check(
+        id="areas-dismiss-confirms",
+        fixture="writable-areas",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            areaRowOf("X").click();
+            await waitFor(editor, "the editor");
+            editorAct("dismiss").click();
+            editorAct("dismiss").click();
+            await waitFor(() => $$("#closed-list li").length === 3, "the row to move");
+        """,
+        script="""
+            const closed = $$("#closed-list li").map((item) => item.textContent);
+            expect(same(closed, ["X — dismissed", "Old — dismissed", "Sports — merged into Tech"]),
+                   `closed: ${closed}`);
+            expect(!areaRowOf("X"), "X is still proposed");
+        """,
+        sabotage="""$("#closed-list").lastElementChild.remove();""",
+        receipt=_area_is(3, status="dismissed"),
+    ),
+    Check(
+        id="areas-move-order",
+        fixture="writable-areas",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            $("[data-move='-1']", areaRowOf("Food")).click();
+            await waitFor(() => same(areaNames(), ["Food", "Tech"]), "the new order");
+        """,
+        script="""
+            expect(same(areaNames(), ["Food", "Tech"]), `rows: ${areaNames()}`);
+        """,
+        sabotage="""
+            const body = $("#area-body");
+            body.append(body.firstElementChild);
+        """,
+        receipt=lambda fixture: (
+            _area_is(2, position=0)(fixture) or _area_is(1, position=1)(fixture)
+        ),
+    ),
+    Check(
+        id="areas-tap-375",
+        fixture="writable-areas",
+        path="/settings#areas",
+        width=375,
+        act="await areasListed();",
+        script="""expectTapTargets("#area-body .btn, #area-body tr.src-row");""",
+        sabotage=restyle("#area-body .btn { height: 30px !important; }"),
+    ),
+]
+
 # The page fits at the largest type size too.
 CHECKS += [
     largest_twin(check, check.id.replace("fits-", "fits-largest-"), "writable-largest")
@@ -3399,6 +3559,9 @@ const eachCategory = async (measure) => {
   }
   return problems;
 };
+const areaRowOf = (name) =>
+  $$("#area-body tr.src-row, #proposed-body tr.src-row")
+    .find((row) => $("td", row).textContent === name);
 const areaNames = () =>
   $$("#area-body tr.src-row").map((row) => $("td", row).textContent);
 const areasListed = () =>
