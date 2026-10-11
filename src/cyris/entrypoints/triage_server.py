@@ -197,6 +197,7 @@ class TriageServer:
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
         self._app.router.add_get("/api/areas", self._handle_get_areas)
         self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
+        self._app.router.add_put("/api/areas/order", self._handle_put_area_order)
         self._app.router.add_put(r"/api/areas/{id:\d+}", self._handle_rename_area)
         self._app.router.add_get("/api/labels", self._handle_get_labels)
         self._app.router.add_post("/api/labels", self._handle_post_label)
@@ -851,6 +852,30 @@ class TriageServer:
                 ),
             }
         )
+
+    async def _handle_put_area_order(self, request: web.Request) -> web.Response:
+        """Set the order of the active areas: the page's list, top to bottom."""
+        if self._area_store is None:
+            return self._no_area_table()
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+        ids = body.get("ids") if isinstance(body, dict) else None
+        if not isinstance(ids, list) or not all(
+            isinstance(i, int) and not isinstance(i, bool) for i in ids
+        ):
+            return _refused("ids must be a list of area ids.", "ids")
+        try:
+            active = {area.id for area in self._area_store.list_areas() if area.status == "active"}
+            if len(set(ids)) != len(ids) or set(ids) != active:
+                return _refused("ids must name every active area exactly once.", "ids")
+            self._area_store.set_order(ids)
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        logger.info("Active areas reordered")
+        return web.json_response({"ok": True, "note": "Effective next run."})
 
     async def _handle_rename_area(self, request: web.Request) -> web.Response:
         """Give an area a new name; every source and pick keeps resolving to it by id."""

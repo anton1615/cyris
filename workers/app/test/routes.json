@@ -39,6 +39,7 @@
   {"path": "/api/topics", "method": "POST", "kind": "container", "unauth_status": 401},
   {"path": "/api/topics/demo", "method": "DELETE", "kind": "container", "unauth_status": 401, "container_route": "/api/topics/{name}"},
   {"path": "/api/areas", "method": "GET", "kind": "container", "unauth_status": 401},
+  {"path": "/api/areas/order", "method": "PUT", "kind": "container", "unauth_status": 401},
   {"path": "/api/areas/birth-threshold", "method": "PUT", "kind": "container", "unauth_status": 401},
   {"path": "/api/zzz-undefined", "method": "GET", "kind": "container", "unauth_status": 401}
 ]

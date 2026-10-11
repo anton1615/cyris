@@ -100,3 +100,8 @@ class D1AreaStore:
     def rename(self, area_id: int, name: str) -> None:
         """Change the name only; position, status, counts and merges stay as they were."""
         self._db.query("UPDATE areas SET name = ? WHERE id = ?", [name, area_id])
+
+    def set_order(self, ids: list[int]) -> None:
+        """Give each active area its index in `ids` as its position."""
+        for position, area_id in enumerate(ids):
+            self._db.query("UPDATE areas SET position = ? WHERE id = ?", [position, area_id])

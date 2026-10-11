@@ -153,3 +153,48 @@ async def test_renaming_an_unknown_id_is_a_404(client: TestClient) -> None:
     response = await client.put("/api/areas/99", json={"name": "Anything"})
 
     assert response.status == 404
+
+
+async def test_reordering_sets_the_positions_the_list_follows(
+    client: TestClient, db: SqliteD1
+) -> None:
+    one = _area(db, "One", "active", position=0)
+    two = _area(db, "Two", "active", position=1)
+    three = _area(db, "Three", "active", position=2)
+
+    response = await client.put("/api/areas/order", json={"ids": [three, one, two]})
+
+    assert response.status == 200
+    listed = await (await client.get("/api/areas")).json()
+    assert [(a["name"], a["position"]) for a in listed["areas"]] == [
+        ("Three", 0),
+        ("One", 1),
+        ("Two", 2),
+    ]
+
+
+async def test_a_missing_active_id_is_refused_and_the_order_stays(
+    client: TestClient, db: SqliteD1
+) -> None:
+    one = _area(db, "One", "active", position=0)
+    two = _area(db, "Two", "active", position=1)
+    three = _area(db, "Three", "active", position=2)
+    await client.put("/api/areas/order", json={"ids": [one, two, three]})
+
+    response = await client.put("/api/areas/order", json={"ids": [three, one]})
+
+    assert response.status == 400
+    assert (await response.json())["field"] == "ids"
+    assert [a.id for a in D1AreaStore(db).list_areas() if a.status == "active"] == [one, two, three]
+
+
+async def test_a_duplicate_or_a_proposed_id_is_refused(client: TestClient, db: SqliteD1) -> None:
+    one = _area(db, "One", "active", position=0)
+    two = _area(db, "Two", "active", position=1)
+    _area(db, "Tech", "active", position=2)
+    proposed = _area(db, "Maybe", "proposed", articles=1, issues=1)
+
+    duplicate = await client.put("/api/areas/order", json={"ids": [one, one, two, 3]})
+    with_proposed = await client.put("/api/areas/order", json={"ids": [one, two, 3, proposed]})
+
+    assert (duplicate.status, with_proposed.status) == (400, 400)
