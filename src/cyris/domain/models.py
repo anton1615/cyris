@@ -32,6 +32,8 @@ class SourceConfig(BaseModel):
     # Where this source publishes. Its host is what makes "the sender's own domain"
     # knowable instead of guessed from link statistics.
     homepage: str | None = None
+    # The reader's area for this source, an `areas` row id; None until one is chosen.
+    area_id: int | None = None
 
     @property
     def fetchable(self) -> bool:
