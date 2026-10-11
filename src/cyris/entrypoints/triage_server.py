@@ -643,6 +643,7 @@ class TriageServer:
                         "email_match": s.email_match,
                         "homepage": s.homepage,
                         "tags": s.tags,
+                        "area_id": s.area_id,
                         "health": _health_json(health.get(s.name), now),
                     }
                     for s in sources.values()

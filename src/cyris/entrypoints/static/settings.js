@@ -647,6 +647,14 @@ function openEditor(name) {
   q("#e-email").value = s.email_match || "";
   q("#e-home").value = s.homepage || "";
   q("#e-tags").value = (s.tags || []).join(", ");
+  const area = q("#e-area"), suggest = q('[data-act="suggest"]'), note = q("[data-suggest-note]");
+  area.append(...activeAreas().map((x) => new Option(x.name, String(x.id))));
+  area.value = s.area_id == null ? "" : String(s.area_id);
+  area.disabled = !sourcesWritable;
+  suggest.disabled = !sourcesWritable;
+  // A reader's own change ends the suggestion, which the field then no longer marks.
+  area.addEventListener("change", () => { note.hidden = true; });
+  suggest.addEventListener("click", () => suggestArea(ed, suggest));
   const save = q('[data-act="save"]'), retire = q('[data-act="retire"]');
   const setType = (type) => {
     ed.querySelectorAll("[data-type]").forEach((b) => {
@@ -787,6 +795,34 @@ async function writeSource(url, method, body, button, doing) {
   return null;
 }
 
+// Selects the area the model suggests for this source, marked as a suggestion; a failure
+// changes nothing and says so beside the button. Save is never held by it.
+async function suggestArea(ed, button) {
+  const q = (selector) => ed.querySelector(selector);
+  const note = q("[data-suggest-note]");
+  button.disabled = true;
+  try {
+    const data = await post("/api/sources/suggest-area", {
+      name: q("#e-name").value.trim(),
+      type: q('[data-type][aria-pressed="true"]').dataset.type,
+      url: q("#e-url").value.trim(),
+      homepage: q("#e-home").value.trim(),
+      tags: q("#e-tags").value.split(",").map((t) => t.trim()).filter(Boolean),
+    });
+    if (data.suggestion) {
+      q("#e-area").value = String(data.suggestion.id);
+      q("#e-area").dispatchEvent(new Event("change", {bubbles: true}));
+      note.textContent = data.note;
+    } else {
+      note.textContent = `No suggestion. ${data.note}`;
+    }
+  } catch (err) {
+    note.textContent = `No suggestion. ${err.message}`;
+  }
+  note.hidden = false;
+  button.disabled = !sourcesWritable;
+}
+
 async function saveSource(ed, button) {
   const q = (selector) => ed.querySelector(selector);
   const name = q("#e-name").value.trim();
@@ -806,6 +842,7 @@ async function saveSource(ed, button) {
     email_match: shown("#e-email"),
     homepage: shown("#e-home"),
     tags: q("#e-tags").value.split(",").map((t) => t.trim()).filter(Boolean),
+    area_id: q("#e-area").value === "" ? null : Number(q("#e-area").value),
   }, button, "Saving…");
   if (!data) {
     ed.inert = false;

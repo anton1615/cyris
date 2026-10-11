@@ -359,6 +359,11 @@ def build_fixture(kind: str) -> Fixture:
     ):
         settings = FakeSettings()
         store = FakeSourceStore(_seed_sources())
+        if kind == "writable-areas":
+            # The source the picker opens with Tech selected.
+            store.sources["Simon Willison"] = store.sources["Simon Willison"].model_copy(
+                update={"area_id": 1}
+            )
         topics = FakeTopicStore(_seed_topics() if kind == "writable-topics" else {})
         # The area table is absent from every other writable fixture, so its page is read-only.
         areas = None
@@ -571,6 +576,30 @@ window.fetch = (input, init) => {
   }
   return realFetch(input, init);
 };
+"""
+
+
+def logged(answers: dict[str, str] | None = None) -> str:
+    """A preload that logs every write the page makes to `window.__calls`.
+
+    `answers` maps a path to a JS promise that answers the page's POST to it instead of the server.
+    """
+    branches = "".join(
+        f"""  if (String(input).endsWith({json.dumps(path)}) && init && init.method === "POST") {{
+    return {answer};
+  }}
+"""
+        for path, answer in (answers or {}).items()
+    )
+    return f"""
+window.__calls = [];
+const realFetch = window.fetch;
+window.fetch = (input, init) => {{
+  if (init && init.method && init.method !== "GET") {{
+    window.__calls.push([String(input), init.method, init.body || null]);
+  }}
+{branches}  return realFetch(input, init);
+}};
 """
 
 
@@ -3713,6 +3742,103 @@ CHECKS += [
             expect(!$("#propose-areas").disabled, "Propose is still disabled");
         """,
         sabotage="""$("#propose-areas").disabled = true;""",
+    ),
+]
+
+# The source editor's Area picker: the stored area, the suggestion, and what Save posts.
+SAVE_SOURCE = """
+const savedNotice = () => {
+  const notice = $("tr.editor .notice");
+  return notice && notice.textContent.endsWith("saved. Effective next run.");
+};
+await waitFor(savedNotice, "the save");
+"""
+SUGGEST_FOUND = (
+    "Promise.resolve(new Response(JSON.stringify({ok: true, note: "
+    '"Suggested from your active areas.", suggestion: {id: 2, name: "Food"}}), '
+    '{headers: {"Content-Type": "application/json"}}))'
+)
+SUGGEST_BROKEN = (
+    'Promise.resolve(new Response(JSON.stringify({ok: false, error: "boom"}),'
+    ' {status: 500, headers: {"Content-Type": "application/json"}}))'
+)
+CHECKS += [
+    Check(
+        id="areas-source-keeps-area",
+        fixture="writable-areas",
+        path="/settings#sources",
+        preload=logged(),
+        act=f"""
+            await openRow("Simon Willison");
+            ctx.shown = $("#e-area", editor()).value;
+            setValue($("#e-tags", editor()), "ai, news");
+            editorAct("save").click();
+            {SAVE_SOURCE}
+        """,
+        script="""
+            expect(ctx.shown === "1", `the editor opened with area ${ctx.shown}`);
+            const post = window.__calls.find(([url]) => url === "/api/sources");
+            expect(post && JSON.parse(post[2]).area_id === 1, `posted: ${post && post[2]}`);
+            expect($("#e-area", editor()).value === "1", "the source lost its area");
+        """,
+        sabotage="""window.__calls.length = 0;""",
+        receipt=_stored("Simon Willison", area_id=1),
+    ),
+    Check(
+        id="areas-suggest-selects",
+        fixture="writable-areas",
+        path="/settings#sources",
+        preload=logged({"/api/sources/suggest-area": SUGGEST_FOUND}),
+        act=f"""
+            await openRow("Hacker News");
+            $('[data-act="suggest"]', editor()).click();
+            await waitFor(() => $("#e-area", editor()).value === "2", "the suggestion");
+            ctx.note = $("[data-suggest-note]", editor()).textContent;
+            editorAct("save").click();
+            {SAVE_SOURCE}
+        """,
+        script="""
+            expect(ctx.note === "Suggested from your active areas.", `note: ${ctx.note}`);
+            const post = window.__calls.find(([url]) => url === "/api/sources");
+            expect(post && JSON.parse(post[2]).area_id === 2, `posted: ${post && post[2]}`);
+            expect($("#e-area", editor()).selectedOptions[0].textContent === "Food",
+                   "the select does not show Food");
+        """,
+        sabotage="""window.__calls.length = 0;""",
+        receipt=_stored("Hacker News", area_id=2),
+    ),
+    Check(
+        id="areas-suggest-failure-keeps-area",
+        fixture="writable-areas",
+        path="/settings#sources",
+        preload=logged({"/api/sources/suggest-area": SUGGEST_BROKEN}),
+        act=f"""
+            await openRow("Simon Willison");
+            setValue($("#e-tags", editor()), "ai, news");
+            $('[data-act="suggest"]', editor()).click();
+            await waitFor(() => visible($("[data-suggest-note]", editor())), "the note");
+            ctx.note = $("[data-suggest-note]", editor()).textContent;
+            editorAct("save").click();
+            {SAVE_SOURCE}
+        """,
+        script="""
+            expect(ctx.note.startsWith("No suggestion"), `note: ${ctx.note}`);
+            const post = window.__calls.find(([url]) => url === "/api/sources");
+            expect(post && JSON.parse(post[2]).area_id === 1, `posted: ${post && post[2]}`);
+        """,
+        sabotage="""window.__calls.length = 0;""",
+        receipt=_stored("Simon Willison", area_id=1),
+    ),
+    Check(
+        id="areas-source-json",
+        fixture="readonly",
+        path="/settings#sources",
+        act="await openRow('Simon Willison');",
+        script="""
+            expect($("#e-area", editor()).disabled, "the Area select is enabled");
+            expect($('[data-act="suggest"]', editor()).disabled, "Suggest is enabled");
+        """,
+        sabotage="""$("#e-area", editor()).disabled = false;""",
     ),
 ]
 
