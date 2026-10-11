@@ -384,10 +384,6 @@ def _selecting(*ids, title="t"):
     return json.dumps({"selected": [{"id": i, "title": title, "source": "S"} for i in ids]})
 
 
-def _reply():
-    return json.dumps({"selected": []})
-
-
 class _FailingOnCalls(FakeLLM):
     """FakeLLM whose calls at the indexes in `fail_on` raise; the others answer in order."""
 
@@ -422,7 +418,7 @@ def _filter_messages(caplog, prefix):
 class TestFilterBatchCountLog:
     async def test_log_names_article_and_batch_counts(self, caplog):
         with caplog.at_level(logging.INFO, logger=filtering.logger.name):
-            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_reply()))
+            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_selecting()))
 
         assert _filter_messages(caplog, "Filtering") == [
             f"Filtering {2 * BATCH_SIZE + 1} articles through the LLM (batches: 3)"
@@ -430,13 +426,13 @@ class TestFilterBatchCountLog:
 
     async def test_single_batch_says_one(self, caplog):
         with caplog.at_level(logging.INFO, logger=filtering.logger.name):
-            await _run(_articles(BATCH_SIZE), FakeLLM(_reply()))
+            await _run(_articles(BATCH_SIZE), FakeLLM(_selecting()))
 
         assert _filter_messages(caplog, "Filtering")[0].endswith("(batches: 1)")
 
     async def test_successful_run_adds_no_warning(self, caplog):
         with caplog.at_level(logging.WARNING):
-            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_reply()))
+            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_selecting()))
 
         assert caplog.records == []
 
@@ -529,7 +525,7 @@ class TestFilterBatchFallback:
     async def test_no_failed_batch_leaves_usage_unmarked_and_logs_no_warning(self, caplog):
         usage = UsageStats(model="m")
         with caplog.at_level(logging.WARNING):
-            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_reply()), usage)
+            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_selecting()), usage)
 
         assert usage.fell_back_to_excerpts is False
         assert caplog.records == []
@@ -538,7 +534,7 @@ class TestFilterBatchFallback:
 class TestFilterBatchIdResolution:
     async def test_position_is_resolved_within_its_own_batch(self):
         articles = _articles(2 * BATCH_SIZE + 1)
-        llm = FakeLLM([_reply(), _selecting(3), _reply()])
+        llm = FakeLLM([_selecting(), _selecting(3), _selecting()])
 
         items = await _run(articles, llm)
 
@@ -548,14 +544,14 @@ class TestFilterBatchIdResolution:
 
     async def test_last_batch_position_zero_links_its_first_article(self):
         articles = _articles(2 * BATCH_SIZE + 1)
-        llm = FakeLLM([_reply(), _reply(), _selecting(0)])
+        llm = FakeLLM([_selecting(), _selecting(), _selecting(0)])
 
         items = await _run(articles, llm)
 
         assert [i.urls for i in items] == [[articles[2 * BATCH_SIZE].url]]
 
     async def test_id_outside_batch_links_nothing_and_warns_once(self, caplog):
-        llm = FakeLLM([_selecting(BATCH_SIZE), _reply(), _reply()])
+        llm = FakeLLM([_selecting(BATCH_SIZE), _selecting(), _selecting()])
 
         with caplog.at_level(logging.WARNING):
             items = await _run(_articles(2 * BATCH_SIZE + 1), llm)
@@ -566,7 +562,7 @@ class TestFilterBatchIdResolution:
     async def test_score_comes_from_the_article_at_its_batch_position(self):
         articles = _articles(2 * BATCH_SIZE + 1)
         scores = {articles[BATCH_SIZE + 3].url: 0.7}
-        llm = FakeLLM([_reply(), _selecting(3), _reply()])
+        llm = FakeLLM([_selecting(), _selecting(3), _selecting()])
 
         items = await _run(articles, llm, article_scores=scores)
 
@@ -575,7 +571,7 @@ class TestFilterBatchIdResolution:
 
 class TestFilterBatchPartition:
     async def test_pool_goes_out_as_bounded_batches_with_one_prompt_shape(self):
-        llm = FakeLLM(_reply())
+        llm = FakeLLM(_selecting())
 
         await _run(_articles(2 * BATCH_SIZE + 1), llm)
 
@@ -590,7 +586,7 @@ class TestFilterBatchPartition:
 
     async def test_titles_arrive_once_each_in_input_order(self):
         articles = _articles(2 * BATCH_SIZE + 1)
-        llm = FakeLLM(_reply())
+        llm = FakeLLM(_selecting())
 
         await _run(articles, llm)
 
@@ -603,7 +599,7 @@ class TestFilterBatchPartition:
 
     @pytest.mark.parametrize(("count", "calls"), [(BATCH_SIZE, 1), (BATCH_SIZE + 1, 2)])
     async def test_call_count_follows_the_batch_boundary(self, count, calls):
-        llm = FakeLLM(_reply())
+        llm = FakeLLM(_selecting())
 
         await _run(_articles(count), llm)
 
@@ -611,7 +607,7 @@ class TestFilterBatchPartition:
 
     async def test_batch_size_is_read_at_call_time(self, monkeypatch):
         monkeypatch.setattr(filtering, "BATCH_SIZE", 2)
-        llm = FakeLLM(_reply())
+        llm = FakeLLM(_selecting())
 
         await _run(_articles(5), llm)
 
@@ -621,14 +617,14 @@ class TestFilterBatchPartition:
     async def test_usage_counts_every_batch_call(self):
         usage = UsageStats(model="m")
 
-        await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_reply()), usage)
+        await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_selecting()), usage)
 
         assert usage.api_calls == 3
         assert usage.input_tokens == 1500
         assert usage.fell_back_to_excerpts is False
 
     async def test_empty_pool_makes_no_call(self):
-        llm = FakeLLM(_reply())
+        llm = FakeLLM(_selecting())
 
         assert await _run([], llm) == []
         assert len(llm.calls) == 0
@@ -636,7 +632,7 @@ class TestFilterBatchPartition:
 
 class TestFilterPassRateLog:
     async def test_rate_counts_only_judged_articles_kept(self, caplog):
-        llm = FakeLLM([_selecting(0), _reply(), _selecting(0)])
+        llm = FakeLLM([_selecting(0), _selecting(), _selecting(0)])
 
         with caplog.at_level(logging.INFO, logger=filtering.logger.name):
             await _run(_articles(2 * BATCH_SIZE + 1), llm)
