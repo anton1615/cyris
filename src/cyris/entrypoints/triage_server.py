@@ -197,6 +197,7 @@ class TriageServer:
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
         self._app.router.add_get("/api/areas", self._handle_get_areas)
         self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
+        self._app.router.add_put(r"/api/areas/{id:\d+}", self._handle_rename_area)
         self._app.router.add_get("/api/labels", self._handle_get_labels)
         self._app.router.add_post("/api/labels", self._handle_post_label)
         self._app.router.add_get("/settings", self._handle_settings_page)
@@ -849,6 +850,45 @@ class TriageServer:
                     else {"articles": threshold[0], "issues": threshold[1]}
                 ),
             }
+        )
+
+    async def _handle_rename_area(self, request: web.Request) -> web.Response:
+        """Give an area a new name; every source and pick keeps resolving to it by id."""
+        if self._area_store is None:
+            return self._no_area_table()
+        area_id = int(request.match_info["id"])
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+        raw = body.get("name") if isinstance(body, dict) else None
+        name = raw.strip() if isinstance(raw, str) else ""
+        if not name or "\n" in raw or "\r" in raw:
+            return _refused(
+                "A name needs at least one visible character and no line break.", "name"
+            )
+        try:
+            if self._area_store.get(area_id) is None:
+                return web.json_response(
+                    {"ok": False, "error": f"No area with id {area_id}: reload the page."},
+                    status=404,
+                )
+            if self._area_store.name_taken(name, area_id):
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": f"Another area already has the name {name}.",
+                        "field": "name",
+                    },
+                    status=409,
+                )
+            self._area_store.rename(area_id, name)
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        logger.info("Area %s renamed", area_id)
+        return web.json_response(
+            {"ok": True, "id": area_id, "name": name, "note": "Effective next run."}
         )
 
     def _no_area_table(self) -> web.Response:

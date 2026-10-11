@@ -85,3 +85,18 @@ class D1AreaStore:
             "ON CONFLICT(id) DO UPDATE SET articles = excluded.articles, issues = excluded.issues",
             [articles, issues],
         )
+
+    def get(self, area_id: int) -> Area | None:
+        rows = self._db.query(f"SELECT {_AREA_COLUMNS} FROM areas WHERE id = ?", [area_id]).rows
+        return Area.model_validate(rows[0]) if rows else None
+
+    def name_taken(self, name: str, except_id: int) -> bool:
+        """Whether another row of any status holds `name`, case-insensitively."""
+        rows = self._db.query(
+            "SELECT id FROM areas WHERE name = ? AND id <> ?", [name, except_id]
+        ).rows
+        return bool(rows)
+
+    def rename(self, area_id: int, name: str) -> None:
+        """Change the name only; position, status, counts and merges stay as they were."""
+        self._db.query("UPDATE areas SET name = ? WHERE id = ?", [name, area_id])

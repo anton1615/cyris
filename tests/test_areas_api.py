@@ -5,6 +5,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from fakes import SqliteD1
 
 from cyris.adapters.store.areas import D1AreaStore
+from cyris.domain.areas import AreaCatalog
 from cyris.entrypoints.triage_server import TriageServer
 
 pytestmark = pytest.mark.integration
@@ -102,3 +103,53 @@ async def test_a_store_read_error_is_a_500_without_the_exception_text() -> None:
 
     assert response.status == 500
     assert "secret-detail" not in body
+
+
+async def test_a_rename_changes_only_the_name_and_sources_still_resolve(
+    client: TestClient, db: SqliteD1
+) -> None:
+    tech = _area(db, "Tech", "active", position=0)
+    db.query(
+        "INSERT INTO sources (name, url, type, config) VALUES ('a', 'https://a.example', 'rss', ?)",
+        [f'{{"area_id": {tech}}}'],
+    )
+
+    response = await client.put(f"/api/areas/{tech}", json={"name": "Technology"})
+
+    assert response.status == 200
+    assert D1AreaStore(db).get(tech).name == "Technology"
+    assert D1AreaStore(db).get(tech).position == 0
+    assert D1AreaStore(db).get(tech).status == "active"
+    assert AreaCatalog(D1AreaStore(db).list_areas()).for_source(tech).name == "Technology"
+    config = db.query("SELECT config FROM sources WHERE name = 'a'").rows[0]["config"]
+    assert f'"area_id": {tech}' in config
+
+
+async def test_a_rename_onto_another_rows_name_is_refused_case_insensitively(
+    client: TestClient, db: SqliteD1
+) -> None:
+    tech = _area(db, "Tech", "active", position=0)
+    _area(db, "Chips", "merged", merged_into=tech)
+
+    response = await client.put(f"/api/areas/{tech}", json={"name": "chips"})
+
+    assert response.status == 409
+    assert (await response.json())["field"] == "name"
+    assert D1AreaStore(db).get(tech).name == "Tech"
+
+
+async def test_a_blank_or_multiline_name_is_refused(client: TestClient, db: SqliteD1) -> None:
+    tech = _area(db, "Tech", "active", position=0)
+
+    blank = await client.put(f"/api/areas/{tech}", json={"name": "   "})
+    multiline = await client.put(f"/api/areas/{tech}", json={"name": "Te\nch"})
+
+    assert (blank.status, multiline.status) == (400, 400)
+    assert (await blank.json())["field"] == "name"
+    assert D1AreaStore(db).get(tech).name == "Tech"
+
+
+async def test_renaming_an_unknown_id_is_a_404(client: TestClient) -> None:
+    response = await client.put("/api/areas/99", json={"name": "Anything"})
+
+    assert response.status == 404
