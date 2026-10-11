@@ -52,7 +52,8 @@ async def filter_articles(
             usage.fell_back_to_excerpts = True
         return headlines_from_articles(articles, article_scores)
 
-    logger.info("Filtering %d articles through the LLM", len(articles))
+    total_batches = (len(articles) + BATCH_SIZE - 1) // BATCH_SIZE
+    logger.info("Filtering %d articles through the LLM (batches: %d)", len(articles), total_batches)
 
     system_prompt = build_filter_system_prompt(output_language, style_prompt=style_prompt)
 

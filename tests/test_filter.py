@@ -419,6 +419,34 @@ def _filter_messages(caplog, prefix):
     return [r.getMessage() for r in caplog.records if r.getMessage().startswith(prefix)]
 
 
+class TestFilterBatchCountLog:
+    async def test_log_names_article_and_batch_counts(self, caplog):
+        with caplog.at_level(logging.INFO, logger=filtering.logger.name):
+            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_reply()))
+
+        assert _filter_messages(caplog, "Filtering") == [
+            f"Filtering {2 * BATCH_SIZE + 1} articles through the LLM (batches: 3)"
+        ]
+
+    async def test_single_batch_says_one(self, caplog):
+        with caplog.at_level(logging.INFO, logger=filtering.logger.name):
+            await _run(_articles(BATCH_SIZE), FakeLLM(_reply()))
+
+        assert _filter_messages(caplog, "Filtering")[0].endswith("(batches: 1)")
+
+    async def test_successful_run_adds_no_warning(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            await _run(_articles(2 * BATCH_SIZE + 1), FakeLLM(_reply()))
+
+        assert caplog.records == []
+
+    async def test_no_llm_logs_no_filtering_line(self, caplog):
+        with caplog.at_level(logging.INFO, logger=filtering.logger.name):
+            await _run(_articles(3), None)
+
+        assert _filter_messages(caplog, "Filtering") == []
+
+
 class TestFilterBatchPartition:
     async def test_pool_goes_out_as_bounded_batches_with_one_prompt_shape(self):
         llm = FakeLLM(_reply())
