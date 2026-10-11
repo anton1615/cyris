@@ -447,6 +447,44 @@ class TestFilterBatchCountLog:
         assert _filter_messages(caplog, "Filtering") == []
 
 
+class TestFilterBatchIdResolution:
+    async def test_position_is_resolved_within_its_own_batch(self):
+        articles = _articles(2 * BATCH_SIZE + 1)
+        llm = FakeLLM([_reply(), _selecting(3), _reply()])
+
+        items = await _run(articles, llm)
+
+        assert len(items) == 1
+        assert items[0].urls == [articles[BATCH_SIZE + 3].url]
+        assert items[0].urls != [articles[3].url]
+
+    async def test_last_batch_position_zero_links_its_first_article(self):
+        articles = _articles(2 * BATCH_SIZE + 1)
+        llm = FakeLLM([_reply(), _reply(), _selecting(0)])
+
+        items = await _run(articles, llm)
+
+        assert [i.urls for i in items] == [[articles[2 * BATCH_SIZE].url]]
+
+    async def test_id_outside_batch_links_nothing_and_warns_once(self, caplog):
+        llm = FakeLLM([_selecting(BATCH_SIZE), _reply(), _reply()])
+
+        with caplog.at_level(logging.WARNING):
+            items = await _run(_articles(2 * BATCH_SIZE + 1), llm)
+
+        assert items[0].urls == []
+        assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+    async def test_score_comes_from_the_article_at_its_batch_position(self):
+        articles = _articles(2 * BATCH_SIZE + 1)
+        scores = {articles[BATCH_SIZE + 3].url: 0.7}
+        llm = FakeLLM([_reply(), _selecting(3), _reply()])
+
+        items = await _run(articles, llm, article_scores=scores)
+
+        assert items[0].score == 0.7
+
+
 class TestFilterBatchPartition:
     async def test_pool_goes_out_as_bounded_batches_with_one_prompt_shape(self):
         llm = FakeLLM(_reply())

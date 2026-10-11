@@ -65,7 +65,7 @@ async def filter_articles(
             data = await complete_json(
                 llm, user_prompt, system=system_prompt, temperature=1.0, usage=usage
             )
-            items.extend(_selected_items(data, articles, article_scores))
+            items.extend(_selected_items(data, batch, article_scores))
     except Exception:
         logger.warning("Filter LLM call failed; falling back to excerpt headlines", exc_info=True)
         if usage is not None:
@@ -75,7 +75,7 @@ async def filter_articles(
 
 
 def _selected_items(
-    data: dict, pool: list[Article], article_scores: dict[str, float] | None
+    data: dict, batch: list[Article], article_scores: dict[str, float] | None
 ) -> list[DigestItem]:
     items = []
     for entry in data.get("selected", []):
@@ -100,8 +100,8 @@ def _selected_items(
                 entry,
             )
             continue
-        position = echoed_position(entry["id"], len(pool))
-        source_article = pool[position] if position is not None else None
+        position = echoed_position(entry["id"], len(batch))
+        source_article = batch[position] if position is not None else None
         if source_article is None:
             logger.warning("Filter returned unknown article id %r; item has no link", entry["id"])
         article_url = source_article.url if source_article else ""
