@@ -308,3 +308,35 @@ def build_scoring_prompt(articles: list, *, snippet_length: int) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# --- Area suggestions from /settings (no natural-language output) ---
+
+SUGGEST_AREA_SYSTEM = """\
+You file one news source under one of the reader's areas. Pick exactly one area from the \
+list below, or null when none of them fits the source.
+
+Areas: {names}
+
+Respond in JSON: {{"area": "<one area name from the list>"}} or {{"area": null}}
+"""
+
+
+def build_suggest_area_system_prompt(area_names: Sequence[str]) -> str:
+    """The system prompt that makes the model pick one of the given area names."""
+    return SUGGEST_AREA_SYSTEM.format(names=json.dumps(list(area_names), ensure_ascii=False))
+
+
+def build_suggest_area_prompt(
+    *, name: str, url: str, source_type: str, tags: Sequence[str], homepage: str | None
+) -> str:
+    """The source the model is asked to file."""
+    return "\n".join(
+        [
+            f"Source: {name}",
+            f"Feed or sender: {url}",
+            f"Type: {source_type}",
+            f"Tags: {', '.join(tags)}",
+            f"Homepage: {homepage or ''}",
+        ]
+    )

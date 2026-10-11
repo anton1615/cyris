@@ -762,6 +762,23 @@ def config_show(
     typer.echo(render(config_rows(cfg)))
 
 
+def _llm_from_values(values: dict):
+    """The LLM the reader's saved provider and model name, or None when none can be built."""
+    from pydantic import ValidationError
+
+    from cyris.bootstrap import build_llm
+    from cyris.config import LLMProviderConfig
+
+    try:
+        candidate = LLMProviderConfig(
+            provider=values.get("llm_provider.provider") or "",
+            model=values.get("llm_provider.model") or "",
+        )
+    except ValidationError:
+        return None
+    return build_llm(candidate)
+
+
 @app.command("triage-ui")
 def triage_ui(
     port: Annotated[int, typer.Option(help="Server port")] = 8766,
@@ -809,6 +826,7 @@ def triage_ui(
             blind_labels=D1BlindLabels(d1) if d1 else None,
             article_store=D1ArticleStore(d1) if d1 else None,
             area_store=D1AreaStore(d1) if d1 else None,
+            llm_factory=_llm_from_values,
         )
         await server.start()
         typer.echo(f"Settings:  http://{host}:{port}/settings")

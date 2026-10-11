@@ -1,5 +1,6 @@
 """The settings web server: /settings, /labels and the APIs they call."""
 
+import asyncio
 import logging
 import os
 from datetime import UTC, datetime
@@ -13,9 +14,10 @@ from pydantic import ValidationError
 from cyris.adapters.output import html_digest
 from cyris.adapters.store.feed_health import FeedHealth
 from cyris.config import SETTINGS_FIELDS
-from cyris.diagnostics.doctor import probe_discord, probe_embedder
-from cyris.domain.areas import Area, meets_birth_threshold
+from cyris.diagnostics.doctor import LLM_PROBE_TIMEOUT_SECONDS, probe_discord, probe_embedder
+from cyris.domain.areas import Area, AreaCatalog, meets_birth_threshold
 from cyris.domain.models import NEWSLETTER_SOURCE_TYPE, SourceConfig, TrackedTopic
+from cyris.service_layer import area_llm
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +150,7 @@ class TriageServer:
         blind_labels=None,
         article_store=None,
         area_store=None,
+        llm_factory=None,
     ) -> None:
         self._host = host
         self._port = port
@@ -177,6 +180,8 @@ class TriageServer:
         self._article_store = article_store
         # D1's areas and birth threshold; absent on a `backend = "json"` deployment.
         self._area_store = area_store
+        # Called with the grade-D values for an LLM client; None when no LLM can be built.
+        self._llm_factory = llm_factory
         self._settings_page = render_settings_page()
         self._labels_page = render_labels_page()
         self._app = web.Application()
@@ -196,6 +201,7 @@ class TriageServer:
         self._app.router.add_post("/api/topics", self._handle_post_topic)
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
         self._app.router.add_get("/api/areas", self._handle_get_areas)
+        self._app.router.add_post("/api/sources/suggest-area", self._handle_suggest_area)
         self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
         self._app.router.add_put("/api/areas/order", self._handle_put_area_order)
         self._app.router.add_post(r"/api/areas/{id:\d+}/activate", self._handle_activate_area)
@@ -997,6 +1003,60 @@ class TriageServer:
 
         logger.info("%d sources assigned to area %s", len(set(names)), area_id)
         return web.json_response({"ok": True, "assigned": len(set(names))})
+
+    def _llm(self):
+        return self._llm_factory(self._values) if self._llm_factory is not None else None
+
+    async def _handle_suggest_area(self, request: web.Request) -> web.Response:
+        """Suggest the active area for a source being added. A failure never stops the save."""
+        if self._area_store is None:
+            return self._no_area_table()
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+        url = body.get("url") if isinstance(body, dict) else None
+        if not isinstance(url, str) or not url.strip():
+            return _refused("A source needs a Feed URL before an area can be suggested.", "url")
+
+        def answer(suggestion, note: str) -> web.Response:
+            return web.json_response({"ok": True, "suggestion": suggestion, "note": note})
+
+        try:
+            catalog = AreaCatalog(self._area_store.list_areas())
+        except Exception as e:  # noqa: BLE001 - the reason stays in the log, not the page
+            logger.error("Reading areas failed: %s", type(e).__name__)
+            return web.json_response(
+                {"ok": False, "error": "The area table could not be read."}, status=500
+            )
+        names = catalog.names()
+        if not names:
+            return answer(None, "No active area to suggest from yet.")
+        llm = self._llm()
+        if llm is None:
+            return answer(None, "No LLM is configured, so no area is suggested.")
+
+        source = SourceConfig(
+            name=str(body.get("name") or "").strip() or url,
+            url=url.strip(),
+            type=str(body.get("type") or "rss"),
+            tags=[t for t in body.get("tags") or [] if isinstance(t, str)],
+            homepage=body.get("homepage") if isinstance(body.get("homepage"), str) else None,
+        )
+        try:
+            picked = await asyncio.wait_for(
+                area_llm.suggest_area(llm, source, names), LLM_PROBE_TIMEOUT_SECONDS
+            )
+        except Exception as e:  # noqa: BLE001 - only the class name leaves this handler
+            logger.warning("Suggesting an area failed: %s", type(e).__name__)
+            return answer(None, f"The model call failed ({type(e).__name__}).")
+        if picked is None:
+            return answer(None, "The model did not pick one of the active areas.")
+        area = catalog.place(picked).area
+        return answer(
+            {"id": area.id, "name": area.name},
+            "Suggested from your active areas. Confirm it or choose another.",
+        )
 
     async def _handle_put_area_order(self, request: web.Request) -> web.Response:
         """Set the order of the active areas: the page's list, top to bottom."""
