@@ -696,6 +696,24 @@ class TriageServer:
             return _refused(error, field)
 
         try:
+            if "area_id" in body:
+                if source.area_id is not None:
+                    if self._area_store is None:
+                        return web.json_response(
+                            {
+                                "ok": False,
+                                "error": "No area table to check the area against.",
+                                "field": "area_id",
+                            },
+                            status=409,
+                        )
+                    area = self._area_store.get(source.area_id)
+                    if area is None or area.status != "active":
+                        return _refused("Pick an active area, or none.", "area_id")
+            else:
+                # A save that does not mention the area leaves the stored one as it was.
+                stored = self._source_store.list_sources().get(source.name)
+                source.area_id = stored.area_id if stored else None
             self._source_store.upsert(source)
         except Exception as e:  # noqa: BLE001 - the reason belongs in the response
             return web.json_response({"ok": False, "error": str(e)}, status=500)
