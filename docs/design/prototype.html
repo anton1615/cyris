@@ -352,6 +352,10 @@ details.more p { margin-top: var(--s-2); }
 .choice.unavailable { cursor: not-allowed; }
 .choice.unavailable input, .choice.unavailable .name { opacity: .5; }
 .choice.unavailable:hover { background: transparent; }
+/* The checklist (ui-language.md §4): a fieldset with no browser border or padding. */
+.sources-check { min-width: 0; margin: 0 0 var(--s-3); padding: 0; border: 1px solid var(--border); border-radius: var(--r-control); background: var(--bg-elev); }
+.sources-check > .label { padding: var(--s-2) var(--s-4) 0; }
+.sources-check .choice { justify-content: flex-start; }
 .choice .name { flex: 1 1 auto; font-weight: 600; font-size: calc(18px * var(--type-scale)); }
 
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: var(--s-4); flex-wrap: wrap; margin-bottom: var(--s-4); }

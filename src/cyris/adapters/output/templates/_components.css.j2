@@ -29,6 +29,10 @@
         .choice.unavailable { cursor: not-allowed; }
         .choice.unavailable input, .choice.unavailable .name { opacity: .5; }
         .choice.unavailable:hover { background: transparent; }
+        /* The checklist (ui-language.md §4): a fieldset with no browser border or padding. */
+        .sources-check { min-width: 0; margin: 0 0 var(--s-3); padding: 0; border: 1px solid var(--border); border-radius: var(--r-control); background: var(--bg-elev); }
+        .sources-check > .label { padding: var(--s-2) var(--s-4) 0; }
+        .sources-check .choice { justify-content: flex-start; }
         .choice .name { flex: 1 1 auto; font-weight: 600; font-size: calc(18px * var(--type-scale)); }
         .seg { display: inline-flex; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--r-control); }
         .seg > * { display: inline-flex; align-items: center; height: 44px; padding: 0 var(--s-4); border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-dim); font-family: var(--font-mono); font-size: calc(12px * var(--type-scale)); font-weight: 500; letter-spacing: .1em; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: color var(--t-fast), background-color var(--t-fast), border-color var(--t-fast); }

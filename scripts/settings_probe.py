@@ -3696,6 +3696,9 @@ CHECKS += [
                JSON.stringify({sources: ["Simon Willison", "Hacker News"]})],
             ]), `calls: ${JSON.stringify(sent)}`);
             expect(same(areaNames(), ["Tech", "Food", "X"]), `rows: ${areaNames()}`);
+            const notice = $("#areas-notice");
+            expect(notice.textContent === "X is active; 2 sources assigned.",
+                   `notice: ${notice.textContent}`);
         """,
         sabotage="""window.__calls.length = 0;""",
         receipt=lambda fixture: _stored_in_area(fixture, 3),
@@ -3743,6 +3746,75 @@ CHECKS += [
             expect(!$("#propose-areas").disabled, "Propose is still disabled");
         """,
         sabotage="""$("#propose-areas").disabled = true;""",
+    ),
+]
+
+# Propose's other answers: none new, a suggestion for an active area, and the pending wait.
+PROPOSE_NOTHING = logged({"/api/areas/propose": (
+    "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: []}), "
+    '{headers: {"Content-Type": "application/json"}}))'
+)})
+PROPOSE_PENDING = answer_post("/api/areas/propose", "new Promise(() => {})")
+PROPOSE_FOR_ACTIVE = logged({"/api/areas/propose": (
+    "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: ["
+    '{id: 1, name: "Tech", sources: ["Hacker News"]}]}), '
+    '{headers: {"Content-Type": "application/json"}}))'
+)})
+CHECKS += [
+    Check(
+        id="areas-propose-empty",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=PROPOSE_NOTHING,
+        act="""
+            await areasListed();
+            $("#propose-areas").click();
+            await waitFor(() => $("#areas-notice").textContent.includes("nothing new"), "the notice");
+        """,
+        script="""
+            expect($("#areas-notice").textContent === "The model proposed nothing new.",
+                   `notice: ${$("#areas-notice").textContent}`);
+            expect(!$(".sources-check"), "a checklist appeared for no proposal");
+        """,
+        sabotage="""$("#areas-notice").textContent = "0 new areas proposed.";""",
+    ),
+    Check(
+        id="areas-propose-busy",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=PROPOSE_PENDING,
+        act="""
+            await areasListed();
+            $("#propose-areas").click();
+            await waitFor(() => $("#propose-areas").textContent === "Proposing…", "the busy label");
+        """,
+        script="""
+            expect($("#propose-areas").disabled, "Propose is enabled while the model answers");
+            expect($("#propose-areas").textContent === "Proposing…", "the label did not change");
+        """,
+        sabotage="""$("#propose-areas").textContent = "Propose areas from my sources";""",
+    ),
+    Check(
+        id="areas-propose-active-suggestion",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=PROPOSE_FOR_ACTIVE,
+        act="""
+            await areasListed();
+            $("#propose-areas").click();
+            await waitFor(() => $(".sources-check", $("#area-body")), "the checklist");
+            $("[data-confirm='1']").click();
+            await waitFor(() => window.__calls.length === 2, "the assign");
+        """,
+        script="""
+            const sent = window.__calls.map(([url, method, body]) => [url, method, body]);
+            expect(same(sent, [
+              ["/api/areas/propose", "POST", "{}"],
+              ["/api/areas/1/sources", "POST", JSON.stringify({sources: ["Hacker News"]})],
+            ]), `calls: ${JSON.stringify(sent)}`);
+        """,
+        sabotage="""window.__calls.length = 0;""",
+        receipt=_stored("Hacker News", area_id=1),
     ),
 ]
 

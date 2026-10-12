@@ -931,7 +931,7 @@ function renderAreas() {
           <button class="btn secondary" type="button" data-move="-1"${i === 0 ? " disabled" : ""}>Up</button>
           <button class="btn secondary" type="button" data-move="1"${i === active.length - 1 ? " disabled" : ""}>Down</button>
         </div></td>
-      </tr>`).join("")
+      </tr>${proposalRow(area)}`).join("")
     : `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" or wait for the next run to suggest some.</td></tr>`;
   $("proposed-body").innerHTML = proposed.length
     ? proposed.map((area) => `
@@ -1066,7 +1066,7 @@ async function confirmProposal(id, button) {
   const sources = [...row.querySelectorAll("input:checked")].map((input) => input.value);
   button.disabled = true;
   try {
-    if (!activated.has(id)) {
+    if (areas.find((area) => area.id === id)?.status === "proposed" && !activated.has(id)) {
       await post(`/api/areas/${id}/activate`, null);
       activated.add(id);
     }
@@ -1074,8 +1074,7 @@ async function confirmProposal(id, button) {
     activated.delete(id);
     delete proposalSources[id];
     await loadAreas();
-    show("ok", `${name} is active. ${data.assigned} sources assigned. Effective next run.`,
-         "areas-notice");
+    show("ok", `${name} is active; ${data.assigned} sources assigned.`, "areas-notice");
   } catch (err) {
     const retry = activated.has(id);
     show("err", retry
@@ -1086,24 +1085,28 @@ async function confirmProposal(id, button) {
   }
 }
 
-$("proposed-body").addEventListener("click", (e) => {
-  const button = e.target.closest("[data-confirm]");
-  if (button) confirmProposal(Number(button.dataset.confirm), button);
-});
-
 $("propose-areas").addEventListener("click", async () => {
   const button = $("propose-areas");
+  const label = button.textContent;
   button.disabled = true;
+  button.textContent = "Proposing…";
   show("busy", "Proposing areas from your sources…", "areas-notice");
   try {
     const data = await post("/api/areas/propose", {});
-    proposalSources = Object.fromEntries(data.proposals.map((p) => [p.id, p.sources]));
+    proposalSources = {};
+    for (const p of data.proposals) {
+      const known = areas.find((area) => area.id === p.id);
+      proposalSources[known?.status === "merged" ? known.merged_into : p.id] = p.sources;
+    }
     await loadAreas();
-    show("ok", `${data.created} new areas proposed. Check each one's sources, then Confirm.`,
-         "areas-notice");
+    show("ok", data.proposals.length
+      ? `${data.created} new areas proposed. Check each one's sources, then Confirm.`
+      : "The model proposed nothing new.", "areas-notice");
   } catch (err) {
     show("err", err.message, "areas-notice");
     button.disabled = !areasWritable;
+  } finally {
+    button.textContent = label;
   }
 });
 
@@ -1128,6 +1131,11 @@ const areaBodyClick = (e) => {
   const move = e.target.closest("[data-move]");
   if (move) {
     moveArea(Number(move.closest("tr").dataset.id), Number(move.dataset.move));
+    return;
+  }
+  const confirm = e.target.closest("[data-confirm]");
+  if (confirm) {
+    confirmProposal(Number(confirm.dataset.confirm), confirm);
     return;
   }
   if (e.target.closest("button, a, input, select")) return;
