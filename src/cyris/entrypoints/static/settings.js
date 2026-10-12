@@ -649,12 +649,25 @@ function openEditor(name) {
   q("#e-home").value = s.homepage || "";
   q("#e-tags").value = (s.tags || []).join(", ");
   const area = q("#e-area"), suggest = q('[data-act="suggest"]'), note = q("[data-suggest-note]");
-  area.append(...activeAreas().map((x) => new Option(x.name, String(x.id))));
-  area.value = s.area_id == null ? "" : String(s.area_id);
-  area.disabled = !sourcesWritable;
-  suggest.disabled = !sourcesWritable;
+  const tag = q("[data-suggested]");
+  // The select always holds the stored area, even before the area list answers, so a
+  // Save that goes out then keeps it; the names fill in when the list does.
+  const syncArea = (chosen = area.value) => {
+    const active = activeAreas();
+    area.replaceChildren(new Option("None", ""), ...active.map((x) => new Option(x.name, String(x.id))));
+    if (chosen && !active.some((x) => String(x.id) === chosen)) {
+      area.append(new Option(areasLoaded ? `Area ${chosen} (not active)` : `Area ${chosen} (list not loaded)`,
+                             chosen));
+    }
+    area.value = chosen;
+    area.disabled = !sourcesWritable || !areasLoaded;
+    suggest.disabled = !sourcesWritable || !areasLoaded || !active.length;
+    suggest.title = areasLoaded && !active.length ? "Confirm an area first" : "";
+  };
+  syncArea(s.area_id == null ? "" : String(s.area_id));
+  syncSourceArea = syncArea;
   // A reader's own change ends the suggestion, which the field then no longer marks.
-  area.addEventListener("change", () => { note.hidden = true; });
+  area.addEventListener("change", () => { note.hidden = true; tag.hidden = true; });
   suggest.addEventListener("click", () => suggestArea(ed, suggest));
   const save = q('[data-act="save"]'), retire = q('[data-act="retire"]');
   const setType = (type) => {
@@ -802,6 +815,8 @@ async function suggestArea(ed, button) {
   const q = (selector) => ed.querySelector(selector);
   const note = q("[data-suggest-note]");
   button.disabled = true;
+  button.textContent = "Suggesting…";
+  q("#e-area").disabled = true;
   try {
     const data = await post("/api/sources/suggest-area", {
       name: q("#e-name").value.trim(),
@@ -813,6 +828,7 @@ async function suggestArea(ed, button) {
     if (data.suggestion) {
       q("#e-area").value = String(data.suggestion.id);
       q("#e-area").dispatchEvent(new Event("change", {bubbles: true}));
+      q("[data-suggested]").hidden = false;
       note.textContent = data.note;
     } else {
       note.textContent = `No suggestion. ${data.note}`;
@@ -821,7 +837,8 @@ async function suggestArea(ed, button) {
     note.textContent = `No suggestion. ${err.message}`;
   }
   note.hidden = false;
-  button.disabled = !sourcesWritable;
+  button.textContent = "Suggest";
+  syncSourceArea();
 }
 
 async function saveSource(ed, button) {
@@ -877,6 +894,10 @@ loadSources();
 // closed ones, from one read. A deployment without an area table is read-only.
 let areas = [];
 let areasWritable = false;
+// Whether GET /api/areas has answered, and the open source editor's area select, which
+// it refills when it does.
+let areasLoaded = false;
+let syncSourceArea = null;
 // The (articles, issues) a proposal must reach to be marked; null until it is set.
 let birthThreshold = null;
 
@@ -1184,15 +1205,19 @@ const loadAreas = () =>
       if (!d.areas) throw new Error(d.error);
       areas = d.areas;
       areasWritable = d.writable;
+      areasLoaded = true;
       birthThreshold = d.birth_threshold;
       $("propose-areas").disabled = !d.writable;
       if (!d.writable) show("err", NO_AREA_TABLE, "areas-notice");
       renderAreas();
       renderThreshold();
+      syncSourceArea?.();
     })
     .catch((e) => {
       areas = [];
       areasWritable = false;
+      areasLoaded = false;
+      syncSourceArea?.();
       $("propose-areas").disabled = true;
       show("err", e === SESSION_EXPIRED ? e.message
         : `Could not load areas: ${e.message || e}. Reload the page to try again.`, "areas-notice");

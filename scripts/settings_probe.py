@@ -3994,6 +3994,99 @@ CHECKS += [
     ),
 ]
 
+# A source's stored area survives an edit while the area list has not loaded (or never will).
+AREAS_FAIL = """
+window.__calls = [];
+const realFetch = window.fetch;
+window.fetch = (input, init) => {
+  if (init && init.method && init.method !== 'GET') window.__calls.push([String(input), init.method, init.body || null]);
+  if (String(input).endsWith('/api/areas') && [undefined, 'GET'].includes(init && init.method))
+    return Promise.resolve(new Response(JSON.stringify({ok: false, error: 'boom'}), {status: 500, headers: {'Content-Type': 'application/json'}}));
+  return realFetch(input, init);
+};"""
+AREAS_PENDING = """
+window.__calls = [];
+const realFetch = window.fetch;
+window.fetch = (input, init) => {
+  if (init && init.method && init.method !== 'GET') window.__calls.push([String(input), init.method, init.body || null]);
+  if (String(input).endsWith('/api/areas') && [undefined, 'GET'].includes(init && init.method)) return new Promise(() => {});
+  return realFetch(input, init);
+};"""
+KEEPS_STORED_AREA = """
+const post = window.__calls.find(([url]) => url === "/api/sources");
+expect(post && JSON.parse(post[2]).area_id === 1, `posted: ${post && post[2]}`);
+"""
+CHECKS += [
+    Check(
+        id="areas-read-failure-keeps-source-area",
+        fixture="writable-areas",
+        path="/settings#sources",
+        preload=AREAS_FAIL,
+        act=f"""await openRow("Simon Willison"); setValue($("#e-tags", editor()), "ai, news"); editorAct("save").click(); {SAVE_SOURCE}""",
+        script=KEEPS_STORED_AREA,
+        sabotage="window.__calls.length = 0;",
+        receipt=_stored("Simon Willison", area_id=1),
+    ),
+    Check(
+        id="areas-pending-keeps-source-area",
+        fixture="writable-areas",
+        path="/settings#sources",
+        preload=AREAS_PENDING,
+        act=f"""await openRow("Simon Willison"); setValue($("#e-tags", editor()), "ai, news"); editorAct("save").click(); {SAVE_SOURCE}""",
+        script=KEEPS_STORED_AREA,
+        sabotage="window.__calls.length = 0;",
+        receipt=_stored("Simon Willison", area_id=1),
+    ),
+    Check(
+        id="areas-suggest-no-active",
+        fixture="writable-areas",
+        path="/settings#sources",
+        preload=NO_ACTIVE,
+        act="await openRow('Hacker News');",
+        script="""
+            const suggest = $('[data-act="suggest"]', editor());
+            expect(suggest.disabled && suggest.title === "Confirm an area first",
+                   `suggest: ${suggest.disabled} ${suggest.title}`);
+            const options = $$("#e-area option", editor()).map((option) => option.textContent);
+            expect(same(options, ["None"]), `options: ${options}`);
+        """,
+        sabotage="""$('[data-act="suggest"]', editor()).disabled = false;""",
+    ),
+    Check(
+        id="areas-suggest-busy",
+        fixture="writable-areas",
+        path="/settings#sources",
+        preload=answer_post("/api/sources/suggest-area", "new Promise(() => {})"),
+        act="""
+            await openRow("Hacker News");
+            $('[data-act="suggest"]', editor()).click();
+            await waitFor(() => $('[data-act="suggest"]', editor()).textContent === "Suggesting…",
+                          "the busy label");
+        """,
+        script="""
+            expect($("#e-area", editor()).disabled, "the Area select is enabled while suggesting");
+        """,
+        sabotage="""$("#e-area", editor()).disabled = false;""",
+    ),
+    Check(
+        id="areas-suggest-tag",
+        fixture="writable-areas",
+        path="/settings#sources",
+        preload=logged({"/api/sources/suggest-area": SUGGEST_FOUND}),
+        act="""
+            await openRow("Hacker News");
+            $('[data-act="suggest"]', editor()).click();
+            await waitFor(() => $("#e-area", editor()).value === "2", "the suggestion");
+        """,
+        script="""
+            expect(visible($("[data-suggested]", editor())), "no Suggested tag");
+            expect($("#e-area", editor()).selectedOptions[0].textContent === "Food",
+                   "the select does not show Food");
+        """,
+        sabotage="""$("[data-suggested]", editor()).hidden = true;""",
+    ),
+]
+
 # The page fits at the largest type size too.
 CHECKS += [
     largest_twin(check, check.id.replace("fits-", "fits-largest-"), "writable-largest")
