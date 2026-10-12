@@ -116,3 +116,10 @@ def test_birth_threshold_none_without_threshold_or_for_non_proposed() -> None:
 
     assert meets_birth_threshold(proposed, None) is None
     assert meets_birth_threshold(active, (1, 1)) is None
+
+
+def test_place_matches_names_case_insensitively_beyond_ascii() -> None:
+    catalog = AreaCatalog([_area(1, "Économie")])
+    placed = catalog.place("économie")
+    assert placed.kind == "active"
+    assert placed.area is not None and placed.area.id == 1

@@ -282,7 +282,8 @@ def build_scoring_system_prompt(area_names: Sequence[str]) -> str:
     """The scoring system prompt, offering the active areas as a closed set when there are any."""
     if not area_names:
         return SCORING_SYSTEM
-    return SCORING_SYSTEM + SCORING_AREA_CLAUSE.format(names=json.dumps(list(area_names)))
+    names = json.dumps(list(area_names), ensure_ascii=False)
+    return SCORING_SYSTEM + SCORING_AREA_CLAUSE.format(names=names)
 
 
 def build_scoring_prompt(articles: list, *, snippet_length: int) -> str:

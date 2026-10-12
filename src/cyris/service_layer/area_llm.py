@@ -6,6 +6,7 @@ against the names it was offered. Failures are the caller's to report; nothing h
 
 from collections.abc import Mapping, Sequence
 
+from cyris.domain.areas import fold_name
 from cyris.domain.models import SourceConfig
 from cyris.service_layer.ports import LLMClient, complete_json
 from cyris.service_layer.prompts import (
@@ -33,8 +34,8 @@ async def suggest_area(
     picked = data.get("area") if isinstance(data, dict) else None
     if not isinstance(picked, str):
         return None
-    wanted = picked.strip().casefold()
-    return next((name for name in area_names if name.casefold() == wanted), None)
+    wanted = fold_name(picked)
+    return next((name for name in area_names if fold_name(name) == wanted), None)
 
 
 async def propose_areas(

@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
+from cyris.domain.areas import fold_name
 from cyris.domain.language import detect_language
 from cyris.domain.models import StoredArticle, Tier, UsageStats
 from cyris.domain.tags import NEWS_TAG, normalize_tags
@@ -27,8 +28,8 @@ def _parse_pick(entry: dict, area_names: Sequence[str]) -> AreaPick:
     raw_area = entry.get("area")
     area = None
     if isinstance(raw_area, str):
-        wanted = raw_area.strip().casefold()
-        area = next((name for name in area_names if name.casefold() == wanted), None)
+        wanted = fold_name(raw_area)
+        area = next((name for name in area_names if fold_name(name) == wanted), None)
     raw_suggest = entry.get("suggest_area")
     suggest = raw_suggest.strip() if isinstance(raw_suggest, str) else ""
     return AreaPick(area, suggest or None)

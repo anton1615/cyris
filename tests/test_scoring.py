@@ -625,6 +625,14 @@ class TestScoringAreaPrompt:
         assert prompt.index("Tech") < prompt.index("Food")
         assert "area" in prompt and "suggest_area" in prompt
 
+    def test_non_ascii_area_names_reach_the_model_as_written(self):
+        from cyris.service_layer.prompts import build_scoring_system_prompt
+
+        prompt = build_scoring_system_prompt(["科技", "Food"])
+
+        assert "科技" in prompt
+        assert prompt.index("科技") < prompt.index("Food")
+
     def test_the_filter_prompt_is_byte_identical(self):
         import hashlib
 

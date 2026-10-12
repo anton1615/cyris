@@ -25,6 +25,11 @@ class Placement(BaseModel):
     area: Area | None
 
 
+def fold_name(name: str) -> str:
+    """The one rule that matches a name: surrounding space and Unicode letter case ignored."""
+    return name.strip().casefold()
+
+
 class AreaCatalog:
     def __init__(self, areas: Sequence[Area]) -> None:
         self._by_id = {area.id: area for area in areas}
@@ -35,11 +40,11 @@ class AreaCatalog:
         return [area.name for area in sorted(active, key=lambda area: area.position)]
 
     def place(self, name: str) -> Placement:
-        wanted = name.strip().casefold()
+        wanted = fold_name(name)
         if not wanted:
             return Placement(kind="unknown", area=None)
         for area in self._areas:
-            if area.name.strip().casefold() != wanted:
+            if fold_name(area.name) != wanted:
                 continue
             if area.status == "merged":
                 target = self._by_id.get(area.merged_into) if area.merged_into is not None else None
