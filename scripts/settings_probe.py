@@ -3425,7 +3425,8 @@ CHECKS += [
         act="await areasListed();",
         script="""
             const rows = $$("#area-body tr").map((row) => row.textContent.trim());
-            const empty = 'No areas yet. Use "Propose areas from my sources" or wait for the next run to suggest some.';
+            const empty = 'No areas yet. Use "Propose areas from my sources" ' +
+              'or wait for the next run to suggest some.';
             expect(same(rows, [empty]), `rows: ${rows}`);
             expect(!navOf("areas").classList.contains("missing"), "Areas is marked missing");
         """,
@@ -3480,7 +3481,8 @@ NO_ACTIVE = answer_get(
       {headers: {"Content-Type": "application/json"}}))""",
 )
 HOLD_RENAME = answer_post("/api/areas/1", "new Promise(() => {})").replace(
-    'init.method === "POST"', 'init.method === "PUT"')
+    'init.method === "POST"', 'init.method === "PUT"'
+)
 CHECKS += [
     Check(
         id="areas-rename-gone",
@@ -3829,16 +3831,24 @@ CHECKS += [
 ]
 
 # Propose's other answers: none new, a suggestion for an active area, and the pending wait.
-PROPOSE_NOTHING = logged({"/api/areas/propose": (
-    "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: []}), "
-    '{headers: {"Content-Type": "application/json"}}))'
-)})
+PROPOSE_NOTHING = logged(
+    {
+        "/api/areas/propose": (
+            "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: []}), "
+            '{headers: {"Content-Type": "application/json"}}))'
+        )
+    }
+)
 PROPOSE_PENDING = answer_post("/api/areas/propose", "new Promise(() => {})")
-PROPOSE_FOR_ACTIVE = logged({"/api/areas/propose": (
-    "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: ["
-    '{id: 1, name: "Tech", sources: ["Hacker News"]}]}), '
-    '{headers: {"Content-Type": "application/json"}}))'
-)})
+PROPOSE_FOR_ACTIVE = logged(
+    {
+        "/api/areas/propose": (
+            "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: ["
+            '{id: 1, name: "Tech", sources: ["Hacker News"]}]}), '
+            '{headers: {"Content-Type": "application/json"}}))'
+        )
+    }
+)
 CHECKS += [
     Check(
         id="areas-propose-empty",
@@ -3848,7 +3858,8 @@ CHECKS += [
         act="""
             await areasListed();
             $("#propose-areas").click();
-            await waitFor(() => $("#areas-notice").textContent.includes("nothing new"), "the notice");
+            await waitFor(() => $("#areas-notice").textContent.includes("nothing new"),
+                          "the notice");
         """,
         script="""
             expect($("#areas-notice").textContent === "The model proposed nothing new.",
@@ -3999,17 +4010,22 @@ AREAS_FAIL = """
 window.__calls = [];
 const realFetch = window.fetch;
 window.fetch = (input, init) => {
-  if (init && init.method && init.method !== 'GET') window.__calls.push([String(input), init.method, init.body || null]);
+  if (init && init.method && init.method !== 'GET')
+    window.__calls.push([String(input), init.method, init.body || null]);
   if (String(input).endsWith('/api/areas') && [undefined, 'GET'].includes(init && init.method))
-    return Promise.resolve(new Response(JSON.stringify({ok: false, error: 'boom'}), {status: 500, headers: {'Content-Type': 'application/json'}}));
+    return Promise.resolve(new Response(JSON.stringify({ok: false, error: 'boom'}), {
+      status: 500, headers: {'Content-Type': 'application/json'},
+    }));
   return realFetch(input, init);
 };"""
 AREAS_PENDING = """
 window.__calls = [];
 const realFetch = window.fetch;
 window.fetch = (input, init) => {
-  if (init && init.method && init.method !== 'GET') window.__calls.push([String(input), init.method, init.body || null]);
-  if (String(input).endsWith('/api/areas') && [undefined, 'GET'].includes(init && init.method)) return new Promise(() => {});
+  if (init && init.method && init.method !== 'GET')
+    window.__calls.push([String(input), init.method, init.body || null]);
+  if (String(input).endsWith('/api/areas') && [undefined, 'GET'].includes(init && init.method))
+    return new Promise(() => {});
   return realFetch(input, init);
 };"""
 KEEPS_STORED_AREA = """
@@ -4022,7 +4038,10 @@ CHECKS += [
         fixture="writable-areas",
         path="/settings#sources",
         preload=AREAS_FAIL,
-        act=f"""await openRow("Simon Willison"); setValue($("#e-tags", editor()), "ai, news"); editorAct("save").click(); {SAVE_SOURCE}""",
+        act=(
+            'await openRow("Simon Willison"); setValue($("#e-tags", editor()), "ai, news"); '
+            f'editorAct("save").click(); {SAVE_SOURCE}'
+        ),
         script=KEEPS_STORED_AREA,
         sabotage="window.__calls.length = 0;",
         receipt=_stored("Simon Willison", area_id=1),
@@ -4032,7 +4051,10 @@ CHECKS += [
         fixture="writable-areas",
         path="/settings#sources",
         preload=AREAS_PENDING,
-        act=f"""await openRow("Simon Willison"); setValue($("#e-tags", editor()), "ai, news"); editorAct("save").click(); {SAVE_SOURCE}""",
+        act=(
+            'await openRow("Simon Willison"); setValue($("#e-tags", editor()), "ai, news"); '
+            f'editorAct("save").click(); {SAVE_SOURCE}'
+        ),
         script=KEEPS_STORED_AREA,
         sabotage="window.__calls.length = 0;",
         receipt=_stored("Simon Willison", area_id=1),
