@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from pydantic import ValidationError
 
 from cyris.adapters.store.d1 import D1Queryable
-from cyris.domain.areas import Area
+from cyris.domain.areas import Area, fold_name
 
 logger = logging.getLogger(__name__)
 
@@ -48,26 +48,25 @@ class D1AreaStore:
             name = raw_name.strip()
             if not name:
                 continue
-            rows = self._db.query(
-                "SELECT status, last_proposed_run FROM areas WHERE name = ?", [name]
-            ).rows
-            if not rows:
+            rows = self._db.query("SELECT id, name, status, last_proposed_run FROM areas").rows
+            match = next((row for row in rows if fold_name(row["name"]) == fold_name(name)), None)
+            if match is None:
                 first_run = run_id is not None
                 self._db.query(
                     "INSERT INTO areas (name, position, status, proposal_articles, "
                     "proposal_issues, last_proposed_run) VALUES (?, 0, 'proposed', ?, ?, ?)",
                     [name, articles, 1 if first_run else 0, run_id],
                 )
-            elif rows[0]["status"] == "proposed":
-                new_run = run_id is not None and run_id != rows[0]["last_proposed_run"]
+            elif match["status"] == "proposed":
+                new_run = run_id is not None and run_id != match["last_proposed_run"]
                 self._db.query(
                     "UPDATE areas SET proposal_articles = proposal_articles + ?, "
-                    "proposal_issues = proposal_issues + ?, last_proposed_run = ? WHERE name = ?",
+                    "proposal_issues = proposal_issues + ?, last_proposed_run = ? WHERE id = ?",
                     [
                         articles,
                         1 if new_run else 0,
-                        run_id if new_run else rows[0]["last_proposed_run"],
-                        name,
+                        run_id if new_run else match["last_proposed_run"],
+                        match["id"],
                     ],
                 )
 
@@ -92,10 +91,9 @@ class D1AreaStore:
 
     def name_taken(self, name: str, except_id: int) -> bool:
         """Whether another row of any status holds `name`, case-insensitively."""
-        rows = self._db.query(
-            "SELECT id FROM areas WHERE name = ? AND id <> ?", [name, except_id]
-        ).rows
-        return bool(rows)
+        wanted = fold_name(name)
+        rows = self._db.query("SELECT id, name FROM areas WHERE id <> ?", [except_id]).rows
+        return any(fold_name(row["name"]) == wanted for row in rows)
 
     def rename(self, area_id: int, name: str) -> None:
         """Change the name only; position, status, counts and merges stay as they were."""

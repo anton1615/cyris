@@ -29,6 +29,19 @@ def _seed(db: SqliteD1, name: str, status: str, merged_into: int | None = None) 
     )
 
 
+def test_a_non_ascii_name_matches_case_insensitively() -> None:
+    db = SqliteD1()
+    store = D1AreaStore(db)
+
+    store.record_proposals({"Économie": 2}, "r1")
+    store.record_proposals({"économie": 3}, "r2")
+
+    assert _count(db) == 1
+    row = _row(db, "Économie")
+    assert row["proposal_articles"] == 5
+    assert row["proposal_issues"] == 2
+
+
 def test_counts_accumulate_and_issues_count_each_run_once() -> None:
     db = SqliteD1()
     store = D1AreaStore(db)

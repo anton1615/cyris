@@ -138,6 +138,19 @@ async def test_a_rename_onto_another_rows_name_is_refused_case_insensitively(
     assert D1AreaStore(db).get(tech).name == "Tech"
 
 
+async def test_a_rename_onto_a_non_ascii_name_is_refused_case_insensitively(
+    client: TestClient, db: SqliteD1
+) -> None:
+    _area(db, "Économie", "active", position=0)
+    tech = _area(db, "Tech", "active", position=1)
+
+    response = await client.put(f"/api/areas/{tech}", json={"name": "économie"})
+
+    assert response.status == 409
+    assert (await response.json())["field"] == "name"
+    assert D1AreaStore(db).get(tech).name == "Tech"
+
+
 async def test_a_blank_or_multiline_name_is_refused(client: TestClient, db: SqliteD1) -> None:
     tech = _area(db, "Tech", "active", position=0)
 
