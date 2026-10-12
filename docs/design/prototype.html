@@ -1040,18 +1040,28 @@ tr.editor[inert] .form { opacity: .4; }
           </div>
         </div>
 
-        <!-- AREAS: the three lists from one read; the rows and the threshold controls follow the Tracking tab's pattern -->
+        <!-- AREAS: the lists, toolbar, threshold block, closed list and editors as the shipped page draws them; a row opens its editor as Tracking's do -->
         <div class="tab" data-tab="areas" hidden>
           <div class="tab-head">
             <h2 class="heading">Areas</h2>
             <p class="small">The areas the model files each article under, and the proposals waiting for you.</p>
           </div>
+          <div class="toolbar">
+            <div class="notice" role="status" hidden></div>
+            <button class="btn primary" type="button">Propose areas from my sources</button>
+          </div>
           <h3 class="label">Areas</h3>
           <div class="table-wrap">
             <table class="src">
-              <thead><tr><th class="label">Name</th></tr></thead>
+              <thead><tr><th class="label">Name</th><th class="label">Order</th></tr></thead>
               <tbody>
-                <tr class="src-row" tabindex="0"><td class="name">Tech</td></tr>
+                <tr class="src-row open" tabindex="0"><td class="name">Tech</td><td><div class="actions-line"><button class="btn secondary" type="button" disabled>Up</button><button class="btn secondary" type="button">Down</button></div></td></tr>
+                <tr class="editor"><td colspan="2"><div class="editor-body">
+                  <h3 class="label editor-title">Editing Tech</h3>
+                  <div class="form"><div class="field"><label class="label" for="proto-a-name">Name</label><input class="input" id="proto-a-name" type="text" value="Tech"></div></div>
+                  <div class="editor-foot"><div class="actions-line"><button class="btn primary" type="button" disabled>Save name</button><button class="btn secondary" type="button">Cancel</button></div></div>
+                </div></td></tr>
+                <tr class="src-row" tabindex="0"><td class="name">Food</td><td><div class="actions-line"><button class="btn secondary" type="button">Up</button><button class="btn secondary" type="button" disabled>Down</button></div></td></tr>
               </tbody>
             </table>
           </div>
@@ -1060,10 +1070,29 @@ tr.editor[inert] .form { opacity: .4; }
             <table class="src">
               <thead><tr><th class="label">Name</th><th class="label">Counts</th></tr></thead>
               <tbody>
-                <tr class="src-row" tabindex="0"><td class="name">Food</td><td class="small">12 articles / 3 issues <span class="pill">Meets birth threshold</span></td></tr>
+                <tr class="src-row" tabindex="0"><td class="name">X</td><td class="small">12 articles / 3 issues <span class="pill">Meets birth threshold</span></td></tr>
+                <tr class="proposal"><td colspan="2">
+                  <fieldset class="sources-check">
+                    <legend class="label">Sources</legend>
+                    <label class="choice"><input type="checkbox" checked><span class="name">Simon Willison</span></label>
+                    <label class="choice"><input type="checkbox" checked><span class="name">Hacker News</span></label>
+                  </fieldset>
+                  <div class="actions-line"><button class="btn primary" type="button">Confirm</button></div>
+                </td></tr>
               </tbody>
             </table>
           </div>
+          <div>
+            <h3 class="label">Birth threshold</h3>
+            <div class="field-row">
+              <div class="field"><label class="label" for="proto-th-articles">Articles</label><input class="input narrow" id="proto-th-articles" type="number" value="10"></div>
+              <div class="field"><label class="label" for="proto-th-issues">Issues</label><input class="input narrow" id="proto-th-issues" type="number" value="3"></div>
+            </div>
+            <div class="actions-line"><button class="btn primary" type="button" disabled>Save</button></div>
+          </div>
+          <details class="more"><summary>Closed</summary>
+            <ul class="small"><li>Old — dismissed</li><li>Sports — merged into Tech</li></ul>
+          </details>
         </div>
 
         <!-- TRACKING: the rows open an editor exactly as a source's do, so only the table is drawn here -->
@@ -1109,6 +1138,11 @@ tr.editor[inert] .form { opacity: .4; }
         <details class="more"><summary>More</summary><p class="small">Email routing itself stays in the Cloudflare dashboard.</p></details></div>
       <div class="field" data-for="newsletter"><label class="label" for="e-home">Homepage</label><input class="input" id="e-home" type="text"></div>
       <div class="field"><label class="label" for="e-tags">Tags</label><input class="input" id="e-tags" type="text" placeholder="comma separated"></div>
+      <div class="field-row">
+        <div class="field"><label class="label" for="e-area">Area</label><select class="select" id="e-area"><option>None</option><option>Tech</option><option>Food</option></select></div>
+        <div class="field"><button class="btn secondary" type="button" data-act="suggest">Suggest</button></div>
+      </div>
+      <p class="small" data-suggest-note hidden></p>
     </div>
     <div class="editor-foot">
       <div class="actions-line"><button class="btn primary" type="button" data-act="save">Save source</button><button class="btn secondary" type="button" data-act="cancel">Cancel</button></div>

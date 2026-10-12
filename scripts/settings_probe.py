@@ -3425,7 +3425,8 @@ CHECKS += [
         act="await areasListed();",
         script="""
             const rows = $$("#area-body tr").map((row) => row.textContent.trim());
-            expect(same(rows, ["No areas yet."]), `rows: ${rows}`);
+            const empty = 'No areas yet. Use "Propose areas from my sources" or wait for the next run to suggest some.';
+            expect(same(rows, [empty]), `rows: ${rows}`);
             expect(!navOf("areas").classList.contains("missing"), "Areas is marked missing");
         """,
         sabotage="""navOf("areas").classList.add("missing");""",

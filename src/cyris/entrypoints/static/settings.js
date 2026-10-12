@@ -932,7 +932,7 @@ function renderAreas() {
           <button class="btn secondary" type="button" data-move="1"${i === active.length - 1 ? " disabled" : ""}>Down</button>
         </div></td>
       </tr>`).join("")
-    : `<tr><td colspan="2" class="small">No areas yet.</td></tr>`;
+    : `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" or wait for the next run to suggest some.</td></tr>`;
   $("proposed-body").innerHTML = proposed.length
     ? proposed.map((area) => `
       <tr class="src-row" data-id="${area.id}" tabindex="0">
