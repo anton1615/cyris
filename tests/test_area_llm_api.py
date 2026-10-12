@@ -229,3 +229,71 @@ async def test_no_llm_or_no_sources_is_refused(db: SqliteD1) -> None:
 
     assert no_llm.status == 409
     assert no_sources.status == 400
+
+
+async def test_names_differing_only_in_case_are_one_proposal_with_both_sources(
+    db: SqliteD1,
+) -> None:
+    sources = D1SourceStore(db)
+    for name in ("a", "b"):
+        sources.upsert(SourceConfig(name=name, url=f"https://{name}.example/f"))
+    llm = FakeLLM(json.dumps({"Économie": ["a"], "économie": ["b"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        response = await client.post("/api/areas/propose")
+        body = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    assert body["created"] == 1
+    assert [(p["name"], p["sources"]) for p in body["proposals"]] == [("Économie", ["a", "b"])]
+    assert [r.name for r in D1AreaStore(db).list_areas() if r.status == "proposed"] == ["Économie"]
+
+
+async def test_only_the_host_of_a_feed_url_reaches_the_propose_model(db: SqliteD1) -> None:
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f?token=sk-feed-9"))
+    llm = FakeLLM(json.dumps({"Tech": ["a"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        response = await client.post("/api/areas/propose")
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    assert "a.example" in llm.calls[0]["prompt"]
+    assert "sk-feed-9" not in llm.calls[0]["prompt"]
+
+
+async def test_only_the_host_of_a_feed_url_reaches_the_suggest_model(db: SqliteD1) -> None:
+    llm = FakeLLM('{"area": "tech"}')
+    client = await _client(db, lambda values: llm)
+    try:
+        response = await client.post(
+            "/api/sources/suggest-area",
+            json=_suggest_body(url="https://feed.example/rss?token=sk-feed-9"),
+        )
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    assert "feed.example" in llm.calls[0]["prompt"]
+    assert "sk-feed-9" not in llm.calls[0]["prompt"]
+
+
+async def test_a_factory_that_raises_is_the_fixed_model_failure(db: SqliteD1) -> None:
+    def broken(values):
+        raise RuntimeError(f"401 key={SECRET}")
+
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    client = await _client(db, broken)
+    try:
+        response = await client.post("/api/areas/propose")
+        body = await response.text()
+    finally:
+        await client.close()
+
+    assert response.status == 502
+    assert json.loads(body)["error"] == "The model call failed (RuntimeError)."
+    assert SECRET not in body
+    assert len(D1AreaStore(db).list_areas()) == 2

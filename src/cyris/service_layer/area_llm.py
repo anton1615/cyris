@@ -5,6 +5,7 @@ against the names it was offered. Failures are the caller's to report; nothing h
 """
 
 from collections.abc import Mapping, Sequence
+from urllib.parse import urlsplit
 
 from cyris.domain.areas import fold_name
 from cyris.domain.models import SourceConfig
@@ -17,6 +18,11 @@ from cyris.service_layer.prompts import (
 )
 
 
+def _host(url: str) -> str:
+    """Only the host goes to the model: a feed URL can carry a token in its path or query."""
+    return urlsplit(url).hostname or ""
+
+
 async def suggest_area(
     llm: LLMClient,
     source: SourceConfig,
@@ -25,7 +31,7 @@ async def suggest_area(
     """The one active area the model files `source` under, or None when it picks none of them."""
     prompt = build_suggest_area_prompt(
         name=source.name,
-        url=source.url or "",
+        url=_host(source.url or ""),
         source_type=source.type,
         tags=source.tags,
         homepage=source.homepage,
@@ -45,16 +51,22 @@ async def propose_areas(
     """The areas the model groups `sources` into, each with its source names, in the model's order.
 
     A name that is not one of `sources` is dropped, and so is an area that gets no source.
+    Names that differ only in case or outer space are one area, its sources united.
     """
-    prompt = build_propose_areas_prompt([(s.name, s.url or "", s.tags) for s in sources.values()])
+    prompt = build_propose_areas_prompt(
+        [(s.name, _host(s.url or ""), s.tags) for s in sources.values()]
+    )
     data = await complete_json(llm, prompt, system=PROPOSE_AREAS_SYSTEM)
     if not isinstance(data, dict):
         raise ValueError("the model's reply is not an object")
     grouping: dict[str, list[str]] = {}
+    spelling: dict[str, str] = {}
     for area, named in data.items():
         if not isinstance(area, str) or not area.strip() or not isinstance(named, list):
             continue
         members = [n for n in named if isinstance(n, str) and n in sources]
         if members:
-            grouping[area.strip()] = members
+            first = spelling.setdefault(fold_name(area), area.strip())
+            united = grouping.setdefault(first, [])
+            united.extend(n for n in members if n not in united)
     return grouping

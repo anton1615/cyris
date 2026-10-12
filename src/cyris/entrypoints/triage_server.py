@@ -1033,7 +1033,11 @@ class TriageServer:
         names = catalog.names()
         if not names:
             return answer(None, "No active area to suggest from yet.")
-        llm = self._llm()
+        try:
+            llm = self._llm()
+        except Exception as e:  # noqa: BLE001 - only the class name leaves this handler
+            logger.warning("Suggesting an area failed: %s", type(e).__name__)
+            return answer(None, f"The model call failed ({type(e).__name__}).")
         if llm is None:
             return answer(None, "No LLM is configured, so no area is suggested.")
 
@@ -1066,7 +1070,18 @@ class TriageServer:
         sources = self._source_store.list_sources() if self._source_store else self._sources
         if not sources:
             return _refused("There are no sources to group yet.", "sources")
-        llm = self._llm()
+
+        def model_failed(error: Exception) -> web.Response:
+            logger.warning("Proposing areas failed: %s", type(error).__name__)
+            return web.json_response(
+                {"ok": False, "error": f"The model call failed ({type(error).__name__})."},
+                status=502,
+            )
+
+        try:
+            llm = self._llm()
+        except Exception as e:  # noqa: BLE001 - only the class name leaves this handler
+            return model_failed(e)
         if llm is None:
             return web.json_response(
                 {"ok": False, "error": "No LLM is configured, so no areas are proposed."},
@@ -1077,20 +1092,22 @@ class TriageServer:
                 area_llm.propose_areas(llm, sources), LLM_PROBE_TIMEOUT_SECONDS
             )
         except Exception as e:  # noqa: BLE001 - only the class name leaves this handler
-            logger.warning("Proposing areas failed: %s", type(e).__name__)
-            return web.json_response(
-                {"ok": False, "error": f"The model call failed ({type(e).__name__})."},
-                status=502,
-            )
+            return model_failed(e)
 
         try:
             catalog = AreaCatalog(self._area_store.list_areas())
-            proposals = []
-            created = 0
-            for name, members in grouping.items():
-                placed = catalog.place(name)
-                if placed.kind == "dismissed":
-                    continue
+        except Exception as e:  # noqa: BLE001 - the reason stays in the log, not the page
+            logger.error("Reading areas failed: %s", type(e).__name__)
+            return web.json_response(
+                {"ok": False, "error": "The area table could not be read."}, status=500
+            )
+        # Every name is placed before the first write, so a refused reply writes nothing.
+        placements = [(name, members, catalog.place(name)) for name, members in grouping.items()]
+        placements = [entry for entry in placements if entry[2].kind != "dismissed"]
+        proposals = []
+        created = 0
+        try:
+            for name, members, placed in placements:
                 if placed.kind == "unknown":
                     area_id = self._area_store.insert_proposed(name)
                     created += 1
@@ -1098,8 +1115,11 @@ class TriageServer:
                 else:
                     area = placed.area
                     proposals.append({"id": area.id, "name": area.name, "sources": members})
-        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
-            return web.json_response({"ok": False, "error": str(e)}, status=500)
+        except Exception as e:  # noqa: BLE001 - the reason stays in the log, not the page
+            logger.error("Writing proposed areas failed: %s", type(e).__name__)
+            return web.json_response(
+                {"ok": False, "error": "The area table could not be written."}, status=500
+            )
 
         return web.json_response({"ok": True, "proposals": proposals, "created": created})
 
