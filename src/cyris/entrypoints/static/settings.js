@@ -938,6 +938,10 @@ const proposalRow = (area) => {
 };
 
 const areaRow = (id) => document.querySelector(`tr.src-row[data-id="${id}"]`);
+// Where focus goes when an area's row has left its table: the Closed list it moved to, or the
+// list itself when a 404 removed it.
+const closedSummary = () => $("closed-list").closest("details").querySelector("summary");
+const focusAfterLeaving = (id) => (areaRow(id) ?? closedSummary()).focus();
 
 const activeAreas = () => areas.filter((area) => area.status === "active");
 
@@ -954,7 +958,9 @@ function renderAreas() {
           <button class="btn secondary" type="button" data-move="1"${i === active.length - 1 ? " disabled" : ""}>Down</button>
         </div></td>
       </tr>${proposalRow(area)}`).join("")
-    : `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" or wait for the next run to suggest some.</td></tr>`;
+    : areasLoaded
+      ? `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" or wait for the next run to suggest some.</td></tr>`
+      : "";
   $("proposed-body").innerHTML = proposed.length
     ? proposed.map((area) => `
       <tr class="src-row" data-id="${area.id}" tabindex="0">
@@ -962,11 +968,11 @@ function renderAreas() {
         <td class="small">${area.proposal_articles} articles / ${area.proposal_issues} issues${
           meetsThreshold(area) ? ' <span class="pill">Meets birth threshold</span>' : ""}</td>
       </tr>${proposalRow(area)}`).join("")
-    : `<tr><td colspan="2" class="small">No proposals yet.</td></tr>`;
+    : areasLoaded ? `<tr><td colspan="2" class="small">No proposals yet.</td></tr>` : "";
   $("closed-list").innerHTML = closed.length
     ? closed.map((area) => `<li>${esc(area.name)} — ${area.status === "merged"
       ? `merged into ${esc(areaNameOf(area.merged_into))}` : "dismissed"}</li>`).join("")
-    : "<li>No closed areas.</li>";
+    : areasLoaded ? "<li>No closed areas.</li>" : "";
   $("threshold-hint").hidden = birthThreshold !== null;
   if (openArea !== null) openAreaEditor(openArea);
 }
@@ -1043,6 +1049,7 @@ function openAreaEditor(id) {
         openArea = null;
         await loadAreas();
         show("err", "This area no longer exists.", "areas-notice");
+        focusAfterLeaving(id);
         return null;
       }
       const control = err.field && q(`[name="${err.field}"]`);
@@ -1059,7 +1066,7 @@ function openAreaEditor(id) {
     openArea = null;
     await loadAreas();
     show("ok", text, "areas-notice");
-    areaRow(id)?.focus();
+    focusAfterLeaving(id);
   };
   q('[data-act="cancel"]').addEventListener("click", () => {
     openArea = null;
@@ -1137,8 +1144,10 @@ $("propose-areas").addEventListener("click", async () => {
     const data = await post("/api/areas/propose", {});
     proposalSources = {};
     for (const p of data.proposals) {
+      // Entries that resolve to one area (an active name and a name merged into it) share its list.
       const known = areas.find((area) => area.id === p.id);
-      proposalSources[known?.status === "merged" ? known.merged_into : p.id] = p.sources;
+      const key = known?.status === "merged" ? known.merged_into : p.id;
+      proposalSources[key] = [...new Set([...(proposalSources[key] ?? []), ...p.sources])];
     }
     await loadAreas();
     show("ok", data.proposals.length

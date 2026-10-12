@@ -175,6 +175,14 @@ class FakeAreaStore:
         self.areas[area_id] = area.model_copy(update={"status": "dismissed"})
         return 1
 
+    def merge(self, area_id: int, into: int) -> int:
+        """A proposal leaves `proposed` for `merged` into an active area; 0 or 1 rows changed."""
+        area = self.areas[area_id]
+        if area.status != "proposed":
+            return 0
+        self.areas[area_id] = area.model_copy(update={"status": "merged", "merged_into": into})
+        return 1
+
 
 # The probe values embed with workers_ai's default model, @cf/baai/bge-m3.
 PROBE_EMBEDDING_MODEL = "@cf/baai/bge-m3"
@@ -3905,6 +3913,115 @@ CHECKS += [
         """,
         sabotage="""window.__calls.length = 0;""",
         receipt=_stored("Hacker News", area_id=1),
+    ),
+]
+
+# Two propose entries that resolve to one active area: the checklist holds the union of both.
+PROPOSE_TWO_ENTRIES = logged(
+    {
+        "/api/areas/propose": (
+            "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: ["
+            "{id: 1, name: 'Tech', sources: ['Hacker News']}, "
+            "{id: 1, name: 'Tech', sources: ['Simon Willison']}]}), "
+            '{headers: {"Content-Type": "application/json"}}))'
+        )
+    }
+)
+CLOSED_SUMMARY_FOCUSED = """
+const summary = $("#closed-list").closest("details").querySelector("summary");
+expect(document.activeElement === summary, `focus is on ${document.activeElement.tagName}`);
+"""
+GONE_ACT = """
+    await areasListed();
+    areaRowOf("Tech").click();
+    await waitFor(editor, "the editor");
+    setValue($("#a-name", editor()), "Technology");
+    editorAct("save").click();
+    await waitFor(() => $("#areas-notice").textContent === "This area no longer exists.",
+                  "the notice");
+"""
+CHECKS += [
+    Check(
+        id="areas-propose-two-entries-one-area",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=PROPOSE_TWO_ENTRIES,
+        act="""
+            await areasListed();
+            $("#propose-areas").click();
+            await waitFor(() => $(".sources-check", $("#area-body")), "the checklist");
+        """,
+        script="""
+            const names = $$("#area-body .sources-check input").map((i) => i.value);
+            expect(same(names, ["Hacker News", "Simon Willison"]), `checklist: ${names}`);
+        """,
+        sabotage="""$$("#area-body .sources-check input").forEach((i) => i.remove());""",
+    ),
+    Check(
+        id="areas-read-failure-no-empty-copy",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=answer_get(
+            "/api/areas",
+            """Promise.resolve(new Response(JSON.stringify({ok: false, error: "boom"}),
+              {status: 500, headers: {"Content-Type": "application/json"}}))""",
+        ),
+        act="""
+            await waitFor(() => visible($("#areas-notice")), "the notice");
+        """,
+        script="""
+            const text = [$("#area-body"), $("#proposed-body"), $("#closed-list")]
+              .map((el) => el.textContent).join("|");
+            expect(!/No areas yet|No proposals yet|No closed areas/.test(text), `copy: ${text}`);
+        """,
+        sabotage="""$("#area-body").innerHTML = "<tr><td>No areas yet.</td></tr>";""",
+    ),
+    Check(
+        id="areas-dismiss-focus",
+        fixture="writable-areas",
+        path="/settings#areas",
+        focused=True,
+        act="""
+            await areasListed();
+            areaRowOf("X").click();
+            await waitFor(editor, "the editor");
+            editorAct("dismiss").click();
+            editorAct("dismiss").click();
+            await waitFor(() => $$("#closed-list li").length === 3, "the row to move");
+        """,
+        script=CLOSED_SUMMARY_FOCUSED,
+        sabotage="document.activeElement.blur();",
+        receipt=_area_is(3, status="dismissed"),
+    ),
+    Check(
+        id="areas-merge-focus",
+        fixture="writable-areas",
+        path="/settings#areas",
+        focused=True,
+        act="""
+            await areasListed();
+            areaRowOf("X").click();
+            await waitFor(editor, "the editor");
+            editorAct("merge").click();
+            editorAct("merge").click();
+            await waitFor(() => $$("#closed-list li").length === 3, "the row to move");
+        """,
+        script=CLOSED_SUMMARY_FOCUSED,
+        sabotage="document.activeElement.blur();",
+        receipt=_area_is(3, status="merged"),
+    ),
+    Check(
+        id="areas-gone-focus",
+        fixture="writable-areas",
+        path="/settings#areas",
+        focused=True,
+        preload=AREA_GONE,
+        act=GONE_ACT,
+        script="""
+            expect(document.activeElement === areaRowOf("Tech"),
+                   `focus is on ${document.activeElement.tagName}`);
+        """,
+        sabotage="document.activeElement.blur();",
     ),
 ]
 
