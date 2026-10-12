@@ -366,6 +366,7 @@ async function post(url, body, method = "POST") {
     "Try again; if it keeps failing, check the server log.");
   // The setting or source field the refusal is about, for the page to mark.
   err.field = data.field;
+  err.status = res.status;
   throw err;
 }
 
@@ -960,7 +961,7 @@ function armThen(button, label, act) {
   button.addEventListener("click", () => {
     if (!button.classList.contains("armed")) {
       button.classList.add("armed");
-      button.textContent = "Press again to confirm";
+      button.textContent = `Confirm ${label.toLowerCase()}`;
       timer = setTimeout(disarm, 3000);
       return;
     }
@@ -987,12 +988,16 @@ function openAreaEditor(id) {
   const acts = ["activate", "dismiss", "merge"].map((act) => q(`[data-act="${act}"]`));
   const into = q("#a-into");
   const targets = activeAreas().filter((x) => x.id !== id);
-  into.replaceChildren(...targets.map((x) => new Option(x.name, String(x.id))));
+  into.replaceChildren(...(targets.length
+    ? targets.map((x) => new Option(x.name, String(x.id)))
+    : [new Option("No active area to merge into", "")]));
   q("[data-proposed]").hidden = area.status !== "proposed";
   const refreshEditor = () => {
-    save.disabled = !areasWritable || !q("#a-name").value.trim() || q("#a-name").value === area.name;
+    save.disabled = ed.inert || !areasWritable || !q("#a-name").value.trim()
+      || q("#a-name").value === area.name;
     acts.forEach((button) => { button.disabled = !areasWritable; });
-    q('[data-act="merge"]').disabled = !areasWritable || !targets.length;
+    into.disabled = !areasWritable || !targets.length;
+    q('[data-act="merge"]').disabled = into.disabled;
   };
   const editorEdited = () => {
     ed.querySelectorAll(".notice, [data-field-error]").forEach((n) => { n.hidden = true; });
@@ -1005,17 +1010,28 @@ function openAreaEditor(id) {
   if (!areasWritable) show("err", NO_AREA_TABLE, q(".notice"));
   const writeArea = async (url, method, body, doing) => {
     const notice = q(".notice");
+    const pressed = document.activeElement;
+    ed.inert = true;
     ed.querySelectorAll("button").forEach((button) => { button.disabled = true; });
     show("busy", doing, notice);
     try {
       return await post(url, body, method);
     } catch (err) {
+      if (err.status === 404) {
+        // The row changed or went elsewhere: close the editor and show the list as it is now.
+        openArea = null;
+        await loadAreas();
+        show("err", "This area no longer exists.", "areas-notice");
+        return null;
+      }
       const control = err.field && q(`[name="${err.field}"]`);
       if (control) refuse([control], err.message);
       else show("err", err.message, notice);
       return null;
     } finally {
+      ed.inert = false;
       refreshEditor();
+      returnFocus(pressed);
     }
   };
   const finish = async (text) => {
@@ -1032,7 +1048,12 @@ function openAreaEditor(id) {
   save.addEventListener("click", async () => {
     const name = q("#a-name").value.trim();
     const data = await writeArea(`/api/areas/${id}`, "PUT", {name}, "Saving…");
-    if (data) await finish(`${data.name} saved. ${data.note}`);
+    if (!data) return;
+    // As Tracking's save does: the editor reopens on the row with the result beside it.
+    openArea = id;
+    await loadAreas();
+    show("ok", `${data.name} saved. ${data.note}`, document.querySelector("tr.editor .notice"));
+    areaRow(id)?.focus();
   });
   q('[data-act="activate"]').addEventListener("click", async () => {
     const data = await writeArea(`/api/areas/${id}/activate`, "POST", null, "Activating…");

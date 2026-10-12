@@ -3466,6 +3466,83 @@ CHECKS += [
         sabotage="""$("#areas-notice").classList.remove("err");""",
     ),
 ]
+# A row's save, the merge target and the locked editor: the states an edit can be in.
+AREA_GONE = answer_post(
+    "/api/areas/1",
+    """Promise.resolve(new Response(JSON.stringify({ok: false,
+      error: "No area with id 1: reload the page."}),
+      {status: 404, headers: {"Content-Type": "application/json"}}))""",
+).replace('init.method === "POST"', 'init.method === "PUT"')
+NO_ACTIVE = answer_get(
+    "/api/areas",
+    """realFetch(input, init).then((r) => r.json()).then((d) => new Response(JSON.stringify(
+      {...d, areas: d.areas.filter((a) => a.status !== "active")}),
+      {headers: {"Content-Type": "application/json"}}))""",
+)
+HOLD_RENAME = answer_post("/api/areas/1", "new Promise(() => {})").replace(
+    'init.method === "POST"', 'init.method === "PUT"')
+CHECKS += [
+    Check(
+        id="areas-rename-gone",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=AREA_GONE,
+        act="""
+            await areasListed();
+            areaRowOf("Tech").click();
+            await waitFor(editor, "the editor");
+            setValue($("#a-name", editor()), "Technology");
+            editorAct("save").click();
+            await waitFor(() => $("#areas-notice").textContent === "This area no longer exists.",
+                          "the notice");
+        """,
+        script="""
+            expect(!editor(), "the editor is still open");
+            expect($("#areas-notice").textContent === "This area no longer exists.",
+                   `notice: ${$("#areas-notice").textContent}`);
+            expect(same(areaNames(), ["Tech", "Food"]), `rows: ${areaNames()}`);
+        """,
+        sabotage="""$("#areas-notice").textContent = "";""",
+    ),
+    Check(
+        id="areas-save-inert",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=HOLD_RENAME,
+        act="""
+            await areasListed();
+            areaRowOf("Tech").click();
+            await waitFor(editor, "the editor");
+            setValue($("#a-name", editor()), "Technology");
+            editorAct("save").click();
+            await waitFor(() => editor().hasAttribute("inert"), "the lock");
+        """,
+        script="""
+            expect(editor().hasAttribute("inert"), "the editor is not inert while saving");
+            expect(editorAct("save").disabled, "Save Name is enabled while saving");
+        """,
+        sabotage="""editor().removeAttribute("inert");""",
+    ),
+    Check(
+        id="areas-merge-empty",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=NO_ACTIVE,
+        act="""
+            await areasListed();
+            areaRowOf("X").click();
+            await waitFor(editor, "the editor");
+        """,
+        script="""
+            const into = $("#a-into", editor());
+            expect(into.disabled && into.textContent === "No active area to merge into",
+                   `merge: ${into.disabled} ${into.textContent}`);
+            expect(editorAct("merge").disabled, "Merge is enabled with no target");
+        """,
+        sabotage="""$("#a-into", editor()).disabled = false;""",
+    ),
+]
+
 # Area rows: rename, reorder and the arm-then-confirm Dismiss, on the Areas tab.
 CHECKS += [
     Check(
@@ -3482,7 +3559,9 @@ CHECKS += [
         """,
         script="""
             expect(same(areaNames(), ["Technology", "Food"]), `rows: ${areaNames()}`);
-            const notice = $("#areas-notice");
+            expect(editor() && $("#a-name", editor()).value === "Technology",
+                   "the editor did not reopen on the row");
+            const notice = $(".notice", editor());
             expect(notice.textContent === "Technology saved. Effective next run.",
                    `notice: ${notice.textContent}`);
         """,
@@ -3528,7 +3607,7 @@ CHECKS += [
             await sleep(3300);
         """,
         script="""
-            expect(ctx.armed === "Press again to confirm", `the first press read ${ctx.armed}`);
+            expect(ctx.armed === "Confirm dismiss", `the first press read ${ctx.armed}`);
             expect(ctx.open, "the proposal left the list on the first press");
             const dismiss = editorAct("dismiss");
             expect(dismiss.textContent === "Dismiss", `after 3s it reads ${dismiss.textContent}`);
@@ -3536,7 +3615,7 @@ CHECKS += [
         """,
         sabotage="""
             editorAct("dismiss").classList.add("armed");
-            editorAct("dismiss").textContent = "Press again to confirm";
+            editorAct("dismiss").textContent = "Confirm dismiss";
         """,
         receipt=_area_is(3, status="proposed"),
     ),
