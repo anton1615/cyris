@@ -83,3 +83,11 @@ def test_active_merged_and_dismissed_names_are_left_alone() -> None:
     assert _row(db, "Chips")["proposal_articles"] == 0
     assert _row(db, "Tech")["proposal_articles"] == 0
     assert _count(db) == before
+
+
+def test_a_line_break_in_a_name_is_stored_as_a_space() -> None:
+    db = SqliteD1()
+
+    D1AreaStore(db).record_proposals({"Line\nBreak": 2}, "r1")
+
+    assert _row(db, "Line Break")["proposal_articles"] == 2

@@ -4,6 +4,7 @@ Each function takes the LLM client it is given and returns what the model named,
 against the names it was offered. Failures are the caller's to report; nothing here logs.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 from urllib.parse import urlsplit
 
@@ -62,11 +63,14 @@ async def propose_areas(
     grouping: dict[str, list[str]] = {}
     spelling: dict[str, str] = {}
     for area, named in data.items():
-        if not isinstance(area, str) or not area.strip() or not isinstance(named, list):
+        if not isinstance(area, str) or not isinstance(named, list):
+            continue
+        area = re.sub(r"[\r\n]+", " ", area).strip()
+        if not area:
             continue
         members = [n for n in named if isinstance(n, str) and n in sources]
         if members:
-            first = spelling.setdefault(fold_name(area), area.strip())
+            first = spelling.setdefault(fold_name(area), area)
             united = grouping.setdefault(first, [])
             united.extend(n for n in members if n not in united)
     return grouping

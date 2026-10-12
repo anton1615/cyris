@@ -1104,24 +1104,23 @@ class TriageServer:
         # Every name is placed before the first write, so a refused reply writes nothing.
         placements = [(name, members, catalog.place(name)) for name, members in grouping.items()]
         placements = [entry for entry in placements if entry[2].kind != "dismissed"]
-        proposals = []
-        created = 0
+        new_names = [name for name, _, placed in placements if placed.kind == "unknown"]
         try:
-            for name, members, placed in placements:
-                if placed.kind == "unknown":
-                    area_id = self._area_store.insert_proposed(name)
-                    created += 1
-                    proposals.append({"id": area_id, "name": name, "sources": members})
-                else:
-                    area = placed.area
-                    proposals.append({"id": area.id, "name": area.name, "sources": members})
+            new_ids = self._area_store.insert_proposed(new_names)
         except Exception as e:  # noqa: BLE001 - the reason stays in the log, not the page
             logger.error("Writing proposed areas failed: %s", type(e).__name__)
             return web.json_response(
                 {"ok": False, "error": "The area table could not be written."}, status=500
             )
+        proposals = []
+        for name, members, placed in placements:
+            if placed.kind == "unknown":
+                proposals.append({"id": new_ids[name], "name": name, "sources": members})
+            else:
+                area = placed.area
+                proposals.append({"id": area.id, "name": area.name, "sources": members})
 
-        return web.json_response({"ok": True, "proposals": proposals, "created": created})
+        return web.json_response({"ok": True, "proposals": proposals, "created": len(new_names)})
 
     async def _handle_put_area_order(self, request: web.Request) -> web.Response:
         """Set the order of the active areas: the page's list, top to bottom."""

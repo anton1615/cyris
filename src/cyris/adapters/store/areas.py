@@ -7,7 +7,8 @@ nothing and records nothing there.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 
 from pydantic import ValidationError
 
@@ -45,7 +46,7 @@ class D1AreaStore:
         is. A run counts once toward a proposal's issues, however many batches named it.
         """
         for raw_name, articles in counts.items():
-            name = raw_name.strip()
+            name = re.sub(r"[\r\n]+", " ", raw_name).strip()
             if not name:
                 continue
             rows = self._db.query("SELECT id, name, status, last_proposed_run FROM areas").rows
@@ -128,11 +129,22 @@ class D1AreaStore:
             [into, area_id],
         ).changes
 
-    def insert_proposed(self, name: str) -> int:
-        """Add a name the model proposed and nothing holds yet, with no counts; its id."""
+    def insert_proposed(self, names: Sequence[str]) -> dict[str, int]:
+        """Add names the model proposed and nothing holds yet, with no counts, in one statement.
+
+        One statement is all-or-nothing: a failing write leaves no row of the batch behind.
+        Returns each name's id, keyed by the name as given.
+        """
+        if not names:
+            return {}
+        values = ", ".join("(?, 0, 'proposed', 0, 0)" for _ in names)
         self._db.query(
             "INSERT INTO areas (name, position, status, proposal_articles, proposal_issues) "
-            "VALUES (?, 0, 'proposed', 0, 0)",
-            [name],
+            f"VALUES {values}",
+            list(names),
         )
-        return self._db.query("SELECT id FROM areas WHERE name = ?", [name]).rows[0]["id"]
+        ids = {
+            fold_name(row["name"]): row["id"]
+            for row in self._db.query("SELECT id, name FROM areas").rows
+        }
+        return {name: ids[fold_name(name)] for name in names}

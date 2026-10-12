@@ -297,3 +297,48 @@ async def test_a_factory_that_raises_is_the_fixed_model_failure(db: SqliteD1) ->
     assert json.loads(body)["error"] == "The model call failed (RuntimeError)."
     assert SECRET not in body
     assert len(D1AreaStore(db).list_areas()) == 2
+
+
+class _FailsWhileWritingSecondName(SqliteD1):
+    """Refuses the insert that carries the second new name, as a store failing mid-write would."""
+
+    def query(self, sql, params=None):
+        if sql.startswith("INSERT INTO areas") and "Pizza" in (params or []):
+            raise RuntimeError("write refused")
+        return super().query(sql, params)
+
+
+async def test_a_store_failure_while_proposing_leaves_no_proposed_row() -> None:
+    db = _FailsWhileWritingSecondName()
+    _row(db, 1, "Tech", "active")
+    sources = D1SourceStore(db)
+    for name in ("a", "b", "c"):
+        sources.upsert(SourceConfig(name=name, url=f"https://{name}.example/f"))
+    llm = FakeLLM(json.dumps({"Chips": ["a"], "Pizza": ["b"], "Tech": ["c"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        response = await client.post("/api/areas/propose")
+        body = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 500
+    assert body == {"ok": False, "error": "The area table could not be written."}
+    assert [r.name for r in D1AreaStore(db).list_areas() if r.status == "proposed"] == []
+
+
+async def test_a_line_break_in_a_proposed_name_becomes_a_space(db: SqliteD1) -> None:
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({"Line\nBreak": ["a"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        response = await client.post("/api/areas/propose")
+        body = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    assert [(p["name"], p["sources"]) for p in body["proposals"]] == [("Line Break", ["a"])]
+    assert [r.name for r in D1AreaStore(db).list_areas() if r.status == "proposed"] == [
+        "Line Break"
+    ]
