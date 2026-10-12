@@ -35,8 +35,8 @@ ROUTER_PATH_OPT_OUT = {
 def triage_route_literals(src: str) -> list[str]:
     # add_route takes the method first, so the path is its second string.
     return re.findall(
-        r'add_(?:get|post|put|patch|delete|head|options|view|static)\("([^"]+)"', src
-    ) + re.findall(r'add_route\(\s*"[^"]+"\s*,\s*"([^"]+)"', src)
+        r'add_(?:get|post|put|patch|delete|head|options|view|static)\(r?"([^"]+)"', src
+    ) + re.findall(r'add_route\(\s*"[^"]+"\s*,\s*r?"([^"]+)"', src)
 
 
 def router_path_literals(src: str) -> list[str]:

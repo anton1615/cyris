@@ -43,5 +43,10 @@
   {"path": "/api/sources/suggest-area", "method": "POST", "kind": "container", "unauth_status": 401},
   {"path": "/api/areas/propose", "method": "POST", "kind": "container", "unauth_status": 401},
   {"path": "/api/areas/birth-threshold", "method": "PUT", "kind": "container", "unauth_status": 401},
+  {"path": "/api/areas/1/activate", "method": "POST", "kind": "container", "unauth_status": 401, "container_route": "/api/areas/{id:\\d+}/activate"},
+  {"path": "/api/areas/1/dismiss", "method": "POST", "kind": "container", "unauth_status": 401, "container_route": "/api/areas/{id:\\d+}/dismiss"},
+  {"path": "/api/areas/1/merge", "method": "POST", "kind": "container", "unauth_status": 401, "container_route": "/api/areas/{id:\\d+}/merge"},
+  {"path": "/api/areas/1/sources", "method": "POST", "kind": "container", "unauth_status": 401, "container_route": "/api/areas/{id:\\d+}/sources"},
+  {"path": "/api/areas/1", "method": "PUT", "kind": "container", "unauth_status": 401, "container_route": "/api/areas/{id:\\d+}"},
   {"path": "/api/zzz-undefined", "method": "GET", "kind": "container", "unauth_status": 401}
 ]
