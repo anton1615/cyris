@@ -46,14 +46,16 @@ TIMEZONE = "Asia/Taipei"
 WINDOW_HOURS = 24
 MODEL = default_model("gemini")
 
+# The one active area: every scenario source is filed under it, so every item has one.
+TECH_AREA = {"id": 1, "name": "Tech", "position": 0, "status": "active"}
 DEEP = SourceConfig(
-    name="E2E Deep", url="https://deep.e2e.test/feed", tier=Tier.SUMMARIZE, tags=["ai"]
+    name="E2E Deep", url="https://deep.e2e.test/feed", tier=Tier.SUMMARIZE, tags=["ai"], area_id=1
 )
 WIRE = SourceConfig(
-    name="E2E Wire", url="https://wire.e2e.test/feed", tier=Tier.FILTER, tags=["news"]
+    name="E2E Wire", url="https://wire.e2e.test/feed", tier=Tier.FILTER, tags=["news"], area_id=1
 )
 BLOG = SourceConfig(
-    name="E2E Blog", url="https://blog.e2e.test/feed", tier=Tier.FILTER, tags=["tech"]
+    name="E2E Blog", url="https://blog.e2e.test/feed", tier=Tier.FILTER, tags=["tech"], area_id=1
 )
 LETTERS = SourceConfig(
     name="E2E Letters",
@@ -62,6 +64,7 @@ LETTERS = SourceConfig(
     tags=["letters"],
     email_match="from:editor@letters.e2e.test",
     homepage="https://letters.e2e.test",
+    area_id=1,
 )
 
 
@@ -239,6 +242,7 @@ def _scenario(**overrides) -> harness.Scenario:
         "newsletters": [LETTER_EML, UNLINKED_EML],
         "llm": LLM,
         "stored": [voted],
+        "areas": [TECH_AREA],
         "promotions": [{"url": voted.url, "vote": "down", "digest_date": voted.digest_date}],
     }
     return harness.Scenario(**(fields | overrides))
@@ -326,7 +330,7 @@ EXPECTED_D1 = [
     "SELECT sources",
     # An empty table: the run tracks no topic, so it embeds nothing.
     "SELECT tracked_topics",
-    # An empty table: the run names no area, so the model gets no closed set.
+    # The one active area: the run offers it to the model as the closed set.
     "SELECT areas",
     # The stored issues the site might lack; a first run has none, so no manifest read.
     "SELECT digests",
@@ -520,6 +524,24 @@ def test_the_run_records_its_spend_its_outcome_and_its_issue(receipts) -> None:
     ]
     receipt = run.rows("SELECT project FROM pages_deploy_receipt")
     assert receipt == [{"project": harness.PAGES_PROJECT}]
+
+
+def _digest_items(node) -> list[dict]:
+    """Every saved digest item, found by its shape wherever a section keeps it."""
+    if isinstance(node, dict):
+        own = [node] if "urls" in node and "area" in node else []
+        return own + [item for value in node.values() for item in _digest_items(value)]
+    if isinstance(node, list):
+        return [item for value in node for item in _digest_items(value)]
+    return []
+
+
+def test_every_saved_item_takes_the_area_of_its_source(receipts) -> None:
+    (issue,) = receipts.run.rows("SELECT * FROM digests")
+    items = _digest_items(json.loads(issue["content"]))
+    summary = json.loads(receipts.runs[0]["summary"])
+    assert items and all(item["area"] == TECH_AREA["name"] for item in items)
+    assert summary["area_stamp"] == {"picked": 0, "source": len(items), "none": 0}
 
 
 def test_the_settings_and_sources_are_read_and_never_written(receipts) -> None:
