@@ -11,7 +11,7 @@ what keeps a config holding a plain language name working.
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import cache
 from importlib.resources import files
 
@@ -362,9 +362,20 @@ def build_suggest_area_prompt(
     )
 
 
-def build_propose_areas_prompt(sources: Sequence[tuple[str, str, Sequence[str]]]) -> str:
-    """Every source as (name, url, tags), one line each, for the model to group."""
+def build_propose_areas_prompt(
+    sources: Sequence[tuple[str, str, Sequence[str]]],
+    *,
+    titles: Mapping[str, Sequence[str]] | None = None,
+    area_names: Sequence[str] = (),
+) -> str:
+    """Every source as (name, url, tags), one line each, for the model to group.
+
+    A source's titles follow its line as a JSON array, so a title that holds a
+    line break or a quote stays inside its own value.
+    """
     lines = ["Group these sources:"]
     for name, url, tags in sources:
         lines.append(f"- {name} ({url}) tags: {', '.join(tags)}")
+        if titles and titles.get(name):
+            lines.append(f"  recent titles: {json.dumps(list(titles[name]), ensure_ascii=False)}")
     return "\n".join(lines)
