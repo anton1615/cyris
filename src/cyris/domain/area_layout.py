@@ -6,6 +6,7 @@ only placement rule, so the page and the quota (`cap_lower_layers`) cannot disag
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Literal
 
 from cyris.domain.areas import fold_name
 from cyris.domain.models import DigestContent, DigestItem, DigestSection
@@ -17,12 +18,22 @@ UNPLACED_LABEL = "Other"
 
 
 @dataclass(frozen=True)
+class LowerRow:
+    item: DigestItem
+    kind: Literal["radar", "wire"]
+
+    @property
+    def untranslated(self) -> bool:
+        return self.kind == "radar" or self.item.passed_through
+
+
+@dataclass(frozen=True)
 class AreaSection:
     label: str | None
     features: tuple[DigestSection, ...] = ()
     following: tuple[DigestSection, ...] = ()
     clusters: tuple[DigestSection, ...] = ()
-    rows: tuple[DigestItem, ...] = ()
+    rows: tuple[LowerRow, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -87,7 +98,13 @@ def layout_by_area(content: DigestContent) -> AreaLayout:
                 features=tuple(bucket.features),
                 following=tuple(bucket.following),
                 clusters=tuple(bucket.clusters),
-                rows=(*sorted(bucket.radar, key=_by_score, reverse=True), *bucket.headlines),
+                rows=(
+                    *(
+                        LowerRow(item, "radar")
+                        for item in sorted(bucket.radar, key=_by_score, reverse=True)
+                    ),
+                    *(LowerRow(item, "wire") for item in bucket.headlines),
+                ),
             )
         )
     return AreaLayout(
@@ -119,8 +136,12 @@ def cap_lower_layers(
         if section.label is None or fold_name(section.label) not in names:
             continue
         for entry in [*section.clusters, *section.rows][rows_per_area:]:
-            removed.add(id(entry))
-            removed_articles += len(entry.items) if isinstance(entry, DigestSection) else 1
+            if isinstance(entry, LowerRow):
+                removed.add(id(entry.item))
+                removed_articles += 1
+            else:
+                removed.add(id(entry))
+                removed_articles += len(entry.items)
 
     attention = []
     for section in content.attention_sections:

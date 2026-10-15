@@ -48,7 +48,7 @@ def _headings(sections) -> list[str]:
 
 
 def _rows(section) -> list[str]:
-    return [r.title for r in section.rows]
+    return [r.item.title for r in section.rows]
 
 
 def test_each_card_group_cluster_and_row_lands_in_its_area_in_reader_order() -> None:
@@ -136,6 +136,22 @@ def test_rows_are_radar_by_score_then_headlines_in_incoming_order() -> None:
     layout = layout_by_area(content)
 
     assert _rows(layout.sections[0]) == ["r90", "r60", "r_none", "head"]
+    assert [r.kind for r in layout.sections[0].rows] == ["radar", "radar", "radar", "wire"]
+
+
+def test_a_row_is_untranslated_when_it_is_radar_or_passed_through() -> None:
+    content = _content(
+        ["Tech"],
+        attention_sections=[_sec("R", _item("radar", "Tech", 70))],
+        filtered_headlines=[
+            _item("plain", "Tech"),
+            _item("passed", "Tech").model_copy(update={"passed_through": True}),
+        ],
+    )
+
+    rows = layout_by_area(content).sections[0].rows
+
+    assert [r.untranslated for r in rows] == [True, False, True]
 
 
 def test_features_keep_incoming_order_and_following_stays_apart() -> None:
@@ -186,7 +202,7 @@ def test_every_url_appears_exactly_once_and_the_input_is_unchanged() -> None:
     sections = [layout.headline] if layout.headline else []
     for s in layout.sections:
         sections += [*s.features, *s.following, *s.clusters]
-        placed += [u for r in s.rows for u in r.urls]
+        placed += [u for r in s.rows for u in r.item.urls]
     placed += [u for sec in sections for i in sec.items for u in i.urls]
     assert Counter(placed) == Counter(u for u in digest_urls(content))
     assert content.model_dump() == before
