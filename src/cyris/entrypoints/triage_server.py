@@ -12,6 +12,7 @@ from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescap
 from pydantic import ValidationError
 
 from cyris.adapters.output import html_digest
+from cyris.adapters.store.d1 import MAX_BOUND_PARAMS
 from cyris.adapters.store.feed_health import FeedHealth
 from cyris.config import SETTINGS_FIELDS
 from cyris.diagnostics.doctor import LLM_PROBE_TIMEOUT_SECONDS, probe_discord, probe_embedder
@@ -1106,6 +1107,17 @@ class TriageServer:
         placements = [(name, members, catalog.place(name)) for name, members in grouping.items()]
         placements = [entry for entry in placements if entry[2].kind != "dismissed"]
         new_names = [name for name, _, placed in placements if placed.kind == "unknown"]
+        # The new rows go in one statement so a failure writes none, and D1 binds
+        # one parameter per name; chunking would give up the all-or-nothing write.
+        if len(new_names) > MAX_BOUND_PARAMS:
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": f"The model proposed more than {MAX_BOUND_PARAMS} new areas; "
+                    "nothing was saved.",
+                },
+                status=502,
+            )
         try:
             new_ids = self._area_store.insert_proposed(new_names)
         except Exception as e:  # noqa: BLE001 - the reason stays in the log, not the page

@@ -8,6 +8,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from fakes import FakeLLM, SqliteD1
 
 from cyris.adapters.store.areas import D1AreaStore
+from cyris.adapters.store.d1 import MAX_BOUND_PARAMS
 from cyris.adapters.store.source_store import D1SourceStore
 from cyris.diagnostics import doctor
 from cyris.domain.models import SourceConfig
@@ -324,6 +325,26 @@ async def test_a_store_failure_while_proposing_leaves_no_proposed_row() -> None:
 
     assert response.status == 500
     assert body == {"ok": False, "error": "The area table could not be written."}
+    assert [r.name for r in D1AreaStore(db).list_areas() if r.status == "proposed"] == []
+
+
+async def test_more_new_names_than_one_d1_statement_binds_are_refused_unwritten(
+    db: SqliteD1,
+) -> None:
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({f"Area {i}": ["a"] for i in range(MAX_BOUND_PARAMS + 1)}))
+    client = await _client(db, lambda values: llm)
+    try:
+        response = await client.post("/api/areas/propose")
+        body = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 502
+    assert body == {
+        "ok": False,
+        "error": f"The model proposed more than {MAX_BOUND_PARAMS} new areas; nothing was saved.",
+    }
     assert [r.name for r in D1AreaStore(db).list_areas() if r.status == "proposed"] == []
 
 
