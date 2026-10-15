@@ -587,6 +587,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
             sources=cfg.sources,
             catalog=catalog,
         )
+        content.area_order = catalog.names()
         summary["area_stamp"] = stamp.model_dump()
     except Exception as e:
         logger.error("Stamping areas failed: %s", type(e).__name__)

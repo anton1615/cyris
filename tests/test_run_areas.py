@@ -292,3 +292,66 @@ async def test_a_source_naming_a_missing_area_stamps_none_and_the_run_completes(
 
     assert report.status == "ok"
     assert all(item.area is None for item in _walk_items(content))
+
+
+async def test_the_saved_issue_records_the_active_areas_in_position_order(tmp_path: Path) -> None:
+    reply = json.dumps(
+        {"scores": [{"id": i, "score": 50, "language": "en", "tags": ["s"]} for i in (1, 2, 3)]}
+    )
+    tech = _active(1, "Tech").model_copy(update={"position": 1})
+    health = _active(2, "Health").model_copy(update={"position": 0})
+
+    _, _, content = await _run_saved(
+        tmp_path,
+        reply,
+        area_store=D1AreaStore(SqliteD1()),
+        areas=[tech, health],
+        sources={},
+    )
+
+    assert content.area_order == ["Health", "Tech"]
+
+
+async def test_a_dismissed_area_stays_out_of_the_saved_order(tmp_path: Path) -> None:
+    reply = json.dumps(
+        {"scores": [{"id": i, "score": 50, "language": "en", "tags": ["s"]} for i in (1, 2, 3)]}
+    )
+    old = _active(2, "Old").model_copy(update={"status": "dismissed"})
+
+    _, _, content = await _run_saved(
+        tmp_path,
+        reply,
+        area_store=D1AreaStore(SqliteD1()),
+        areas=[_active(1, "Tech"), old],
+        sources={},
+    )
+
+    assert content.area_order == ["Tech"]
+
+
+async def test_a_json_run_saves_an_empty_area_order(tmp_path: Path) -> None:
+    reply = json.dumps(
+        {"scores": [{"id": i, "score": 50, "language": "en", "tags": ["s"]} for i in (1, 2, 3)]}
+    )
+
+    _, _, content = await _run_saved(tmp_path, reply, sources={}, areas=())
+
+    assert content.area_order == []
+
+
+async def test_a_failed_stamp_saves_no_area_order_and_no_area(tmp_path: Path, monkeypatch) -> None:
+    reply = json.dumps(
+        {"scores": [{"id": i, "score": 50, "language": "en", "tags": ["s"]} for i in (1, 2, 3)]}
+    )
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("stamp broke")
+
+    monkeypatch.setattr("cyris.service_layer.run_digest.stamp_areas", fail)
+    report, _, content = await _run_saved(
+        tmp_path, reply, area_store=D1AreaStore(SqliteD1()), areas=[_active(1, "Tech")]
+    )
+
+    assert report.status == "ok"
+    assert content.area_order == []
+    assert all(item.area is None for item in _walk_items(content))

@@ -233,6 +233,9 @@ class DigestContent(BaseModel):
     dead_link_count: int | None = None
     synthetic_url_count: int | None = None
     output_language: str = ""
+    # The active area names in position order, frozen when the issue is stamped, so a
+    # later re-render shows the sections it was published with.
+    area_order: list[str] = Field(default_factory=list)
 
 
 class ArticleState(StrEnum):

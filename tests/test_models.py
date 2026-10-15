@@ -231,3 +231,17 @@ class TestDigestItemLink:
     def test_synthetic_store_url_is_not_a_link(self):
         item = DigestItem(title="t", summary="s", sources=["曼報"], urls=["newsletter:abc"])
         assert item.link is None
+
+
+def test_a_stored_digest_without_area_order_loads_with_an_empty_order() -> None:
+    content = DigestContent(
+        date="2026-10-15",
+        period="morning",
+        sources_processed=1,
+        articles_received=1,
+        articles_included=0,
+    )
+    stored = content.model_dump(mode="json")
+    del stored["area_order"]
+
+    assert DigestContent.model_validate(stored).area_order == []
