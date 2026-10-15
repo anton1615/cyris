@@ -204,6 +204,24 @@ class SqliteD1:
         return QueryResult(rows=rows, changes=max(cursor.rowcount, 0))
 
 
+class RecordingD1(SqliteD1):
+    """SqliteD1 that keeps every statement it ran, in order, for write-set assertions."""
+
+    def __init__(self, *, with_schema: bool = True) -> None:
+        super().__init__(with_schema=with_schema)
+        self.statements: list[str] = []
+
+    def query(self, sql, params=None):
+        self.statements.append(sql)
+        return super().query(sql, params)
+
+    def written_tables(self) -> set[str]:
+        import re
+
+        writes = r"^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+(\w+)"
+        return {m.group(1) for sql in self.statements if (m := re.match(writes, sql, re.I))}
+
+
 class CountingD1(SqliteD1):
     """SqliteD1 that counts queries, so a per-row-write regression fails a test."""
 

@@ -606,10 +606,11 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     # Its own try/except, like every call below it: this one used to be the
     # single unguarded step between a finished digest and its publish, so a D1
     # hiccup here cost the period its digest rather than its usage row.
-    try:
-        deps.log_usage(content)
-    except Exception as e:
-        logger.error("Failed to log usage: %s", e)
+    if not options.dry_run:
+        try:
+            deps.log_usage(content)
+        except Exception as e:
+            logger.error("Failed to log usage: %s", e)
 
     report = RunReport(status="ok", failed_sources=failed_sources)
     digest_url = ""  # online (Cloudflare Pages) URL, set after a successful publish
@@ -717,36 +718,37 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
                 else:
                     publish_failed = True
 
-    if not notify.discord_webhook_url:
-        # A run that notifies nobody looks exactly like a run that notified
-        # everybody, from the log. Say which one it was.
-        logger.info("No Discord webhook configured — skipping the digest notification")
+    if not options.dry_run:
+        if not notify.discord_webhook_url:
+            # A run that notifies nobody looks exactly like a run that notified
+            # everybody, from the log. Say which one it was.
+            logger.info("No Discord webhook configured — skipping the digest notification")
 
-    await deps.send_discord(
-        notify.discord_webhook_url,
-        content,
-        digest_url=digest_url,
-        publish_failed=publish_failed,
-        degraded=degraded,
-    )
-
-    if not notify.email_to:
-        logger.info("No email address configured — skipping the digest mail")
-    elif deps.send_email is None:
-        logger.warning(
-            "An email address is set, but CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN "
-            "is missing, so no mail can be sent"
-        )
-    else:
-        await deps.send_email(
-            notify.email_to,
-            notify.email_from,
+        await deps.send_discord(
+            notify.discord_webhook_url,
             content,
             digest_url=digest_url,
             publish_failed=publish_failed,
-            raw_page=raw_page,
             degraded=degraded,
         )
+
+        if not notify.email_to:
+            logger.info("No email address configured — skipping the digest mail")
+        elif deps.send_email is None:
+            logger.warning(
+                "An email address is set, but CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN "
+                "is missing, so no mail can be sent"
+            )
+        else:
+            await deps.send_email(
+                notify.email_to,
+                notify.email_from,
+                content,
+                digest_url=digest_url,
+                publish_failed=publish_failed,
+                raw_page=raw_page,
+                degraded=degraded,
+            )
 
     summary["status"] = "publish_failed" if publish_failed else "ok"
     summary["digest_url"] = digest_url

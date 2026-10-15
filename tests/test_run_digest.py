@@ -1171,7 +1171,7 @@ async def test_a_run_mails_the_digest_beside_discord(tmp_path: Path) -> None:
     ]
 
 
-async def test_a_dry_run_mails_like_it_notifies_discord(tmp_path: Path) -> None:
+async def test_a_dry_run_mails_and_notifies_nothing(tmp_path: Path) -> None:
     deps, notifications = make_deps(tmp_path, _notify_llm(), FakeSource([_notify_article()]))
     deps.cfg.app.notify.email_to = "me@example.org"
     deps.cfg.app.notify.email_from = "digest@example.org"
@@ -1191,10 +1191,12 @@ async def test_a_dry_run_mails_like_it_notifies_discord(tmp_path: Path) -> None:
     deps = replace(deps, send_email=capture)
     # A preview saves nothing it fetches, so it digests only what is already pending.
     deps.store.save([_notify_article()])
-    await run_digest(deps, RunOptions(dry_run=True))
+    report = await run_digest(deps, RunOptions(dry_run=True))
 
-    assert notifications == ["discord"]
-    assert mailed == [False]
+    assert notifications == []
+    assert mailed == []
+    assert report.status == "ok"
+    assert report.rendered
 
 
 async def test_a_run_with_no_email_address_mails_nothing_and_says_so(
@@ -1718,10 +1720,7 @@ async def test_an_empty_window_stores_no_digest_and_names_no_error(tmp_path: Pat
 async def test_a_preview_leaves_the_stored_digest_untouched(tmp_path: Path) -> None:
     from cyris.utils.timezone import now_in_timezone
 
-    contents: list = []
-    deps, _ = make_deps(
-        tmp_path, _notify_llm(), FakeSource([_notify_article()]), discord_contents=contents
-    )
+    deps, _ = make_deps(tmp_path, _notify_llm(), FakeSource([_notify_article()]))
     deps, store, db = _stored_digests(deps)
     # A preview saves no articles, so it can only digest what the store already holds.
     deps.store.save([_notify_article()])
@@ -1739,7 +1738,7 @@ async def test_a_preview_leaves_the_stored_digest_untouched(tmp_path: Path) -> N
     report = await run_digest(deps, RunOptions(dry_run=True))
 
     assert report.status == "ok"
-    assert contents and contents[0].date == today
+    assert today in report.rendered
     assert _digest_count(db) == 1
     assert store.load(today, "morning").content.articles_included == 99
 
