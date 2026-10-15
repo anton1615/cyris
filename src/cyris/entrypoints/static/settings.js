@@ -367,6 +367,7 @@ async function post(url, body, method = "POST") {
   // The setting or source field the refusal is about, for the page to mark.
   err.field = data.field;
   err.status = res.status;
+  err.body = data;
   throw err;
 }
 
@@ -1310,7 +1311,18 @@ async function saveAssignments() {
     show("ok", `${plural(data.assigned, "source")} assigned${names.length
       ? `; ${listJoin(names)} ${names.length === 1 ? "is" : "are"} active` : ""}.`, "assign-result");
   } catch (err) {
-    show("err", err.message, "assign-result");
+    // A failed write may have landed in part, so the notice says what did and what is left.
+    const landed = err.body?.assigned;
+    const names = (err.body?.activated ?? []).map((area) => area.name);
+    const verb = names.length === 1 ? "is" : "are";
+    if (landed) {
+      show("err", `${err.message} — ${landed.length} of ${Object.keys(assignments).length} sources assigned${
+        names.length ? `; ${listJoin(names)} ${verb} active` : ""}. Save again for the rest.`, "assign-result");
+    } else if (err.status === undefined && err !== SESSION_EXPIRED) {
+      show("err", "Could not confirm the save; showing what is stored.", "assign-result");
+    } else {
+      show("err", err.message, "assign-result");
+    }
   }
   await Promise.all([loadAreas(), loadSources()]);
 }

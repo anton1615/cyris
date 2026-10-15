@@ -4163,6 +4163,87 @@ CHECKS += [
         sabotage="""$("#assign-result").textContent = "";""",
     ),
     Check(
+        id="areas-assign-partial",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload="""
+const realFetch = window.fetch;
+window.__reads = [];
+window.fetch = async (input, init) => {
+  const url = String(input);
+  if (!init || !init.method || init.method === "GET") window.__reads.push(url);
+  if (!url.endsWith("/api/areas/assign") || !init || init.method !== "POST") {
+    return realFetch(input, init);
+  }
+  const sent = JSON.parse(init.body).assignments;
+  const first = {assignments: {"Simon Willison": sent["Simon Willison"]}};
+  await realFetch(input, {...init, body: JSON.stringify(first)});
+  return new Response(JSON.stringify({ok: false, error: "The save stopped after the first source.",
+    assigned: ["Simon Willison"], activated: [{id: 4, name: "X"}]}),
+    {status: 500, headers: {"Content-Type": "application/json"}});
+};
+""",
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="曼報"]'), "the rows");
+            setValue($('select[data-source="Simon Willison"]'), "4");
+            setValue($('select[data-source="Hacker News"]'), "4");
+            $("#save-assign").click();
+            await waitFor(() => $("#assign-result").classList.contains("err"), "the notice");
+            await waitFor(() => $("#save-assign").disabled === false, "the re-read");
+        """,
+        script="""
+            const notice = $("#assign-result").textContent;
+            expect(notice === "The save stopped after the first source. — 1 of 2 sources assigned; "
+                   + "X is active. Save again for the rest.", `notice: ${notice}`);
+            expect(same(areaNames(), ["Tech", "Food", "Finance", "X"]), `rows: ${areaNames()}`);
+            const value = (name) => $(`select[data-source="${name}"]`).value;
+            expect(value("Simon Willison") === "4", "the landed pick did not move");
+            expect(value("Hacker News") === "4", "the unlanded pick is gone");
+            expect(!$("#save-assign").disabled, "Save assignments is disabled");
+        """,
+        sabotage="""
+            for (const name of Object.keys(picks)) delete picks[name];
+            renderAreas();
+        """,
+    ),
+    Check(
+        id="areas-assign-unconfirmed",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload="""
+const realFetch = window.fetch;
+window.__reads = [];
+window.fetch = (input, init) => {
+  const url = String(input);
+  if (!init || !init.method || init.method === "GET") window.__reads.push(url);
+  if (url.endsWith("/api/areas/assign") && init && init.method === "POST") {
+    return Promise.reject(new TypeError("connection reset"));
+  }
+  return realFetch(input, init);
+};
+""",
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="曼報"]'), "the rows");
+            setValue($('select[data-source="Simon Willison"]'), "4");
+            window.__reads = [];
+            $("#save-assign").click();
+            await waitFor(() => $("#assign-result").classList.contains("err"), "the notice");
+            await waitFor(() => window.__reads.includes("/api/sources"), "the re-read");
+        """,
+        script="""
+            const notice = $("#assign-result").textContent;
+            const wanted = "Could not confirm the save; showing what is stored.";
+            expect(notice === wanted, `notice: ${notice}`);
+            const reads = window.__reads;
+            const reread = reads.includes("/api/areas") && reads.includes("/api/sources");
+            expect(reread, `reads: ${reads}`);
+            expect(!$("#save-assign").disabled, "Save assignments is disabled");
+        """,
+        sabotage="""$("#assign-result").textContent = "";""",
+    ),
+    Check(
         id="areas-assign-refused",
         fixture="writable-areas-polish",
         path="/settings#areas",
