@@ -40,7 +40,8 @@ ARCHIVE_SHORTFALL_TOLERANCE = 1
 # within 2s, the page was still the fallback 35s after the first, and each
 # redeploy only restarted the wait. A new page usually shows by the second poll,
 # but its worst case is not measured, so the window is 24 sleeps of 5s — two
-# minutes, spent only on a slow day, and cut short by the publish budget.
+# minutes, spent only on a slow day, and cut short by the deadline of the check
+# that polls it (`_page_is_live`, or `page_serves` under VERIFY_BUDGET_SECONDS).
 VERIFY_POLLS = 25
 VERIFY_INTERVAL_SECONDS = 5
 # Reading the archive that is already live waits on no propagation.
@@ -59,6 +60,9 @@ STAGE_INTERVAL_SECONDS = 5
 # the D1 calls around the deploy. httpx's timeout is per phase of inactivity, not
 # per request, so even a defined worst case is an estimate, not a hard deadline.
 PUBLISH_BUDGET_SECONDS = 180
+# `page_serves` runs after `publish_site` has spent its own budget, so the byte check
+# gets a budget of its own: a publishing rerun's Pages requests stay within 300s of entry.
+VERIFY_BUDGET_SECONDS = 120
 RUN_RESERVE_SECONDS = 120
 
 # Patched by tests instead of time.monotonic, which the whole process shares.
@@ -399,7 +403,10 @@ def page_serves(pages_project: str, path: str, expected: bytes) -> bool:
     """
     clean = path.removesuffix(".html").removesuffix("/index")
     url = f"https://{pages_project}.pages.dev{clean or '/'}"
+    deadline = _Deadline(VERIFY_BUDGET_SECONDS)
     for poll in range(1, VERIFY_POLLS + 1):
+        if not deadline.fits(VERIFY_INTERVAL_SECONDS + VERIFY_TIMEOUT_SECONDS):
+            break
         if poll > 1:
             time.sleep(VERIFY_INTERVAL_SECONDS)
         try:

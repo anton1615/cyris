@@ -773,7 +773,9 @@ production branch, or it lands on a preview URL. The first publish creates the P
   whose defined worst case could run past 180s from entry, inside the `run` instance's 15-minute
   `sleepAfter`; `tests/test_publish.py` pins that arithmetic against `workers/app/src/index.js`.
   Outside the bound: recovering an evicted asset from the live site (15s each), upload buckets
-  beyond the first, and every D1 call. httpx's timeout is per phase of inactivity, so the worst
+  beyond the first, and every D1 call. A publishing rerun's byte check (`page_serves`) runs after
+  that publish has spent its 180s, so it has a separate 120s budget (`VERIFY_BUDGET_SECONDS`), and
+  the rerun's Pages requests stay within 300s of entry. httpx's timeout is per phase of inactivity, so the worst
   case is an estimate, not a hard deadline.
 - **A wrong or empty manifest cannot wipe the site.** An empty `pages_manifest` against a project
   that already has deployments and no `pages_deploy_receipt` stops the publish and names the two

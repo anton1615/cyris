@@ -59,6 +59,20 @@ def test_a_404_then_a_connect_error_is_false_and_raises_nothing(no_sleep) -> Non
     assert route.call_count == VERIFY_POLLS
 
 
+@respx.mock
+def test_the_poll_loop_stops_at_the_verify_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = [0.0]
+    monkeypatch.setattr(publish, "_clock", lambda: now[0])
+    monkeypatch.setattr(publish.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    older = b"<html><title>2026-10-14 evening</title>an older render</html>"
+    route = respx.get(URL).mock(return_value=httpx.Response(200, content=older))
+
+    assert publish.page_serves(PROJECT, PATH, EXPECTED) is False
+    # A poll starts only if its request, 5s of sleep plus a 15s timeout, ends by the 120s
+    # budget: the last poll starts at 105s and ends at 120s. That is 22 requests, not VERIFY_POLLS.
+    assert route.call_count == 22
+
+
 def _deps(tmp_path: Path, publish_site, page_serves) -> Deps:
     return Deps(
         cfg=make_config(agent_vault=AgentVaultConfig(path=tmp_path / "vault")),
