@@ -95,3 +95,43 @@ def layout_by_area(content: DigestContent) -> AreaLayout:
         tracking=tuple(content.tracked_topics),
         sections=tuple(sections),
     )
+
+
+# Each named area shows at most this many lower rows. Milestone L4's measure: a
+# 15-paragraph area reads as a wall of text. Fixed until L6; L4 reuses it.
+LOWER_ROWS_PER_AREA = 5
+
+
+def cap_lower_layers(
+    content: DigestContent, rows_per_area: int = LOWER_ROWS_PER_AREA
+) -> DigestContent:
+    """A copy with each named area's lower layer cut to its first `rows_per_area` rows.
+
+    The cut uses the layout's own placement and row order, so `layout_by_area` of the
+    result shows no area past the cap. Entries under no named area are never cut.
+    """
+    if rows_per_area < 0:
+        raise ValueError(f"rows_per_area must be >= 0, got {rows_per_area}")
+    names = {fold_name(name) for name in content.area_order}
+    removed: set[int] = set()
+    removed_articles = 0
+    for section in layout_by_area(content).sections:
+        if section.label is None or fold_name(section.label) not in names:
+            continue
+        for entry in [*section.clusters, *section.rows][rows_per_area:]:
+            removed.add(id(entry))
+            removed_articles += len(entry.items) if isinstance(entry, DigestSection) else 1
+
+    attention = []
+    for section in content.attention_sections:
+        items = [item for item in section.items if id(item) not in removed]
+        if items:
+            attention.append(section.model_copy(update={"items": items}))
+    return content.model_copy(
+        update={
+            "news_clusters": [s for s in content.news_clusters if id(s) not in removed],
+            "attention_sections": attention,
+            "filtered_headlines": [i for i in content.filtered_headlines if id(i) not in removed],
+            "articles_included": content.articles_included - removed_articles,
+        }
+    )

@@ -4,7 +4,12 @@ from collections import Counter
 
 import pytest
 
-from cyris.domain.area_layout import UNPLACED_LABEL, layout_by_area
+from cyris.domain.area_layout import (
+    LOWER_ROWS_PER_AREA,
+    UNPLACED_LABEL,
+    cap_lower_layers,
+    layout_by_area,
+)
 from cyris.domain.models import DigestContent, DigestItem, DigestSection
 from cyris.domain.selection import digest_urls
 
@@ -26,13 +31,13 @@ def _sec(heading: str, *items: DigestItem) -> DigestSection:
     return DigestSection(heading=heading, items=list(items))
 
 
-def _content(area_order: list[str], **sections) -> DigestContent:
+def _content(area_order: list[str], articles_included: int = 0, **sections) -> DigestContent:
     return DigestContent(
         date="2026-10-15",
         period="morning",
         sources_processed=1,
         articles_received=0,
-        articles_included=0,
+        articles_included=articles_included,
         area_order=area_order,
         **sections,
     )
@@ -288,3 +293,129 @@ def test_an_issue_with_no_entries_has_no_sections() -> None:
 
 def test_the_unplaced_label_is_other() -> None:
     assert UNPLACED_LABEL == "Other"
+
+
+def _titles(items) -> list[str]:
+    return [i.title for i in items]
+
+
+def test_a_named_area_keeps_its_first_five_headlines_and_the_count_drops_by_the_cut() -> None:
+    content = _content(
+        ["Tech"],
+        filtered_headlines=[_item(f"h{i}", "Tech") for i in range(7)],
+        articles_included=7,
+    )
+
+    capped = cap_lower_layers(content)
+
+    assert _titles(capped.filtered_headlines) == ["h0", "h1", "h2", "h3", "h4"]
+    assert capped.articles_included == 5
+
+
+def test_clusters_are_kept_whole_and_count_as_rows_before_headlines() -> None:
+    content = _content(
+        ["Tech"],
+        news_clusters=[
+            _sec("C1", _item("a1", "Tech"), _item("a2", "Tech"), _item("a3", "Tech")),
+            _sec("C2", _item("b1", "Tech")),
+        ],
+        filtered_headlines=[_item(f"h{i}", "Tech") for i in range(1, 5)],
+        articles_included=8,
+    )
+
+    capped = cap_lower_layers(content)
+
+    assert [s.heading for s in capped.news_clusters] == ["C1", "C2"]
+    assert _titles(capped.filtered_headlines) == ["h1", "h2", "h3"]
+    assert capped.articles_included == 7
+
+
+def test_features_following_and_headline_are_never_cut() -> None:
+    content = _content(
+        ["Tech"],
+        featured_articles=[_sec("Top", _item("top", "Tech"))]
+        + [_sec(f"F{i}", _item(f"f{i}", "Tech")) for i in range(8)],
+        fan_sections=[_sec("G", *[_item(f"g{i}", "Tech") for i in range(6)])],
+        filtered_headlines=[_item(f"h{i}", "Tech") for i in range(7)],
+        articles_included=22,
+    )
+
+    capped = cap_lower_layers(content)
+
+    assert len(capped.featured_articles) == 9
+    assert len(capped.fan_sections[0].items) == 6
+    assert len(capped.filtered_headlines) == 5
+
+
+def test_an_empty_area_order_gives_an_equal_copy() -> None:
+    content = _content([], filtered_headlines=[_item(f"h{i}", "Tech") for i in range(40)])
+
+    assert cap_lower_layers(content) == content
+
+
+def test_unplaced_entries_are_never_cut() -> None:
+    content = _content(
+        ["Tech"],
+        filtered_headlines=[_item(f"h{i}", None) for i in range(9)],
+        articles_included=9,
+    )
+
+    capped = cap_lower_layers(content)
+
+    assert len(capped.filtered_headlines) == 9
+    assert capped.articles_included == 9
+
+
+def test_an_attention_section_keeps_its_survivors_and_a_section_with_none_is_dropped() -> None:
+    content = _content(
+        ["Tech"],
+        attention_sections=[
+            _sec("A", _item("a96", "Tech", 96), _item("a95", "Tech", 95), _item("a94", "Tech", 94)),
+            _sec("B", *[_item(f"b{s}", "Tech", s) for s in (100, 99, 98, 97)]),
+            _sec("C", _item("c10", "Tech", 10)),
+        ],
+        articles_included=8,
+    )
+
+    capped = cap_lower_layers(content)
+
+    assert [(s.heading, _titles(s.items)) for s in capped.attention_sections] == [
+        ("A", ["a96"]),
+        ("B", ["b100", "b99", "b98", "b97"]),
+    ]
+    assert capped.articles_included == 5
+
+
+def test_after_the_cut_every_named_area_has_at_most_five_lower_rows() -> None:
+    content = _content(
+        ["Tech", "Health"],
+        news_clusters=[_sec("C", _item("c1", "Tech"), _item("c2", "Tech"))],
+        filtered_headlines=[_item(f"t{i}", "Tech") for i in range(7)]
+        + [_item(f"h{i}", "Health") for i in range(6)],
+        articles_included=15,
+    )
+
+    for section in layout_by_area(cap_lower_layers(content)).sections:
+        assert len(section.clusters) + len(section.rows) <= LOWER_ROWS_PER_AREA
+
+
+def test_a_negative_row_count_is_refused_and_the_default_is_five() -> None:
+    content = _content(["Tech"])
+
+    with pytest.raises(ValueError):
+        cap_lower_layers(content, rows_per_area=-1)
+    assert LOWER_ROWS_PER_AREA == 5
+
+
+def test_the_input_content_is_unchanged_by_the_cut() -> None:
+    content = _content(
+        ["Tech"],
+        news_clusters=[_sec("C", _item("c1", "Tech"))],
+        filtered_headlines=[_item(f"h{i}", "Tech") for i in range(7)],
+        articles_included=8,
+    )
+    before = content.model_dump()
+
+    cap_lower_layers(content)
+
+    assert content.model_dump() == before
