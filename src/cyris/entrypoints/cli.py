@@ -256,6 +256,98 @@ def run(
         typer.echo(report.rendered)
 
 
+@app.command("regenerate")
+def regenerate(
+    date: Annotated[str, typer.Argument(help="Issue date, YYYY-MM-DD")],
+    period: Annotated[str, typer.Argument(help="morning or evening")],
+    mode: Annotated[
+        str, typer.Option("--mode", help="rerender: the stored page; rerun: the recorded inputs")
+    ],
+    output: Annotated[Path | None, typer.Option("--output", help="Write the page to PATH")] = None,
+    publish: Annotated[
+        bool, typer.Option("--publish", help="Rerun and publish over the live page")
+    ] = False,
+    config_path: Annotated[Path, typer.Option("--config", help="Config file path")] = Path(
+        "cyris.toml"
+    ),
+    sources_path: Annotated[Path, typer.Option("--sources", help="Sources file path")] = Path(
+        "sources.yaml"
+    ),
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Debug logging")] = False,
+) -> None:
+    """Regenerate a stored digest: re-render its page, or rerun it over its recorded inputs."""
+    from cyris.service_layer.schedule import PERIOD_ORDER
+
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        _usage_error("DATE must be YYYY-MM-DD")
+    if period not in PERIOD_ORDER:
+        _usage_error(f"PERIOD must be one of: {', '.join(PERIOD_ORDER)}")
+    if mode not in ("rerender", "rerun"):
+        _usage_error("MODE must be rerender or rerun")
+    if (output is None) == (not publish):
+        _usage_error("Give exactly one of --output PATH and --publish")
+    if publish and mode == "rerender":
+        _usage_error("--publish is only available with --mode rerun")
+
+    _setup_logging(verbose)
+
+    from cyris.bootstrap import build_deps, load_effective_config
+    from cyris.service_layer.run_digest import RunOptions, rerender_digest, run_digest
+
+    try:
+        cfg = load_effective_config(config_path, sources_path)
+    except (FileNotFoundError, ValueError) as e:
+        logger.error("Configuration error: %s", e)
+        raise typer.Exit(1) from e
+    if cfg.app.store.backend != "d1":
+        typer.echo(f"The store backend is {cfg.app.store.backend}; regenerate needs d1", err=True)
+        raise typer.Exit(1)
+    if not cfg.app.html_output.enabled:
+        typer.echo("HTML output is disabled; regenerate needs [html_output] enabled", err=True)
+        raise typer.Exit(1)
+
+    rerun = mode == "rerun"
+    deps = build_deps(cfg, on_progress=typer.echo if rerun else None, dry_run=True)
+    if publish and deps.publish_site is None:
+        typer.echo("Cannot publish: publishing is not configured", err=True)
+        raise typer.Exit(1)
+
+    if not rerun:
+        report = rerender_digest(deps, date, period)
+        if report.status == "not_found":
+            typer.echo(f"No stored digest for {date} {period}", err=True)
+            raise typer.Exit(1)
+        _write_preview(output, report.rendered)
+        typer.echo(f"Wrote {output}")
+        return
+
+    report = asyncio.run(
+        run_digest(deps, RunOptions(period=period, dry_run=not publish, rerun_of=date))
+    )
+    if report.status == "no_inputs":
+        typer.echo(f"No recorded inputs for {date} {period}", err=True)
+        raise typer.Exit(1)
+    if report.status == "not_latest":
+        later = max(
+            deps.digest_store.issues(), key=lambda issue: (issue[0], PERIOD_ORDER.index(issue[1]))
+        )
+        typer.echo(f"A later issue exists ({later[0]} {later[1]}); publishing is refused", err=True)
+        raise typer.Exit(1)
+    if report.status == "publish_failed":
+        typer.echo("Publish did not land: the live page differs from the render", err=True)
+        raise typer.Exit(1)
+    if report.status != "ok" or (not publish and not report.rendered):
+        typer.echo(f"Nothing to regenerate: {report.status}", err=True)
+        raise typer.Exit(1)
+    if publish:
+        typer.echo(f"Published {Path(deps.html_writer.digest_filename(date, period)).stem}")
+        return
+    _write_preview(output, report.rendered)
+    typer.echo(f"Wrote {output}")
+
+
 @app.command("promote-sync")
 def promote_sync(
     config_path: Annotated[Path, typer.Option("--config", help="Config file path")] = Path(
