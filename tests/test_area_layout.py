@@ -6,7 +6,6 @@ import pytest
 
 from cyris.domain.area_layout import (
     LOWER_ROWS_PER_AREA,
-    UNPLACED_LABEL,
     cap_lower_layers,
     layout_by_area,
 )
@@ -297,7 +296,7 @@ def test_with_no_area_order_every_entry_sits_in_one_unnamed_section() -> None:
 
     layout = layout_by_area(content)
 
-    assert [(s.label, _rows(s)) for s in layout.sections] == [(None, ["a", "b"])]
+    assert [(s.label, s.role, _rows(s)) for s in layout.sections] == [(None, "unnamed", ["a", "b"])]
 
 
 def test_an_entry_with_no_area_closes_the_issue_under_other() -> None:
@@ -305,7 +304,10 @@ def test_an_entry_with_no_area_closes_the_issue_under_other() -> None:
 
     layout = layout_by_area(content)
 
-    assert [(s.label, _rows(s)) for s in layout.sections] == [("Tech", ["t"]), ("Other", ["h"])]
+    assert [(s.label, s.role, _rows(s)) for s in layout.sections] == [
+        ("Tech", "named", ["t"]),
+        (None, "unplaced", ["h"]),
+    ]
 
 
 def test_an_entry_whose_area_was_renamed_or_dismissed_closes_under_other() -> None:
@@ -313,7 +315,7 @@ def test_an_entry_whose_area_was_renamed_or_dismissed_closes_under_other() -> No
 
     layout = layout_by_area(content)
 
-    assert [(s.label, _rows(s)) for s in layout.sections] == [("Other", ["g"])]
+    assert [(s.role, _rows(s)) for s in layout.sections] == [("unplaced", ["g"])]
 
 
 def test_no_other_section_when_every_entry_is_placed() -> None:
@@ -329,8 +331,15 @@ def test_an_issue_with_no_entries_has_no_sections() -> None:
     assert layout_by_area(_content([])).sections == ()
 
 
-def test_the_unplaced_label_is_other() -> None:
-    assert UNPLACED_LABEL == "Other"
+def test_an_area_named_other_is_a_named_section_apart_from_the_unplaced_one() -> None:
+    content = _content(["Other"], filtered_headlines=[_item("o", "other"), _item("h", None)])
+
+    layout = layout_by_area(content)
+
+    assert [(s.label, s.role, _rows(s)) for s in layout.sections] == [
+        ("Other", "named", ["o"]),
+        (None, "unplaced", ["h"]),
+    ]
 
 
 def _titles(items) -> list[str]:
@@ -457,3 +466,4 @@ def test_the_input_content_is_unchanged_by_the_cut() -> None:
     cap_lower_layers(content)
 
     assert content.model_dump() == before
+

@@ -12,10 +12,6 @@ from cyris.domain.areas import fold_name
 from cyris.domain.models import DigestContent, DigestItem, DigestSection
 from cyris.domain.selection import _by_score
 
-# The label of the section that closes an issue with a non-empty area order: entries no
-# active area claims (no area, or one renamed or dismissed since the issue was stamped).
-UNPLACED_LABEL = "Other"
-
 
 @dataclass(frozen=True)
 class LowerRow:
@@ -29,7 +25,11 @@ class LowerRow:
 
 @dataclass(frozen=True)
 class AreaSection:
+    # "named": `label` is the reader's area. "unplaced": entries no active area claims
+    # (no area, or one renamed or dismissed since the issue was stamped); `label` is None
+    # and the surfaces title it. "unnamed": the issue has no area order at all.
     label: str | None
+    role: Literal["named", "unplaced", "unnamed"]
     features: tuple[DigestSection, ...] = ()
     following: tuple[DigestSection, ...] = ()
     clusters: tuple[DigestSection, ...] = ()
@@ -64,9 +64,14 @@ def layout_by_area(content: DigestContent) -> AreaLayout:
         return index[fold_name(area)]
 
     def label(key: int) -> str | None:
-        if not content.area_order:
+        if not content.area_order or key == unplaced:
             return None
-        return content.area_order[key] if key < unplaced else UNPLACED_LABEL
+        return content.area_order[key]
+
+    def role(key: int) -> Literal["named", "unplaced", "unnamed"]:
+        if not content.area_order:
+            return "unnamed"
+        return "named" if key < unplaced else "unplaced"
 
     buckets: dict[int, _Bucket] = defaultdict(_Bucket)
 
@@ -95,6 +100,7 @@ def layout_by_area(content: DigestContent) -> AreaLayout:
         sections.append(
             AreaSection(
                 label=label(key),
+                role=role(key),
                 features=tuple(bucket.features),
                 following=tuple(bucket.following),
                 clusters=tuple(bucket.clusters),
