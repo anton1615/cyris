@@ -1074,7 +1074,9 @@ function openAreaEditor(id) {
   into.replaceChildren(...(targets.length
     ? targets.map((x) => new Option(x.name, String(x.id)))
     : [new Option("No active area to merge into", "")]));
-  q("[data-proposed]").hidden = area.status !== "proposed";
+  ed.querySelectorAll("[data-proposed]").forEach((el) => { el.hidden = area.status !== "proposed"; });
+  save.classList.toggle("primary", area.status === "active");
+  save.classList.toggle("secondary", area.status !== "active");
   const refreshEditor = () => {
     save.disabled = ed.inert || !areasWritable || !q("#a-name").value.trim()
       || q("#a-name").value === area.name;

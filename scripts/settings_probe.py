@@ -3634,6 +3634,51 @@ CHECKS += [
         sabotage="""editor().removeAttribute("inert");""",
     ),
     Check(
+        id="areas-editor-groups",
+        fixture="writable-areas",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            areaRowOf("X").click();
+            await waitFor(editor, "the editor");
+        """,
+        script="""
+            const groups = $$(".actions-line", editor());
+            const first = groups[0].querySelectorAll("button");
+            expect(same([...first].map((b) => b.textContent), ["Activate", "Save name", "Cancel"]),
+                   `first group: ${[...first].map((b) => b.textContent)}`);
+            expect(same([...first].map((b) => b.className.split(" ")[1]),
+                        ["primary", "secondary", "secondary"]),
+                   `first classes: ${[...first].map((b) => b.className)}`);
+            const kids = [...groups[1].children];
+            expect(kids[0].textContent === "Dismiss" && kids[0].classList.contains("danger"),
+                   `dismiss: ${kids[0].textContent}`);
+            expect(kids[1].classList.contains("field") && kids[1].querySelector("label").textContent
+                   === "Merge into" && kids[1].querySelector("label + select"),
+                   "Merge into is not a labelled field");
+            expect(kids[2].textContent === "Merge" && kids[2].classList.contains("danger"),
+                   `merge: ${kids[2].textContent}`);
+            expect($$(".primary", editor()).length === 1, "more than one primary in the editor");
+        """,
+        sabotage="""editorAct("save").classList.replace("secondary", "primary");""",
+    ),
+    Check(
+        id="areas-editor-groups-active",
+        fixture="writable-areas",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            areaRowOf("Tech").click();
+            await waitFor(editor, "the editor");
+        """,
+        script="""
+            expect(editorAct("save").classList.contains("primary"), "Save name is not primary");
+            expect(editorAct("cancel").classList.contains("secondary"), "Cancel is not secondary");
+            expect(!editorAct("activate") || editorAct("activate").hidden, "Activate is shown");
+        """,
+        sabotage="""editorAct("save").classList.replace("primary", "secondary");""",
+    ),
+    Check(
         id="areas-merge-empty",
         fixture="writable-areas",
         path="/settings#areas",

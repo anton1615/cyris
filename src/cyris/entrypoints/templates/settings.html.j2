@@ -425,17 +425,16 @@
       <div class="form">
         <div class="field"><label class="label" for="a-name">Name</label><input class="input" id="a-name" name="name" type="text" autocomplete="off"></div>
       </div>
-      <div class="editor-foot">
+      <div class="editor-foot areas-foot">
         <div class="actions-line">
-          <button class="btn primary" type="button" data-act="save" disabled>Save name</button>
+          <button class="btn primary" type="button" data-act="activate" data-proposed hidden>Activate</button>
+          <button class="btn secondary" type="button" data-act="save" disabled>Save name</button>
           <button class="btn secondary" type="button" data-act="cancel">Cancel</button>
           <div class="notice" role="status" hidden></div>
         </div>
         <div class="actions-line" data-proposed hidden>
-          <button class="btn primary" type="button" data-act="activate">Activate</button>
           <button class="btn danger" type="button" data-act="dismiss">Dismiss</button>
-          <label class="label" for="a-into">Merge into</label>
-          <select class="select" id="a-into" name="into"></select>
+          <div class="field areas-merge"><label class="label" for="a-into">Merge into</label><select class="select" id="a-into" name="into"></select></div>
           <button class="btn danger" type="button" data-act="merge">Merge</button>
         </div>
       </div>

@@ -613,6 +613,7 @@ EXPECTED_IDS = {
     "areas-source-options",
     "areas-sources-both-reads",
     "areas-empty-sources-link",
+    "areas-editor-groups",
     "areas-tap-375",
     "areas-threshold-saves",
     "areas-threshold-refused",
