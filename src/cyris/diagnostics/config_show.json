@@ -31,6 +31,7 @@
     "feed_health.quiet_days": "cyris.adapters.store.feed_health:QUIET_DAYS",
     "publish.budget_seconds": "cyris.adapters.output.publish:PUBLISH_BUDGET_SECONDS",
     "publish.run_reserve_seconds": "cyris.adapters.output.publish:RUN_RESERVE_SECONDS",
+    "publish.verify_budget_seconds": "cyris.adapters.output.publish:VERIFY_BUDGET_SECONDS",
     "pages_deploy.timeout_seconds": "cyris.adapters.output.pages_deploy:TIMEOUT_SECONDS",
     "probe.llm_timeout_seconds": "cyris.diagnostics.doctor:LLM_PROBE_TIMEOUT_SECONDS",
     "probe.embedding_timeout_seconds": "cyris.diagnostics.doctor:EMBEDDING_PROBE_TIMEOUT_SECONDS",
