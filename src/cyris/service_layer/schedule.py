@@ -10,6 +10,7 @@ Hour granularity is the contract, not a rounding: an hourly tick cannot honour
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Literal, get_args
 
@@ -50,3 +51,14 @@ def due_period(now: datetime, times: list[str]) -> Period | None:
     if current == later:
         return "evening"
     return None
+
+
+def is_latest_issue(key: tuple[str, str], issues: Iterable[tuple[str, str]]) -> bool:
+    """True when no issue ranks after `key` by (date, PERIOD_ORDER index). Raises ValueError."""
+
+    def rank(issue: tuple[str, str]) -> tuple[str, int]:
+        date, period = issue
+        return date, PERIOD_ORDER.index(period)
+
+    key_rank = rank(key)
+    return all(rank(issue) <= key_rank for issue in issues)
