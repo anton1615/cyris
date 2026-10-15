@@ -337,10 +337,10 @@ def regenerate(
         typer.echo(f"No recorded inputs for {date} {period}", err=True)
         raise typer.Exit(1)
     if report.status == "not_latest":
-        later = max(
-            deps.digest_store.issues(), key=lambda issue: (issue[0], PERIOD_ORDER.index(issue[1]))
+        typer.echo(
+            f"A later issue exists ({report.later[0]} {report.later[1]}); publishing is refused",
+            err=True,
         )
-        typer.echo(f"A later issue exists ({later[0]} {later[1]}); publishing is refused", err=True)
         raise typer.Exit(1)
     if report.status == "publish_failed":
         typer.echo("Publish did not land: the live page differs from the render", err=True)
@@ -349,7 +349,7 @@ def regenerate(
         typer.echo(f"Nothing to regenerate: {report.status}", err=True)
         raise typer.Exit(1)
     if publish:
-        typer.echo(f"Published {Path(deps.html_writer.digest_filename(date, period)).stem}")
+        typer.echo(f"Published {report.slug}")
         return
     _write_preview(output, report.rendered)
     typer.echo(f"Wrote {output}")
