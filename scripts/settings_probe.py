@@ -3506,12 +3506,39 @@ CHECKS += [
         act="await areasListed();",
         script="""
             const rows = $$("#area-body tr").map((row) => row.textContent.trim());
-            const empty = 'No areas yet. Use "Propose areas from my sources" ' +
+            const empty = 'No areas yet. Use "Propose areas from my sources" under Sources, ' +
               'or wait for the next run to suggest some.';
             expect(same(rows, [empty]), `rows: ${rows}`);
             expect(!navOf("areas").classList.contains("missing"), "Areas is marked missing");
         """,
-        sabotage="""navOf("areas").classList.add("missing");""",
+        sabotage="""
+            $("#area-body").innerHTML = '<tr><td colspan="2" class="small">No areas yet. ' +
+              'Use "Propose areas from my sources" or wait for the next run to suggest ' +
+              'some.</td></tr>';
+        """,
+    ),
+    Check(
+        id="areas-empty-sources-link",
+        fixture="writable-areas-empty",
+        path="/settings#areas",
+        preload=answer_get(
+            "/api/sources",
+            """realFetch(input, init).then((r) => r.json()).then((d) => new Response(JSON.stringify(
+      {...d, sources: []}), {headers: {"Content-Type": "application/json"}}))""",
+        ),
+        act="""
+            await areasListed();
+            await waitFor(() => $("#assign-body td a"), "the sources copy");
+        """,
+        script="""
+            const cell = $("#assign-body td");
+            expect(cell.firstChild.textContent === "No sources yet. ",
+                   `copy: ${cell.firstChild.textContent}`);
+            const link = $("#assign-body td a");
+            expect(link.getAttribute("href") === "#sources", `href: ${link.getAttribute("href")}`);
+            expect($("#save-assign").disabled, "Save assignments is enabled with no source");
+        """,
+        sabotage="""$("#assign-body td a").removeAttribute("href");""",
     ),
     Check(
         id="areas-readonly-json",

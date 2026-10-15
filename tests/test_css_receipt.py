@@ -612,6 +612,7 @@ EXPECTED_IDS = {
     "areas-save-order-refused",
     "areas-source-options",
     "areas-sources-both-reads",
+    "areas-empty-sources-link",
     "areas-tap-375",
     "areas-threshold-saves",
     "areas-threshold-refused",

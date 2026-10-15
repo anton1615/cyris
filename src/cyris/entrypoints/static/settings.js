@@ -981,11 +981,11 @@ function renderAreas() {
     ? ordered.map((area, i) => `
       <tr class="src-row" data-id="${area.id}" tabindex="0">
         <td class="name">${esc(area.name)}</td>
-        <td class="areas-pos-cell"><select class="select areas-pos" aria-label="Position of ${esc(area.name)}" data-pos="${area.id}">${
+        <td class="areas-pos-cell"><select class="select areas-pos" aria-label="Position of ${esc(area.name)}" data-pos="${area.id}"${areasWritable ? "" : " disabled"}>${
           ordered.map((_, k) => `<option value="${k}"${k === i ? " selected" : ""}>${k + 1}</option>`).join("")}</select></td>
       </tr>${proposalRow(area)}`).join("")
     : areasLoaded
-      ? `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" or wait for the next run to suggest some.</td></tr>`
+      ? `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" under Sources, or wait for the next run to suggest some.</td></tr>`
       : "";
   $("proposed-body").innerHTML = proposed.length
     ? proposed.map((area) => `
