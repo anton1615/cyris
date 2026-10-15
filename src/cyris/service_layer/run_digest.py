@@ -138,15 +138,15 @@ def _raw_page_for(deps: "Deps", key: tuple[str, str], stored) -> tuple[bool, dic
     try:
         urls = deps.digest_input_store.load(*key) or []
         by_url = {a.url: a for a in deps.store.get_by_urls(urls)}
+        rows = [by_url[url] for url in urls if url in by_url]
+        if not rows:
+            return False, {}
+        writer = deps.html_writer
+        path = "/" + writer.raw_filename(*key)
+        return True, {path: writer.render_raw(key[0], key[1], rows)}
     except Exception as e:
         logger.error("Failed to rebuild the raw page for %s %s: %s", *key, e)
         return False, {}
-    rows = [by_url[url] for url in urls if url in by_url]
-    if not rows:
-        return False, {}
-    writer = deps.html_writer
-    path = "/" + writer.raw_filename(*key)
-    return True, {path: writer.render_raw(key[0], key[1], rows)}
 
 
 def _rerun_rows(deps: "Deps", options: RunOptions, summary: dict) -> list[StoredArticle]:

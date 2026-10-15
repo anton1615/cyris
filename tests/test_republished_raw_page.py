@@ -135,3 +135,25 @@ async def test_a_failed_article_read_republishes_without_a_link(tmp_path: Path) 
     assert f"/{RAW.decode()}" not in pages
     assert RAW not in pages[f"/{DATE}-{PERIOD}.html"]
     assert summaries[-1]["republished"] == [f"{DATE}-{PERIOD}"]
+
+
+async def test_a_raw_page_that_fails_to_render_republishes_without_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cyris.adapters.output.html_digest import HtmlDigestWriter
+
+    def refuse(self, *args, **kwargs):
+        raise RuntimeError("template broke")
+
+    monkeypatch.setattr(HtmlDigestWriter, "render_raw", refuse)
+    articles = [_article(1)]
+    pages, summaries = await _republish(
+        tmp_path,
+        raw_page=True,
+        record=[a.url for a in articles],
+        articles=articles,
+    )
+
+    assert f"/{RAW.decode()}" not in pages
+    assert RAW not in pages[f"/{DATE}-{PERIOD}.html"]
+    assert summaries[-1]["republished"] == [f"{DATE}-{PERIOD}"]
