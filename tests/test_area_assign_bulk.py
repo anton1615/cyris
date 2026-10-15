@@ -130,3 +130,38 @@ async def test_without_an_area_table_the_answer_matches_the_order_route(db: Sqli
 
     assert assign.status == order.status == 409
     assert assign_body == order_body
+
+
+async def test_each_named_source_gets_its_area_and_every_other_field_survives(db: SqliteD1) -> None:
+    food = _area(db, "Food", "active", 1)
+    D1SourceStore(db).upsert(
+        SourceConfig(
+            name="A",
+            url="https://a.example/f",
+            tags=["x", "y"],
+            homepage="https://a.example",
+            email_match="a@example.test",
+        )
+    )
+    _source(db, "C")
+
+    status, data = await _post(db, {"assignments": {"A": food, "B": None}})
+
+    assert status == 200
+    assert data == {"ok": True, "assigned": 2, "activated": []}
+    stored = D1SourceStore(db).list_sources()
+    assert stored["A"].area_id == food
+    assert stored["A"].tags == ["x", "y"]
+    assert stored["A"].homepage == "https://a.example"
+    assert stored["A"].email_match == "a@example.test"
+    assert stored["A"].tier == SourceConfig(name="A").tier
+    assert stored["B"].area_id is None
+    assert stored["C"].area_id is None
+
+
+async def test_an_empty_assignment_writes_nothing(db: SqliteD1) -> None:
+    status, data = await _post(db, {"assignments": {}})
+
+    assert status == 200
+    assert data == {"ok": True, "assigned": 0, "activated": []}
+    assert _area_ids(db, "A") is None
