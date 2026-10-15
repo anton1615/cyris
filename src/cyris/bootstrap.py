@@ -315,6 +315,8 @@ class Deps:
     archive_counts: Callable[[], dict[tuple[str, str], int]] = field(default_factory=lambda: dict)
     # Keeps each issue's final content in D1; None under json, whose pages are the record.
     digest_store: Any | None = None
+    # Each publishing run's input URLs, the record a rerun rebuilds from; D1 only.
+    digest_input_store: Any | None = None
     # The app Worker's custom domains, for the digest link when none is configured;
     # None where the Worker is unknown, as in a compose install.
     worker_domains: Callable[[], list[str]] | None = None
@@ -372,10 +374,12 @@ def build_deps(
     record_run = None
     record_similarity = None
     digest_store = None
+    digest_input_store = None
     archive_counts: Callable[[], dict[tuple[str, str], int]] = dict
     if d1 is not None:
         from cyris.adapters.store.archive_meta import D1ArchiveMeta
         from cyris.adapters.store.areas import D1AreaStore
+        from cyris.adapters.store.digest_inputs import D1DigestInputStore
         from cyris.adapters.store.digests import D1DigestStore
         from cyris.adapters.store.runs import D1RunLog
         from cyris.adapters.store.similarity_shadow import D1SimilarityShadow
@@ -391,6 +395,7 @@ def build_deps(
         ).record
         archive_counts = D1ArchiveMeta(d1).article_counts
         digest_store = D1DigestStore(d1)
+        digest_input_store = D1DigestInputStore(d1)
         area_store = D1AreaStore(d1)
 
     fetch_sources: list[FetchSource] = []
@@ -477,6 +482,7 @@ def build_deps(
         record_similarity=record_similarity,
         archive_counts=archive_counts,
         digest_store=digest_store,
+        digest_input_store=digest_input_store,
         worker_domains=build_worker_domains(),
         send_email=build_send_email(),
         send_email_alert=build_send_email_alert(),

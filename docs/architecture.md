@@ -149,7 +149,8 @@ themselves from either.
 It took its whole dependency cone with it: `adapters/output/digest.py`, `adapters/output/
 article_export.py`, `cyris.toml [obsidian]`, the `CYRIS_VAULT_PATH` environment variable, the vault
 bind mount in `docker-compose.yml`, `cyris articles export`, and the vault export that ran on a
-triage accept. `--dry-run` renders the HTML instead.
+triage accept. `--dry-run` renders the HTML instead, silently: it sends no notification, writes no
+`usage_log` row and changes no table but its own `digest_runs` row.
 
 ### Local filesystem is a defect, not a tier
 
@@ -269,7 +270,9 @@ a newsletter source constructed with `ack=False` and no `sync_promotions` at all
 2026-09-06 it got neither, so a preview against production deleted the issues it had just
 declined to store, and stamped vote verdicts on their way to draining the vote queue. Skipping
 the writes downstream does not undo an upstream delete — a source that takes has to be wired
-differently, which is why the decision lives at the composition root.
+differently, which is why the decision lives at the composition root. The silent dry run of
+`run_digest` keeps the same rule for the stores: `cyris regenerate --output` previews a stored
+period through the file only, and a rerun that publishes is the only form that writes a digest.
 
 | | RSS | Email |
 |---|---|---|
@@ -387,6 +390,14 @@ articles the clustering step grouped, including members the output cap dropped �
 injections built only when D1 is configured; with `backend = "json"` they are absent and the run
 skips the writes.
 
+A publishing run also saves the URLs it fed the pipeline to `digest_inputs`, which is the record a
+rerun rebuilds from. `cyris regenerate` has two forms over a stored issue: a re-render to a file, with
+no LLM call and no write, and a rerun over the recorded URLs, which publishes only when that issue is
+the newest by date and period (an older one returns `not_latest` before any LLM call). A rerun takes
+each article as its state is now, so the input set is fixed but the verdicts are not, and an issue
+recorded before `digest_inputs` has no record to rerun from. A publish counts as done only when the
+live page serves the bytes just rendered, compared byte for byte.
+
 Output is the HTML digest and a companion raw page listing what this run judged plus whatever is
 still pending — uncapped, so what the digest dropped stays visible; rows an earlier run in the
 overlapping 24h window already judged are left off, since they were on that run's raw page — both
@@ -395,7 +406,8 @@ Pages, followed by a notification to Discord and, when a recipient is set, by ma
 whose publish failed is not digested again: its articles are already accepted. Instead every
 non-dry run starts by comparing D1 `digests` with `pages_manifest` and publishes each stored
 issue the site lacks, re-rendered from its row, before anything can end the run early; the raw
-page is not stored, so a republished issue links none. A run that
+page is rebuilt from the issue's `digest_inputs` row, each article as its state is now, so a
+republished issue links one only when that row exists. A run that
 raises inside `run_digest`, or fetches nothing while a source failed, sends a failure alert to
 the same channels after the run is recorded. It carries the error or the failed sources and the
 time the run started. A scheduled run (`--if-due`) that stops before `run_digest`, on incomplete
@@ -452,13 +464,14 @@ table `schema.sql` creates must appear in the rows below, so a new table cannot 
 | Inbound newsletters | **KV** (`workers/newsletter`) | same | Transient queue, drained and ACKed per run |
 | Deployed site's file list | **D1 `pages_manifest`** | same | path → Pages asset hash, a few KB. The *bytes* are Cloudflare's, not ours |
 | Digest runs | **D1 `digest_runs`** | same | One row per `run_digest` call on every path — `no_articles`, `no_pending`, `error` included — with status, period, dry-run flag, fetch counts, the image's `CYRIS_GIT_SHA`, the degraded judgement and the whole `run_summary` as JSON. Written after the log line, inside its own guard. D1 only: a `json` run writes nothing and keeps only stdout |
-| Digest content | **D1 `digests`** | same | One row per issue, keyed `(date, period)`, last run wins: the final `DigestContent` as JSON (its `area_order` included, so a re-render keeps the sections it was published with) plus `raw_page`, the flag saying whether that run's digest page linked a raw companion page — the two inputs the digest page renders from. The raw companion page itself is not reproducible from it. D1 only: a `json` run keeps no copy |
+| Digest content | **D1 `digests`** | same | One row per issue, keyed `(date, period)`, last run wins: the final `DigestContent` as JSON (its `area_order` included, so a re-render keeps the sections it was published with) plus `raw_page`, the flag saying whether that run's digest page linked a raw companion page — the two inputs the digest page renders from. The raw companion page is rebuilt from `digest_inputs`, not from this row, with each article's state as it is now. D1 only: a `json` run keeps no copy |
+| Digest inputs | **D1 `digest_inputs`** | same | One row per issue, keyed `(date, period)`, last write wins: the URLs a publishing run fed the pipeline, in order, as a JSON array. Written by a non-dry run only, before publishing; a dry run and a rerun write nothing. A URL record, not article state: a rerun reads each article by URL as it is now, and votes, vote-similarity seeds, settings, tracked topics, areas and the embedding model are read live too, so a rerun shows their current values. A row whose article `cyris articles clean` deleted drops out of the rerun. An issue recorded before this table has no row, so it cannot be rerun. D1 only: a `json` run keeps no copy |
 | Vote-similarity pool | **D1 `vote_similarity_shadow`** | same | One row per candidate a run judged against the reader's votes, keyed `(run_at, candidate_url)`: the nearest upvoted and downvoted article with each cosine, and the embedding model. `run_at` is the run's `started_at`, which `digest_runs.summary` also carries, and its `vote_similarity_judged` is the run's row count. Raw data with no verdict: the suppression decision and its threshold are not stored. Written by `run_digest` right after `judge_by_votes`, inside its own guard, from the cosines that call already computed, so it costs no embedding call; a run whose similarity pass skipped, and a dry run, write nothing. Nothing reads it yet. D1 only: a `json` run keeps no copy |
 | Blind-label sample | **D1 `blind_labels`** | same | One row per filter candidate drawn for blind labeling by `cyris labels draw`, keyed by the draw's time and the URL: its position on `/labels`, the news split and the pipeline's state frozen at draw time, how many pool rows shared its stratum, the seed, the pool's cutoff, and the reader's answer (`up`, `down` or `skip`) with its time. Not columns of `stored_articles`: a label is written there exactly as a digest vote is, which overwrites the state that put the row in its stratum and leaves a label indistinguishable from a vote, so `cyris labels report` could neither weight the strata nor keep the labels out of the seeds that score them; a skip has no home there at all. One sample at a time: a draw replaces the previous one only with `--replace`, by inserting the new draw whole in one statement before deleting the old, and readers take the latest draw, so a replace that fails part way leaves one whole sample. D1 only: a `json` deployment has none |
 | Pages deploy receipt | **D1 `pages_deploy_receipt`** | same | this D1 has published this Pages project; empty-manifest guard skips the Cloudflare probe. It is not a shortcut around the live-archive shortfall check |
 | ~~Embedding cache~~ | — | **nowhere** | Deleted 2026-08-27. Not moved: a full run is ~600 texts ≈ 20 neurons of a 10,000/day allowance, so the 415 MB existed to skip five seconds of arithmetic |
 | Run log (one `run_summary` JSON line per run, plus everything the container prints) | **Workers Logs**, 7 days | same | Not a record, and not state: it is the operational window — what last night's run fetched, spent and did. The `run_summary` dict itself is no longer only here: its durable copy is `digest_runs.summary` (one row per run, D1 only). Everything else the container prints stays in this window, and a longer retention is still not the answer |
-| HTML digest + raw pages | **published from memory** | same | `agent-vault/html/` is the no-D1 fallback only. The deployed site is the archive of the pages as published; a digest page can also be re-rendered from D1 `digests`, a raw page cannot |
+| HTML digest + raw pages | **published from memory** | same | `agent-vault/html/` is the no-D1 fallback only. The deployed site is the archive of the pages as published; a digest page can also be re-rendered from D1 `digests`, and a raw page rebuilt from D1 `digest_inputs` with each article's state as it is now, so an issue recorded before `digest_inputs` has no raw page to rebuild |
 | Marketing website (outside the pipeline) | **`website/` source + separate Pages project `cyris-site`**; the launch film in **R2 `musingfox-media`** under `cyris/` | same | Static M2 branding and landing page; no D1 manifest, user data, or connection to the digest publisher |
 
 The article-store tables and the RSS buffer share one database (`cyris-rss`) on purpose

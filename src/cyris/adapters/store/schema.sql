@@ -217,6 +217,18 @@ CREATE TABLE IF NOT EXISTS digests (
   PRIMARY KEY (date, period)
 );
 
+-- The URLs one publishing run fed the pipeline, in the order it took them: the
+-- record a rerun rebuilds the issue from. One row per issue, last write wins, like
+-- `digests`; `urls` is a JSON array of article URLs, so the table holds no article
+-- state and a rerun reads each article as it is now.
+CREATE TABLE IF NOT EXISTS digest_inputs (
+  date     TEXT NOT NULL,
+  period   TEXT NOT NULL,
+  urls     TEXT NOT NULL,
+  saved_at TEXT NOT NULL,
+  PRIMARY KEY (date, period)
+);
+
 -- Each polled RSS feed's last outcome, written by workers/rss on every poll so a
 -- feed that keeps failing is visible after Workers Logs' 7 days. A success resets
 -- the streak and keeps the last error as history. The Worker's `SCHEMA` creates
