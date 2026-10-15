@@ -82,4 +82,8 @@ def layout_by_area(content: DigestContent) -> AreaLayout:
                 rows=(*sorted(bucket.radar, key=_by_score, reverse=True), *bucket.headlines),
             )
         )
-    return AreaLayout(headline=headline, tracking=(), sections=tuple(sections))
+    return AreaLayout(
+        headline=headline,
+        tracking=tuple(content.tracked_topics),
+        sections=tuple(sections),
+    )

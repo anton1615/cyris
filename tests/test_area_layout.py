@@ -185,3 +185,61 @@ def test_every_url_appears_exactly_once_and_the_input_is_unchanged() -> None:
     placed += [u for sec in sections for i in sec.items for u in i.urls]
     assert Counter(placed) == Counter(u for u in digest_urls(content))
     assert content.model_dump() == before
+
+
+def test_the_top_story_stands_above_the_sections_and_is_not_repeated_in_one() -> None:
+    top = _sec("Top", _item("t1", "Tech"), _item("t2", "Health"))
+    content = _content(
+        ["Tech", "Health"],
+        featured_articles=[top, _sec("F", _item("F", "Tech"))],
+    )
+
+    layout = layout_by_area(content)
+
+    assert layout.headline == top
+    assert all("Top" not in _headings(s.features) for s in layout.sections)
+    assert [(s.label, _headings(s.features)) for s in layout.sections] == [("Tech", ["F"])]
+
+
+def test_an_issue_with_no_top_story_has_no_headline_and_places_the_rest() -> None:
+    content = _content(["Tech"], filtered_headlines=[_item("t", "Tech")])
+
+    layout = layout_by_area(content)
+
+    assert layout.headline is None
+    assert [(s.label, _rows(s)) for s in layout.sections] == [("Tech", ["t"])]
+
+
+def test_a_top_story_that_was_the_only_tech_entry_leaves_no_tech_section() -> None:
+    content = _content(
+        ["Tech", "Health"],
+        featured_articles=[_sec("Top", _item("Top", "Tech"))],
+        filtered_headlines=[_item("h", "Health")],
+    )
+
+    layout = layout_by_area(content)
+
+    assert layout.headline is not None and layout.headline.heading == "Top"
+    assert [s.label for s in layout.sections] == ["Health"]
+
+
+def test_tracked_topics_pass_through_untouched_and_place_in_no_area() -> None:
+    topic = _sec("Topic", _item("tp", "Tech"))
+    content = _content(["Tech"], tracked_topics=[topic])
+
+    layout = layout_by_area(content)
+
+    assert layout.tracking == (topic,)
+    assert layout.sections == ()
+
+
+def test_thematic_summaries_alone_give_the_first_as_the_top_story() -> None:
+    content = _content(
+        ["Tech"],
+        thematic_summaries=[_sec("S1", _item("s1", "Tech")), _sec("S2", _item("s2", "Tech"))],
+    )
+
+    layout = layout_by_area(content)
+
+    assert layout.headline is not None and layout.headline.heading == "S1"
+    assert [(s.label, _headings(s.features)) for s in layout.sections] == [("Tech", ["S2"])]
