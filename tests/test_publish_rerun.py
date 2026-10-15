@@ -155,6 +155,7 @@ async def test_the_newest_issue_is_replaced_published_and_notifies_nobody(
     report = await run_digest(deps, RunOptions(dry_run=False, rerun_of=RERUN, period="evening"))
 
     assert report.status == "ok"
+    assert report.slug == SLUG
     stored = deps.digest_store.load(RERUN, "evening")
     assert stored.content.date == RERUN
     assert ("2026-10-14", "evening") in stories.saved
@@ -175,6 +176,7 @@ async def test_an_older_issue_is_not_latest_and_writes_nothing_but_its_run_recor
     report = await run_digest(deps, RunOptions(dry_run=False, rerun_of=RERUN, period="evening"))
 
     assert report.status == "not_latest"
+    assert report.later == ("2026-10-15", "morning")
     assert deps.llm.calls == []
     assert db.written_tables() == {"digest_runs"}
     assert site.deploys == []

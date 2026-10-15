@@ -24,7 +24,7 @@ from cyris.domain.triage import RejectReason
 from cyris.service_layer.area_stamp import stamp_areas
 from cyris.service_layer.digest_pipeline import DigestPipeline
 from cyris.service_layer.fetching import fetch_all_articles
-from cyris.service_layer.schedule import Period, is_latest_issue
+from cyris.service_layer.schedule import PERIOD_ORDER, Period, is_latest_issue
 from cyris.service_layer.scoring import AreaPick, score_in_batches, select_scorable
 from cyris.service_layer.vote_order import VoteOrder
 from cyris.utils.timezone import now_in_timezone
@@ -78,6 +78,10 @@ class RunReport:
     rendered: str | None = None  # dry-run render of the digest
     html_path: Path | None = None
     failed_sources: list[str] = field(default_factory=list)
+    # `not_latest`: the later (date, period) that refused the rerun.
+    later: tuple[str, str] | None = None
+    # `ok` on a publish: the slug the site now serves.
+    slug: str | None = None
 
 
 def _newest(articles: list[StoredArticle], n: int) -> list[StoredArticle]:
@@ -434,9 +438,11 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         summary["rerun_of"] = options.rerun_of
         # Before any LLM call or write: a publishing rerun only ever replaces the newest issue.
         issues = deps.digest_store.issues() if deps.digest_store is not None else []
-        if not options.dry_run and not is_latest_issue((options.rerun_of, options.period), issues):
+        key = (options.rerun_of, options.period)
+        if not options.dry_run and not is_latest_issue(key, issues):
             summary["status"] = "not_latest"
-            return RunReport(status="not_latest")
+            later = max(issues, key=lambda issue: (issue[0], PERIOD_ORDER.index(issue[1])))
+            return RunReport(status="not_latest", later=later)
         pending_articles = _rerun_rows(deps, options, summary)
         if not pending_articles:
             summary["status"] = "no_inputs"
@@ -843,6 +849,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
                 deps.publish is not None and cfg.app.promote.pages_project
             ):
                 if published:
+                    report.slug = slug
                     # Cloudflare Pages serves the extensionless clean URL.
                     host = cfg.app.promote.custom_domain or _worker_domain(deps)
                     if host:
