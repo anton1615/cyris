@@ -357,6 +357,7 @@ EXPECTED_D1 = [
     "UPDATE stored_articles SET state",
     "SELECT stored_articles",
     "INSERT OR REPLACE INTO digests",
+    "INSERT OR REPLACE INTO digest_inputs",
     # The archive's file list and counts for the index page, then the manifest the
     # deploy extends, the first-publish receipt, and the manifest of what landed.
     "SELECT pages_manifest",

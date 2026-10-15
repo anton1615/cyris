@@ -69,6 +69,7 @@ class RunOptions:
     period: Period = "morning"
     dry_run: bool = False
     force: bool = False
+    rerun_of: str | None = None
 
 
 @dataclass
@@ -670,6 +671,17 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
             except Exception as e:
                 logger.error("Failed to store the digest content: %s", e)
                 summary["digest_store_error"] = str(e)
+
+        # The record a rerun rebuilds from: the URLs this run was given, after the
+        # cap and the suppression. Its own guard, so losing it costs the run nothing.
+        if deps.digest_input_store is not None and options.rerun_of is None:
+            try:
+                deps.digest_input_store.save(
+                    content.date, content.period, [a.url for a in pending_articles]
+                )
+            except Exception as e:
+                logger.error("Failed to store the digest inputs: %s", e)
+                summary["digest_inputs_error"] = str(e)
 
         # HTML output (optional, non-blocking)
         if deps.html_writer is not None:
