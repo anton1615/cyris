@@ -141,9 +141,26 @@ def _alert_could_not_start(cfg, error: Exception) -> None:
         logger.error("Could not send the alert that the run did not start: %s", e)
 
 
+def _usage_error(message: str) -> None:
+    typer.echo(message, err=True)
+    raise typer.Exit(2)
+
+
+def _write_preview(path: Path, html: str) -> None:
+    """The file a preview or a regeneration leaves, at the path the user named."""
+    try:
+        path.write_text(html, encoding="utf-8")
+    except OSError as e:
+        typer.echo(f"Could not write {path}: {e.strerror or e}", err=True)
+        raise typer.Exit(1) from e
+
+
 @app.command("run")
 def run(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Preview without writing")] = False,
+    output: Annotated[
+        Path | None, typer.Option("--output", help="Dry run: write the preview page to PATH")
+    ] = None,
     period: Annotated[str, typer.Option(help="Digest period: morning or evening")] = "morning",
     config_path: Annotated[Path, typer.Option("--config", help="Config file path")] = Path(
         "cyris.toml"
@@ -167,6 +184,8 @@ def run(
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Debug logging")] = False,
 ) -> None:
     """Run the full pipeline: fetch, score, route, and digest."""
+    if output is not None and not dry_run:
+        _usage_error("--output is only available with --dry-run")
     _setup_logging(verbose)
 
     from cyris.bootstrap import build_deps, load_effective_config
@@ -198,6 +217,8 @@ def run(
             return
         period = due
 
+    if output is not None:
+        typer.echo(f"Store backend: {cfg.app.store.backend}")
     try:
         deps = build_deps(cfg, on_progress=typer.echo, dry_run=dry_run)
     except Exception as e:
@@ -224,6 +245,13 @@ def run(
         report = asyncio.run(_run())
     except asyncio.CancelledError:
         raise typer.Exit(128 + signal.SIGTERM) from None
+    if output is not None:
+        if report.status != "ok" or not report.rendered:
+            typer.echo(f"Nothing to preview: {report.status}", err=True)
+            raise typer.Exit(1)
+        _write_preview(output, report.rendered)
+        typer.echo(f"Wrote {output}")
+        return
     if report.rendered:
         typer.echo(report.rendered)
 

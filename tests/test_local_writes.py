@@ -5,8 +5,10 @@ feature quietly finding a new home for state. A new `write_text` is how that
 starts, so the set of files allowed to make one is pinned here rather than
 rediscovered by the next audit.
 
-The four that remain are all the same shape: a backend the cloud path does not
-use. Under `[store] backend = "d1"` none of them runs.
+The four backend fallbacks are the same shape: a backend the cloud path does not
+use, and under `[store] backend = "d1"` none of them runs. The fifth is the CLI's
+`--output` file, which an operator names on purpose and which holds a preview or a
+regenerated page, never state.
 """
 
 import ast
@@ -24,6 +26,7 @@ ALLOWED = {
     "adapters/output/usage_log.py",  # usage.jsonl, the no-D1 fallback
     "adapters/store/article_store.py",  # the json store backend
     "diagnostics/doctor.py",  # the vault writability probe, skipped under D1
+    "entrypoints/cli.py",  # the file `--output` names: a preview or a regenerated page
 }
 
 
