@@ -220,3 +220,63 @@ async def test_a_proposal_no_source_points_at_stays_proposed(db: SqliteD1) -> No
     assert _statuses(db)["Energy"] == "proposed"
     assert _area_ids(db, "A") == 1
     assert _area_ids(db, "B") is None
+
+
+def _failing_on_call(method, number: int):
+    calls = {"n": 0}
+
+    def wrapper(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == number:
+            raise RuntimeError("disk gone")
+        return method(*args, **kwargs)
+
+    return wrapper
+
+
+async def test_a_write_failing_midway_reports_what_landed(db: SqliteD1) -> None:
+    prop = _area(db, "P", "proposed", articles=3)
+    _source(db, "C")
+    sources = D1SourceStore(db)
+    sources.upsert = _failing_on_call(sources.upsert, 2)
+    server = TriageServer(area_store=D1AreaStore(db), source_store=sources)
+
+    status, data = await _post(db, {"assignments": {"A": prop, "B": prop, "C": prop}}, server)
+
+    assert status == 500
+    assert data == {
+        "ok": False,
+        "error": "disk gone",
+        "assigned": ["A"],
+        "activated": [{"id": prop, "name": "P"}],
+    }
+    assert _statuses(db)["P"] == "active"
+    assert _area_ids(db, "A") == prop
+    assert _area_ids(db, "B") is None
+    assert _area_ids(db, "C") is None
+
+
+async def test_the_same_request_without_the_failure_lands_everything(db: SqliteD1) -> None:
+    prop = _area(db, "P", "proposed", articles=3)
+    _source(db, "C")
+
+    status, data = await _post(db, {"assignments": {"A": prop, "B": prop, "C": prop}})
+
+    assert status == 200
+    assert data == {"ok": True, "assigned": 3, "activated": [{"id": prop, "name": "P"}]}
+    assert _area_ids(db, "C") == prop
+
+
+async def test_a_failing_activation_reports_nothing_landed(db: SqliteD1) -> None:
+    prop = _area(db, "P", "proposed", articles=3)
+    area_store = D1AreaStore(db)
+    area_store.activate = _failing_on_call(area_store.activate, 1)
+    server = TriageServer(area_store=area_store, source_store=D1SourceStore(db))
+
+    status, data = await _post(db, {"assignments": {"A": prop}}, server)
+
+    assert status == 500
+    assert data["assigned"] == []
+    assert data["activated"] == []
+    assert _statuses(db)["P"] == "proposed"
+    assert _area_ids(db, "A") is None
