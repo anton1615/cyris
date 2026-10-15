@@ -965,6 +965,8 @@ const orderDirty = () => localOrder.join() !== storedOrder.join();
 const storedArea = (name) => sources.find((source) => source.name === name)?.area_id ?? null;
 const pickedArea = (name) => (name in picks ? picks[name] : storedArea(name));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const listJoin = (words) => words.length < 2 ? words.join("")
+  : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
 // The unsaved selects that point at a proposal, said under its name.
 const picked = (id) => {
   const n = Object.keys(picks).filter((name) => picks[name] === id).length;
@@ -1295,6 +1297,24 @@ async function saveOrder() {
   }
 }
 $("save-order").addEventListener("click", saveOrder);
+
+// Sends the changed rows in one request, then re-reads both lists whatever the answer.
+async function saveAssignments() {
+  const assignments = Object.fromEntries(changedSources().map((name) => [name, pickedArea(name)]));
+  const button = $("save-assign");
+  button.disabled = true;
+  show("busy", "Saving assignments…", "assign-result");
+  try {
+    const data = await post("/api/areas/assign", {assignments});
+    const names = data.activated.map((area) => area.name);
+    show("ok", `${plural(data.assigned, "source")} assigned${names.length
+      ? `; ${listJoin(names)} ${names.length === 1 ? "is" : "are"} active` : ""}.`, "assign-result");
+  } catch (err) {
+    show("err", err.message, "assign-result");
+  }
+  await Promise.all([loadAreas(), loadSources()]);
+}
+$("save-assign").addEventListener("click", saveAssignments);
 
 $("assign-body").addEventListener("change", (e) => {
   const name = e.target.dataset.source;

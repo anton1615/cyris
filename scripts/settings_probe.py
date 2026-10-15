@@ -4083,6 +4083,87 @@ CHECKS += [
         sabotage="""$("#save-assign").disabled = false;""",
     ),
     Check(
+        id="areas-assign-save",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=logged(),
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="曼報"]'), "the rows");
+            setValue($('select[data-source="Simon Willison"]'), "4");
+            setValue($('select[data-source="曼報"]'), "");
+            $("#save-assign").click();
+            const done = "2 sources assigned; X is active.";
+            await waitFor(() => $("#assign-result").textContent === done, "the assign notice");
+        """,
+        script="""
+            const posts = window.__calls.filter(([, method]) => method === "POST");
+            expect(posts.length === 1 && window.__calls.length === 1,
+                   `requests: ${JSON.stringify(window.__calls)}`);
+            expect(posts[0][0].endsWith("/api/areas/assign"), `url: ${posts[0][0]}`);
+            const wanted = {assignments: {"Simon Willison": 4, "曼報": null}};
+            expect(same(JSON.parse(posts[0][2]), wanted), `body: ${posts[0][2]}`);
+            expect($("#save-assign").disabled, "Save assignments is enabled");
+            expect(same(areaNames(), ["Tech", "Food", "Finance", "X"]), `rows: ${areaNames()}`);
+            const pick = $('select[data-source="Simon Willison"]').value;
+            expect(pick === "4", `the pick is not stored: ${pick}`);
+        """,
+        sabotage_preload=rewrite_post(
+            "/api/areas/assign", 'body.assignments["Hacker News"] = null;'
+        ),
+    ),
+    Check(
+        id="areas-assign-two-proposals",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="曼報"]'), "the rows");
+            setValue($('select[data-source="Simon Willison"]'), "4");
+            setValue($('select[data-source="Hacker News"]'), "5");
+            setValue($('select[data-source="曼報"]'), "");
+            $("#save-assign").click();
+            const done = "3 sources assigned; X and Y are active.";
+            await waitFor(() => $("#assign-result").textContent === done, "the assign notice");
+        """,
+        script="""
+            const rows = areaNames();
+            expect(same(rows, ["Tech", "Food", "Finance", "X", "Y"]), `rows: ${rows}`);
+            expect($$("#proposed-body tr.src-row").length === 0, "a proposal is still listed");
+            expect($("#save-assign").disabled, "Save assignments is enabled");
+            const notice = $("#assign-result").textContent;
+            expect(notice === "3 sources assigned; X and Y are active.", `notice: ${notice}`);
+        """,
+        sabotage="""$("#assign-result").textContent = "";""",
+    ),
+    Check(
+        id="areas-assign-refused",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=answer_post(
+            "/api/areas/assign",
+            """Promise.resolve(new Response(JSON.stringify({ok: false,
+              error: "Y is dismissed, not active."}),
+              {status: 409, headers: {"Content-Type": "application/json"}}))""",
+        ),
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="曼報"]'), "the rows");
+            setValue($('select[data-source="Simon Willison"]'), "5");
+            $("#save-assign").click();
+            await waitFor(() => $("#assign-result").classList.contains("err"), "the refusal");
+        """,
+        script="""
+            const notice = $("#assign-result");
+            expect(notice.classList.contains("err"), `notice: ${notice.className}`);
+            expect(notice.textContent === "Y is dismissed, not active.",
+                   `notice: ${notice.textContent}`);
+            expect($('select[data-source="Simon Willison"]').value === "5", "the pick was dropped");
+            expect(!$("#save-assign").disabled, "Save assignments is disabled after a refusal");
+        """,
+        sabotage="""$("#assign-result").classList.remove("err");""",
+    ),
+    Check(
         id="areas-tap-375",
         fixture="writable-areas",
         path="/settings#areas",
