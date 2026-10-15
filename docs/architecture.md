@@ -919,6 +919,7 @@ on main after the change lands, citing the hash it landed as.
 | 2026-10-08 | `f2c5ff6` | Blind labels: `cyris labels draw` keeps a stratified sample of the filter pool in D1 `blind_labels` (§4), `/labels` behind the app Worker records each answer and writes up/down as a human vote (§6), and `cyris labels report` scores the filter and the embedding preference on them. |
 | 2026-10-11 | `83fec39` | Clef vote order: `ClefClient` joins §2 as a direct injection; with `digest.preference_source = "clef"` (§5, grade D) the issue's kept items are ordered by Clef's read of their five nearest up- and downvotes, and any Clef failure gives the whole issue the cosine order (§3.2). |
 | 2026-10-12 | `fa4b7e4`..`da611fa` | Filter batching: the filter tier sends a window to the model in batches of `BATCH_SIZE` (grade A, §5 Batch sizes row) with per-batch ids and per-batch fallback, so no filter request grows with the window; §5's `workers_ai` default keeps gpt-oss for output cost, and the 24k-context concern now names `cluster_news` alone. |
+| 2026-10-12 | `608107c`..`3a97a20` | Areas (L1): D1 `areas` holds reader-confirmed areas and LLM proposals with their article and issue counts, and D1 `area_birth_threshold` the shadow-only birth threshold that `/settings` alone reads (§4, §5 grade D, no `json` home); a source names its area by `area_id` in `sources.config`, scoring picks one active area or suggests a new name, and a run stamps each digest item's area name (§3.2). |
 
 ## 8. Where the core never changes
 
