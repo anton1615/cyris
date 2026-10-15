@@ -5,8 +5,9 @@ import re
 
 import httpx
 
-from cyris.adapters.output.html_digest import Story, _features
-from cyris.domain.models import NO_LLM_MODEL, DigestContent, DigestSection
+from cyris.adapters.output.html_digest import Story, _stories
+from cyris.domain.area_layout import AreaSection, layout_by_area
+from cyris.domain.models import NO_LLM_MODEL, DigestContent, DigestItem, DigestSection
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,10 @@ def redact_webhook_tokens(text: str) -> str:
     return _DISCORD_WEBHOOK_IN_TEXT.sub(rf"\1/{WEBHOOK_MASK}", text)
 
 
+# The embed of the area section that has no area: a digest whose area order is empty.
+UNNAMED_SECTION_TITLE = "Digest"
+
+
 def period_label(period: str) -> str:
     """How a message names the period: `morning` reads as `Morning`."""
     return {"morning": "Morning", "evening": "Evening"}.get(period, period)
@@ -113,6 +118,45 @@ def _render_story_embed(story: Story) -> str:
     return "\n".join(lines)
 
 
+def _render_fan_section(section: DigestSection) -> str:
+    """A followed group as Discord markdown: its heading, then one line per article."""
+    lines = [f"### {section.heading}"]
+    for item in section.items:
+        title_part = f"**[{item.title}]({item.urls[0]})**" if item.urls else f"**{item.title}**"
+        summary_str = f" — {item.summary}" if item.summary else ""
+        lines.append(f"- {title_part}{summary_str}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_row(item: DigestItem) -> list[str]:
+    """A row the page draws as a headline: its title with sources, then its summary cut short."""
+    source_str = f" ({', '.join(item.sources)})" if item.sources else ""
+    title_part = f"**[{item.title}]({item.urls[0]})**" if item.urls else f"**{item.title}**"
+    lines = [f"- {title_part}{source_str}"]
+    if item.summary:
+        summary = item.summary if len(item.summary) <= 80 else item.summary[:80] + "…"
+        lines.append(f"  {summary}")
+    return lines
+
+
+def _render_area_section(section: AreaSection) -> str:
+    """One area's cards, Following groups, clusters and rows, in the order the page draws them."""
+    cards = [
+        _render_story_embed(Story(item.title, item.summary, (item,)))
+        for feature in section.features
+        for item in feature.items
+    ]
+    rows = [line for item in section.rows for line in _render_row(item)]
+    parts = [
+        *cards,
+        *(_render_fan_section(group) for group in section.following),
+        *(_render_section_embed(cluster) for cluster in section.clusters),
+        "\n".join(rows),
+    ]
+    return "\n".join(part for part in parts if part).strip()
+
+
 def build_discord_embeds(
     content: DigestContent, digest_url: str = "", publish_failed: bool = False
 ) -> list[dict]:
@@ -120,73 +164,26 @@ def build_discord_embeds(
 
     Returns a list of embed dicts, uncapped: `build_discord_payload` holds them to
     Discord's limits.
-    Section embeds follow the page's section order (docs/design/ui-language.md §6):
-    Top story, Features, In Focus, Following, On the Radar, The Wire. The stats come last.
+    The embeds follow the page (docs/design/ui-language.md): the Top story, then one
+    embed per area section in its order, an empty section left out. The stats come last.
     """
     label = period_label(content.period)
     embeds: list[dict] = []
 
-    # --- Top story and Features: the stories the page and the mail draw ---
-    stories = _features(content)
-    for title, color, group in (
-        ("⭐ Top story", 0xF1C40F, stories[:1]),
-        ("📋 Features", 0x5865F2, stories[1:]),
-    ):
-        text = "\n".join(_render_story_embed(story) for story in group).strip()
-        if text:
-            embeds.append({"title": title, "description": text, "color": color})
+    layout = layout_by_area(content)
+    headline = _stories(layout.headline) if layout.headline else []
+    text = "\n".join(_render_story_embed(story) for story in headline).strip()
+    if text:
+        embeds.append({"title": "⭐ Top story", "description": text, "color": 0xF1C40F})
 
-    # --- News clusters ---
-    if content.news_clusters:
-        lines = []
-        for section in content.news_clusters:
-            lines.append(_render_section_embed(section))
-        text = "\n".join(lines).strip()
-        if text:
-            embeds.append({"title": "📰 News", "description": text, "color": 0xFEE75C})
-
-    # --- Fan sections (followed groups — own channel) ---
-    if content.fan_sections:
-        lines = []
-        for section in content.fan_sections:
-            lines.append(f"### {section.heading}")
-            for item in section.items:
-                title_part = (
-                    f"**[{item.title}]({item.urls[0]})**" if item.urls else f"**{item.title}**"
-                )
-                summary_str = f" — {item.summary}" if item.summary else ""
-                lines.append(f"- {title_part}{summary_str}")
-            lines.append("")
-        text = "\n".join(lines).strip()
-        if text:
-            embeds.append({"title": "📣 Following", "description": text, "color": 0xEB459E})
-
-    # --- Attention sections ---
-    if content.attention_sections:
-        lines = []
-        for section in content.attention_sections:
-            lines.append(_render_section_embed(section))
-        text = "\n".join(lines).strip()
-        if text:
-            embeds.append({"title": "👀 Worth a look", "description": text, "color": 0x9B59B6})
-
-    # --- Filtered headlines ---
-    if content.filtered_headlines:
-        lines = []
-        for item in content.filtered_headlines:
-            source_str = f" ({', '.join(item.sources)})" if item.sources else ""
-            title_part = f"**[{item.title}]({item.urls[0]})**" if item.urls else f"**{item.title}**"
-            lines.append(f"- {title_part}{source_str}")
-            if item.summary:
-                summary = item.summary if len(item.summary) <= 80 else item.summary[:80] + "…"
-                lines.append(f"  {summary}")
-        text = "\n".join(lines).strip()
+    for section in layout.sections:
+        text = _render_area_section(section)
         if text:
             embeds.append(
                 {
-                    "title": f"📌 Other headlines ({len(content.filtered_headlines)})",
+                    "title": section.label or UNNAMED_SECTION_TITLE,
                     "description": text,
-                    "color": 0x95A5A6,
+                    "color": 0x5865F2,
                 }
             )
 

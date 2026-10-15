@@ -856,26 +856,22 @@ def test_ids_the_model_rewrote_still_match_by_position(receipts) -> None:
 
 
 def test_discord_and_mail_each_receive_the_issue_once(receipts) -> None:
-    # Top story, Features, In Focus, On the Radar, The Wire, then the stats: Following
-    # has nothing in it this issue.
-    top, features, focus, radar, wire, stats = receipts.discord()["embeds"]
-    assert UNLINKED_TITLE in radar["description"]
+    # The Top story, the one Tech area section (its cards, cluster and rows), then the stats.
+    top, tech, stats = receipts.discord()["embeds"]
+    assert tech["title"] == TECH_AREA["name"]
+    assert UNLINKED_TITLE in tech["description"]
     for key in FEATURES:
-        assert f"[{TITLE[key]}]({URL[key]})" in features["description"], key
-    assert CLUSTER["heading"] in focus["description"]
-    assert f"[{TITLE['f1']}]({URL['f1']})" in wire["description"]
-    assert TITLE["n3"] not in wire["description"]
+        assert f"[{TITLE[key]}]({URL[key]})" in tech["description"], key
+    assert CLUSTER["heading"] in tech["description"]
+    assert f"[{TITLE['f1']}]({URL['f1']})" in tech["description"]
+    assert TITLE["n3"] not in tech["description"]
     assert f"({receipts.digest_url})" in stats["description"]
     # 4 sources, 11 articles received, 8 items kept: the cluster is one item.
     for count in ("**4**", "**11**", "**8**"):
         assert count in stats["description"], count
     assert stats["title"].endswith(receipts.date)
     assert stats["title"].split()[0] == "Morning"
-    # Each section keeps its own colour, as the reader knows them in the channel.
-    assert [e["color"] for e in (top, features, focus, radar, wire, stats)] == [
-        0xF1C40F, 0x5865F2, 0xFEE75C, 0x9B59B6, 0x95A5A6, 0x57F287,
-    ]  # fmt: skip
-    assert all(e["title"] for e in (top, features, focus, radar, wire, stats))
+    assert all(e["title"] for e in (top, tech, stats))
     mail = receipts.mail()
     assert (mail["to"], mail["from"]) == ("reader@e2e.test", "digest@e2e.test")
     words = mail["subject"].split()

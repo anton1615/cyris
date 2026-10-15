@@ -113,15 +113,7 @@ class TestDiscordEmbeds:
         embeds = build_discord_embeds(content)
         titles = [e["title"] for e in embeds]
 
-        assert titles == [
-            "⭐ Top story",
-            "📋 Features",
-            "📰 News",
-            "📣 Following",
-            "👀 Worth a look",
-            "📌 Other headlines (1)",
-            "Morning 2026-04-10",
-        ]
+        assert titles == ["⭐ Top story", "Digest", "Morning 2026-04-10"]
 
     def test_featured_articles_embed(self):
         """Featured articles embed has heading with link and summary."""
@@ -178,11 +170,11 @@ class TestDiscordEmbeds:
         )
 
         embeds = build_discord_embeds(content)
-        attention = next(e for e in embeds if e["title"] == "👀 Worth a look")
+        digest = next(e for e in embeds if e["title"] == "Digest")
 
-        assert attention["color"] == 0x9B59B6
-        assert "[tech](https://stratechery.com/interview)" in attention["description"]
-        assert "*Stratechery*" in attention["description"]
+        assert "[Interview Analysis](https://stratechery.com/interview)" in digest["description"]
+        assert "(Stratechery)" in digest["description"]
+        assert "NYT CEO interview" in digest["description"]
 
     def test_discord_embeds_with_news_clusters(self):
         content = DigestContent(
@@ -208,10 +200,9 @@ class TestDiscordEmbeds:
 
         embeds = build_discord_embeds(content)
 
-        news_embed = next(e for e in embeds if e["title"] == "📰 News")
-        assert news_embed["color"] == 0xFEE75C
-        assert "科技裁員潮" in news_embed["description"]
-        assert "多家科技公司宣布裁員計畫" in news_embed["description"]
+        digest = next(e for e in embeds if e["title"] == "Digest")
+        assert "科技裁員潮" in digest["description"]
+        assert "多家科技公司宣布裁員計畫" in digest["description"]
 
     def test_discord_embeds_without_news_clusters(self):
         content = DigestContent(
@@ -295,14 +286,12 @@ class TestDiscordEmbeds:
         )
 
         embeds = build_discord_embeds(content)
-        headlines = next(e for e in embeds if "Other headlines" in e["title"])
+        digest = next(e for e in embeds if e["title"] == "Digest")
 
-        assert headlines["color"] == 0x95A5A6
-        assert "(2)" in headlines["title"]
-        assert "[Short Title](https://example.com/1)" in headlines["description"]
-        assert "Brief summary" in headlines["description"]
+        assert "[Short Title](https://example.com/1)" in digest["description"]
+        assert "Brief summary" in digest["description"]
         # Long summary should be truncated
-        assert "…" in headlines["description"]
+        assert "…" in digest["description"]
 
     def test_stats_embed_always_last(self):
         """Stats embed is always the last embed."""
@@ -507,7 +496,6 @@ class TestDiscordPayloadLimits:
 
         embeds = build_discord_payload(content, digest_url=ONLINE)["embeds"]
 
-        # Other headlines, after the cut, has no room left.
         assert [e["title"] for e in embeds] == [
             full[0]["title"],
             full[1]["title"],
@@ -520,17 +508,17 @@ class TestDiscordPayloadLimits:
         assert "more in the online edition" in marker
         assert stats == full[-1]
 
-    def test_a_section_over_4096_alone_is_cut_and_the_ones_after_it_stay(self):
+    def test_a_section_over_4096_alone_is_cut_and_the_stats_stay(self):
         content = _issue([_feature(0, 100), *(_feature(n, 1200) for n in range(1, 5))], 2)
         full = build_discord_embeds(content, ONLINE)
 
-        top, features, headlines, stats = build_discord_payload(content, ONLINE)["embeds"]
+        top, section, stats = build_discord_payload(content, ONLINE)["embeds"]
 
-        *kept, marker = features["description"].split("\n")
+        *kept, marker = section["description"].split("\n")
         assert kept == full[1]["description"].split("\n")[: len(kept)]
         assert "more in the online edition" in marker
-        assert len(features["description"]) <= 4096 < len(full[1]["description"])
-        assert (top, headlines, stats) == (full[0], full[2], full[3])
+        assert len(section["description"]) <= 4096 < len(full[1]["description"])
+        assert (top, stats) == (full[0], full[-1])
 
 
 class TestSendDiscord:
@@ -871,9 +859,9 @@ class TestEverySurfaceShowsTheSameLayout:
         assert "Lead topic" in top
         assert "https://example.com/Alpha" in top and "https://example.com/Beta" in top
         assert "Alpha on its own" not in top and "Gamma" not in top
-        assert "[Gamma](https://example.com/Gamma)" in embeds["📋 Features"]
-        assert "Gamma on its own" in embeds["📋 Features"]
-        assert "Group summary" not in embeds["📋 Features"]
+        assert "[Gamma](https://example.com/Gamma)" in embeds["Digest"]
+        assert "Gamma on its own" in embeds["Digest"]
+        assert "Group summary" not in embeds["Digest"]
 
     def test_page(self, tmp_path):
         from cyris.adapters.output.html_digest import HtmlDigestWriter
@@ -901,3 +889,110 @@ class TestEverySurfaceShowsTheSameLayout:
         features = text[text.index("\nFeatures\n") :]
         assert "Lead topic" in top and "Alpha" in top and "Beta" in top
         assert "Gamma" in features and "Alpha" not in features
+
+
+def _placed(title: str, area: str | None) -> DigestItem:
+    return DigestItem(
+        title=title,
+        summary=f"{title} summary.",
+        sources=["Src"],
+        urls=[f"https://example.com/{title}"],
+        area=area,
+    )
+
+
+class TestDiscordAreaSkeleton:
+    """The embeds follow the page: the Top story, one embed per area section, the stats."""
+
+    def test_one_card_per_area_follows_the_area_order(self):
+        content = DigestContent(
+            date="2026-04-10",
+            period="morning",
+            sources_processed=1,
+            articles_received=2,
+            articles_included=2,
+            area_order=["Tech", "Health"],
+            featured_articles=[DigestSection(heading="Lead", items=[_placed("Lead", None)])],
+            thematic_summaries=[
+                DigestSection(heading="T", items=[_placed("Tech card", "Tech")]),
+                DigestSection(heading="H", items=[_placed("Health card", "Health")]),
+            ],
+        )
+
+        titles = [e["title"] for e in build_discord_embeds(content)]
+
+        assert titles == ["⭐ Top story", "Tech", "Health", "Morning 2026-04-10"]
+
+    def test_more_than_nine_sections_keep_the_first_nine_and_the_stats(self):
+        names = [f"Area {n}" for n in range(11)]
+        content = DigestContent(
+            date="2026-04-10",
+            period="morning",
+            sources_processed=1,
+            articles_received=11,
+            articles_included=11,
+            area_order=names,
+            filtered_headlines=[_placed(f"Row {n}", name) for n, name in enumerate(names)],
+        )
+
+        titles = [e["title"] for e in build_discord_payload(content)["embeds"]]
+
+        assert len(titles) == 10
+        assert titles == [*names[:9], "Morning 2026-04-10"]
+
+    def test_an_unplaced_entry_is_the_other_section_before_the_stats(self):
+        content = DigestContent(
+            date="2026-04-10",
+            period="morning",
+            sources_processed=1,
+            articles_received=2,
+            articles_included=2,
+            area_order=["Tech"],
+            filtered_headlines=[_placed("Tech row", "Tech"), _placed("Loose row", None)],
+        )
+
+        embeds = build_discord_embeds(content)
+
+        assert [e["title"] for e in embeds] == ["Tech", "Other", "Morning 2026-04-10"]
+        assert "Loose row" in embeds[1]["description"]
+
+    def test_the_top_story_is_not_repeated_inside_an_area(self):
+        content = DigestContent(
+            date="2026-04-10",
+            period="morning",
+            sources_processed=1,
+            articles_received=2,
+            articles_included=2,
+            area_order=["Tech"],
+            featured_articles=[
+                DigestSection(
+                    heading="Lead topic",
+                    summary="Group summary",
+                    items=[_article("Alpha", 90), _article("Beta", 80)],
+                )
+            ],
+            filtered_headlines=[_placed("Tech row", "Tech")],
+        )
+
+        embeds = {e["title"]: e["description"] for e in build_discord_embeds(content)}
+
+        assert "Alpha" not in embeds["Tech"] and "Beta" not in embeds["Tech"]
+        assert "Alpha" in embeds["⭐ Top story"]
+
+    def test_the_payload_carries_no_webhook_url_or_token(self, monkeypatch):
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/s3cr3t")
+        content = DigestContent(
+            date="2026-04-10",
+            period="morning",
+            sources_processed=1,
+            articles_received=1,
+            articles_included=1,
+            area_order=["Tech"],
+            filtered_headlines=[_placed("Tech row", "Tech")],
+        )
+
+        body = json.dumps(build_discord_payload(content, digest_url="https://digest.example/x"))
+
+        assert "/api/webhooks/" not in body
+        assert "s3cr3t" not in body
+        assert "https://digest.example/x" in body
