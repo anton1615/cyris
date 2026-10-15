@@ -898,6 +898,10 @@ let areasWritable = false;
 // it refills when it does.
 let areasLoaded = false;
 let syncSourceArea = null;
+// The active ids as the server last listed them, and the page's order, which moves
+// locally until Save order sends it.
+let storedOrder = [];
+let localOrder = [];
 // The (articles, issues) a proposal must reach to be marked; null until it is set.
 let birthThreshold = null;
 
@@ -944,19 +948,25 @@ const closedSummary = () => $("closed-list").closest("details").querySelector("s
 const focusAfterLeaving = (id) => (areaRow(id) ?? closedSummary()).focus();
 
 const activeAreas = () => areas.filter((area) => area.status === "active");
+const orderDirty = () => localOrder.join() !== storedOrder.join();
+const thresholdDirty = () => thresholdValues() !== storedThreshold();
+
+// The Areas nav link carries one dot for every unsaved change on the tab.
+function updateAreasDot() {
+  areasNav().classList.toggle("dirty", areasWritable && (orderDirty() || thresholdDirty()));
+}
 
 function renderAreas() {
   const active = activeAreas();
   const proposed = areas.filter((area) => area.status === "proposed");
   const closed = areas.filter((area) => area.status === "dismissed" || area.status === "merged");
-  $("area-body").innerHTML = active.length
-    ? active.map((area, i) => `
+  const ordered = localOrder.map((id) => active.find((area) => area.id === id)).filter(Boolean);
+  $("area-body").innerHTML = ordered.length
+    ? ordered.map((area, i) => `
       <tr class="src-row" data-id="${area.id}" tabindex="0">
         <td class="name">${esc(area.name)}</td>
-        <td><div class="actions-line">
-          <button class="btn secondary" type="button" data-move="-1"${i === 0 ? " disabled" : ""}>Up</button>
-          <button class="btn secondary" type="button" data-move="1"${i === active.length - 1 ? " disabled" : ""}>Down</button>
-        </div></td>
+        <td class="areas-pos-cell"><select class="select areas-pos" aria-label="Position of ${esc(area.name)}" data-pos="${area.id}">${
+          ordered.map((_, k) => `<option value="${k}"${k === i ? " selected" : ""}>${k + 1}</option>`).join("")}</select></td>
       </tr>${proposalRow(area)}`).join("")
     : areasLoaded
       ? `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" or wait for the next run to suggest some.</td></tr>`
@@ -974,6 +984,8 @@ function renderAreas() {
       ? `merged into ${esc(areaNameOf(area.merged_into))}` : "dismissed"}</li>`).join("")
     : areasLoaded ? "<li>No closed areas.</li>" : "";
   $("threshold-hint").hidden = birthThreshold !== null;
+  $("save-order").disabled = !areasWritable || !orderDirty();
+  updateAreasDot();
   if (openArea !== null) openAreaEditor(openArea);
 }
 
@@ -1161,29 +1173,7 @@ $("propose-areas").addEventListener("click", async () => {
   }
 });
 
-// Swaps the area with its neighbour and saves the whole active order.
-async function moveArea(id, step) {
-  const order = activeAreas().map((area) => area.id);
-  const at = order.indexOf(id), to = at + step;
-  if (to < 0 || to >= order.length) return;
-  [order[at], order[to]] = [order[to], order[at]];
-  show("busy", "Saving order…", "areas-notice");
-  try {
-    const data = await post("/api/areas/order", {ids: order}, "PUT");
-    await loadAreas();
-    show("ok", `Order saved. ${data.note}`, "areas-notice");
-    areaRow(id)?.focus();
-  } catch (err) {
-    show("err", err.message, "areas-notice");
-  }
-}
-
 const areaBodyClick = (e) => {
-  const move = e.target.closest("[data-move]");
-  if (move) {
-    moveArea(Number(move.closest("tr").dataset.id), Number(move.dataset.move));
-    return;
-  }
   const confirm = e.target.closest("[data-confirm]");
   if (confirm) {
     confirmProposal(Number(confirm.dataset.confirm), confirm);
@@ -1207,6 +1197,16 @@ const areaBodyKeydown = (e) => {
   $(id).addEventListener("keydown", areaBodyKeydown);
 });
 
+// A Position change moves the row on the page only; Save order sends the order.
+$("area-body").addEventListener("change", (e) => {
+  if (!e.target.dataset.pos) return;
+  const id = Number(e.target.dataset.pos);
+  localOrder = localOrder.filter((x) => x !== id);
+  localOrder.splice(Number(e.target.value), 0, id);
+  renderAreas();
+  document.querySelector(`[data-pos="${id}"]`).focus();
+});
+
 const loadAreas = () =>
   fetch("/api/areas")
     .then((r) => (r.status === 401 ? Promise.reject(SESSION_EXPIRED) : r.json()))
@@ -1215,6 +1215,12 @@ const loadAreas = () =>
       areas = d.areas;
       areasWritable = d.writable;
       areasLoaded = true;
+      const activeIds = activeAreas().map((area) => area.id);
+      const clean = !orderDirty();
+      storedOrder = activeIds;
+      localOrder = clean ? activeIds
+        : [...localOrder.filter((id) => activeIds.includes(id)),
+           ...activeIds.filter((id) => !localOrder.includes(id))];
       birthThreshold = d.birth_threshold;
       $("propose-areas").disabled = !d.writable;
       if (!d.writable) show("err", NO_AREA_TABLE, "areas-notice");
@@ -1226,6 +1232,8 @@ const loadAreas = () =>
       areas = [];
       areasWritable = false;
       areasLoaded = false;
+      localOrder = [];
+      storedOrder = [];
       syncSourceArea?.();
       $("propose-areas").disabled = true;
       show("err", e === SESSION_EXPIRED ? e.message
@@ -1234,19 +1242,19 @@ const loadAreas = () =>
       renderThreshold();
     });
 
-// The two inputs show what is stored, unless an edit is waiting to be saved.
+// The two inputs show what is stored, unless the reader has typed since the last save.
+let thresholdTyped = false;
 const thresholdValues = () => [$("th-articles").value, $("th-issues").value].join();
 const storedThreshold = () => birthThreshold
   ? [birthThreshold.articles, birthThreshold.issues].join() : ",";
 
 function thresholdEdited() {
-  const dirty = thresholdValues() !== storedThreshold();
-  $("save-threshold").disabled = !dirty || !areasWritable;
-  areasNav().classList.toggle("dirty", dirty && areasWritable);
+  $("save-threshold").disabled = !thresholdDirty() || !areasWritable;
+  updateAreasDot();
 }
 
 function renderThreshold() {
-  if (thresholdValues() === storedThreshold()) {
+  if (!thresholdTyped) {
     $("th-articles").value = birthThreshold?.articles ?? "";
     $("th-issues").value = birthThreshold?.issues ?? "";
   }
@@ -1267,6 +1275,7 @@ async function saveThreshold() {
       issues: Number($("th-issues").value),
     }, "PUT");
     birthThreshold = {articles: data.articles, issues: data.issues};
+    thresholdTyped = false;
     show("ok", "Birth threshold saved. It only marks proposals on this page.", "areas-notice");
     renderAreas();
     renderThreshold();
@@ -1278,7 +1287,11 @@ async function saveThreshold() {
 }
 
 ["th-articles", "th-issues"].forEach((id) => {
-  $(id).addEventListener("input", (e) => { unrefuseEdited(e.target); thresholdEdited(); });
+  $(id).addEventListener("input", (e) => {
+    thresholdTyped = true;
+    unrefuseEdited(e.target);
+    thresholdEdited();
+  });
 });
 $("save-threshold").addEventListener("click", saveThreshold);
 

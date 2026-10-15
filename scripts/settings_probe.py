@@ -237,6 +237,39 @@ def _seed_sources() -> dict[str, SourceConfig]:
     return {source.name: source for source in listed}
 
 
+def _seed_polish_areas() -> dict[int, Area]:
+    """Three active areas in order Tech, Food, Finance; X proposed at 12/3; Y at 4/1."""
+    active = [("Tech", 0), ("Food", 1), ("Finance", 2)]
+    proposed = [("X", 12, 3), ("Y", 4, 1)]
+    listed = [
+        Area(
+            id=index,
+            name=name,
+            position=position,
+            status="active",
+            merged_into=None,
+            proposal_articles=0,
+            proposal_issues=0,
+            last_proposed_run=None,
+        )
+        for index, (name, position) in enumerate(active, start=1)
+    ]
+    listed += [
+        Area(
+            id=index,
+            name=name,
+            position=0,
+            status="proposed",
+            merged_into=None,
+            proposal_articles=articles,
+            proposal_issues=issues,
+            last_proposed_run=None,
+        )
+        for index, (name, articles, issues) in enumerate(proposed, start=len(active) + 1)
+    ]
+    return {area.id: area for area in listed}
+
+
 def _seed_areas() -> dict[int, Area]:
     """Two active areas, a proposal at 12 articles / 3 issues, a dismissed one and a merged one."""
     listed = [
@@ -349,7 +382,8 @@ def build_fixture(kind: str) -> Fixture:
     `writable-health` is `writable` with one feed failing; `writable-topics` is
     `writable` with two tracked topics, one set for another embedding model;
     `writable-areas` is `writable` with an area table and a threshold of 10 and 3 set;
-    `writable-areas-unset` has no threshold, and `writable-areas-empty` no areas.
+    `writable-areas-unset` has no threshold, and `writable-areas-empty` no areas;
+    `writable-areas-polish` has Tech, Food and Finance active, two proposals, and 曼報 at Tech.
     Every other writable fixture tracks no topic, so `rowNames` reads sources alone.
     """
     common = {"values": PROBE_VALUES, "sources": _seed_sources()}
@@ -364,6 +398,7 @@ def build_fixture(kind: str) -> Fixture:
         "writable-areas",
         "writable-areas-empty",
         "writable-areas-unset",
+        "writable-areas-polish",
     ):
         settings = FakeSettings()
         store = FakeSourceStore(_seed_sources())
@@ -375,10 +410,16 @@ def build_fixture(kind: str) -> Fixture:
         topics = FakeTopicStore(_seed_topics() if kind == "writable-topics" else {})
         # The area table is absent from every other writable fixture, so its page is read-only.
         areas = None
+        if kind == "writable-areas-polish":
+            # The source the assignment table opens with Tech selected.
+            store.sources["曼報"] = store.sources["曼報"].model_copy(update={"area_id": 1})
         if kind.startswith("writable-areas"):
             seeded = kind != "writable-areas-empty"
-            threshold = (10, 3) if kind == "writable-areas" else None
-            areas = FakeAreaStore(_seed_areas() if seeded else {}, threshold)
+            threshold = (10, 3) if kind in ("writable-areas", "writable-areas-polish") else None
+            if kind == "writable-areas-polish":
+                areas = FakeAreaStore(_seed_polish_areas(), threshold)
+            else:
+                areas = FakeAreaStore(_seed_areas() if seeded else {}, threshold)
         # Health only where a check asks for it: its line sits in the name cell
         # that `rowNames` reads.
         health = FakeFeedHealth() if kind == "writable-health" else None
@@ -3651,24 +3692,29 @@ CHECKS += [
         receipt=_area_is(3, status="dismissed"),
     ),
     Check(
-        id="areas-move-order",
-        fixture="writable-areas",
+        id="areas-position-local",
+        fixture="writable-areas-polish",
         path="/settings#areas",
+        preload=logged(),
         act="""
             await areasListed();
-            $("[data-move='-1']", areaRowOf("Food")).click();
-            await waitFor(() => same(areaNames(), ["Food", "Tech"]), "the new order");
+            setValue($('[data-pos="3"]'), "0");
+            await waitFor(() => same(areaNames(), ["Finance", "Tech", "Food"]), "the new order");
         """,
         script="""
-            expect(same(areaNames(), ["Food", "Tech"]), `rows: ${areaNames()}`);
+            expect(same(areaNames(), ["Finance", "Tech", "Food"]), `rows: ${areaNames()}`);
+            expect(window.__calls.length === 0, `requests: ${JSON.stringify(window.__calls)}`);
+            expect(document.activeElement === $('[data-pos="3"]'), "focus left the select");
+            expect(!$("#save-order").disabled, "Save order is disabled");
+            expect(navOf("areas").classList.contains("dirty"), "Areas has no dot");
+            setValue($('[data-pos="3"]'), "2");
+            await waitFor(() => same(areaNames(), ["Tech", "Food", "Finance"]), "the old order");
+            expect($("#save-order").disabled, "Save order is enabled after moving back");
+            expect(!navOf("areas").classList.contains("dirty"), "Areas still has a dot");
         """,
         sabotage="""
-            const body = $("#area-body");
-            body.append(body.firstElementChild);
+            fetch("/api/areas/order", {method: "PUT", body: JSON.stringify({ids: [3, 1, 2]})});
         """,
-        receipt=lambda fixture: (
-            _area_is(2, position=0)(fixture) or _area_is(1, position=1)(fixture)
-        ),
     ),
     Check(
         id="areas-tap-375",
@@ -3676,8 +3722,8 @@ CHECKS += [
         path="/settings#areas",
         width=375,
         act="await areasListed();",
-        script="""expectTapTargets("#area-body .btn, #area-body tr.src-row");""",
-        sabotage=restyle("#area-body .btn { height: 30px !important; }"),
+        script="""expectTapTargets("#area-body .btn, #area-body tr.src-row, #area-body select");""",
+        sabotage=restyle("#area-body .areas-pos { height: 20px !important; }"),
     ),
 ]
 
@@ -4280,9 +4326,9 @@ const eachCategory = async (measure) => {
 };
 const areaRowOf = (name) =>
   $$("#area-body tr.src-row, #proposed-body tr.src-row")
-    .find((row) => $("td", row).textContent === name);
+    .find((row) => $("td.name", row).firstChild.textContent === name);
 const areaNames = () =>
-  $$("#area-body tr.src-row").map((row) => $("td", row).textContent);
+  $$("#area-body tr.src-row").map((row) => $("td.name", row).firstChild.textContent);
 const areasListed = () =>
   waitFor(() => $$("#area-body tr").length && !$("#area-body [data-loading]"), "the area list");
 const topicNames = () =>

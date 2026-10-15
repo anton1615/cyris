@@ -607,7 +607,7 @@ EXPECTED_IDS = {
     "areas-rename-conflict",
     "areas-dismiss-arms",
     "areas-dismiss-confirms",
-    "areas-move-order",
+    "areas-position-local",
     "areas-tap-375",
     "areas-threshold-saves",
     "areas-threshold-refused",
@@ -758,6 +758,7 @@ def test_every_probe_check_is_named_once_and_can_be_sabotaged():
         "writable-areas",
         "writable-areas-empty",
         "writable-areas-unset",
+        "writable-areas-polish",
     }
     assert set(ids) >= EXPECTED_IDS
 
