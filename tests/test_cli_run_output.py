@@ -179,3 +179,14 @@ def test_a_dry_run_without_output_still_echoes_the_html(tmp_path: Path, wire) ->
 
     assert result.exit_code == 0
     assert "<html" in result.stdout, result.output
+
+
+def test_a_preview_at_an_unscheduled_hour_writes_no_file(tmp_path: Path, wire, monkeypatch) -> None:
+    wire(_config(tmp_path))
+    monkeypatch.setattr("cyris.service_layer.schedule.due_period", lambda now, times: None)
+    out = tmp_path / "out.html"
+
+    result = _run(tmp_path, "--dry-run", "--if-due", "--output", str(out))
+
+    assert result.exit_code == 1
+    assert not out.exists()

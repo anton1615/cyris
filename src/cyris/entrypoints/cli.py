@@ -214,7 +214,11 @@ def run(
         # crontab is hourly and unconditional. Not due is a normal outcome.
         due = due_period(now_in_timezone(cfg.app.general.timezone), cfg.app.general.digest_schedule)
         if due is None:
-            typer.echo(f"Not a digest hour ({', '.join(cfg.app.general.digest_schedule)}).")
+            message = f"Not a digest hour ({', '.join(cfg.app.general.digest_schedule)})."
+            if output is not None:
+                typer.echo(message, err=True)
+                raise typer.Exit(1)
+            typer.echo(message)
             return
         period = due
 
