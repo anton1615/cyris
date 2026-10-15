@@ -393,6 +393,49 @@ class TestDigestMailText:
         sent = json.loads(route.calls.last.request.content)
         assert (self.DEGRADED in sent["text"]) is degraded
 
+    def test_every_story_of_the_top_story_sits_before_the_first_area(self):
+        headline = DigestSection(
+            heading="Top",
+            summary=None,
+            items=[
+                DigestItem(
+                    title=t, summary=f"{t} summary.", sources=["S"], urls=[f"https://h.test/{t}"]
+                )
+                for t in ("X1", "X2", "X3")
+            ],
+        )
+        feature = DigestSection(
+            heading="F",
+            items=[
+                DigestItem(
+                    title="Tech Feature",
+                    summary="F.",
+                    sources=["S"],
+                    urls=["https://h.test/feature"],
+                    area="Tech",
+                )
+            ],
+        )
+        content = _content().model_copy(
+            update={
+                "featured_articles": [headline, feature],
+                "area_order": ["Tech"],
+                "filtered_headlines": [],
+                "news_clusters": [],
+                "attention_sections": [],
+                "fan_sections": [],
+                "thematic_summaries": [],
+            }
+        )
+
+        _, text = build_digest_mail(content)
+        lines = text.splitlines()
+        top = lines.index("Top story")
+        block = lines[top : lines.index("Tech")]
+
+        for title in ("X1", "X2", "X3"):
+            assert any(line.startswith(f"- {title} ") for line in block)
+
 
 class TestAlertMail:
     @respx.mock

@@ -14,7 +14,7 @@ import httpx
 from cyris.adapters.cloudflare import API_ROOT, TIMEOUT_SECONDS
 from cyris.adapters.notify import period_label, redact_webhook_tokens
 from cyris.adapters.output.email_digest import raw_page_url, render_digest_email
-from cyris.adapters.output.html_digest import Story, _features
+from cyris.adapters.output.html_digest import Story, _stories
 from cyris.domain.area_layout import AreaSection, layout_by_area
 from cyris.domain.models import DigestContent, DigestItem
 
@@ -109,9 +109,11 @@ def build_digest_mail(
             f"{content.articles_received} articles it received and kept none."
             + (f" All articles lists each one with its verdict: {raw_url}" if raw_url else "")
         )
+    layout = layout_by_area(content)
+    stories = _stories(layout.headline) if layout.headline else []
     blocks = [
-        ("Top story", [line for story in _features(content)[:1] for line in _story_lines(story)]),
-        *((section.label, _area_entries(section)) for section in layout_by_area(content).sections),
+        ("Top story", [line for story in stories for line in _story_lines(story)]),
+        *((section.label, _area_entries(section)) for section in layout.sections),
     ]
     for label, entries in blocks:
         if entries:
@@ -125,7 +127,7 @@ def _area_entries(section: AreaSection) -> list[str]:
         *(line for story in features for line in _story_lines(story)),
         *(_line(i) for s in section.following for i in s.items),
         *(f"- {cluster.heading}" for cluster in section.clusters),
-        *(line for row in section.rows for line in _wire_lines(row)),
+        *(line for row in section.rows for line in _wire_lines(row.item)),
     ]
 
 
