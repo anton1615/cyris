@@ -45,6 +45,7 @@ from cdp_probe import (
 from css_computed import find_browser
 
 from cyris.adapters.output.html_digest import HtmlDigestWriter
+from cyris.domain.area_layout import layout_by_area
 from cyris.domain.models import DigestContent, DigestItem, DigestSection, UsageStats
 
 DATE = "2026-01-02"
@@ -250,7 +251,7 @@ def first_vote_urls() -> dict[str, list[str]]:
         ".featured-item": features[1].urls,
         ".news-cluster": digest.news_clusters[0].items[0].urls,
         ".article-item": digest.tracked_topics[0].items[0].urls,
-        ".headline-item": digest.filtered_headlines[0].urls,
+        ".headline-item": layout_by_area(digest).sections[0].rows[0].item.urls,
     }
 
 

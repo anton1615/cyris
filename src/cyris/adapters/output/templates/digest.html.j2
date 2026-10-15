@@ -486,10 +486,7 @@
                     </div>
                     {% endif %}
                 </article>
-            </section>
-            {% endif %}
-            {% if headline_rest %}
-            <section class="section">
+                {% if headline_rest %}
                 <div class="featured-grid" lang="{{ content_lang }}">
                     {% for item in headline_rest %}
                     <article class="featured-item"{% if item.passed_through %} lang=""{% endif %}>
@@ -504,6 +501,7 @@
                     </article>
                     {% endfor %}
                 </div>
+                {% endif %}
             </section>
             {% endif %}
 
@@ -583,8 +581,8 @@
                 {% endfor %}
                 {% if sec.rows %}
                 <div class="headlines-compact" lang="{{ content_lang }}">
-                    {% for item in sec.rows %}
-                    <div class="headline-item"{% if item.passed_through %} lang=""{% endif %}>
+                    {% for row in sec.rows %}{% set item = row.item %}
+                    <div class="headline-item"{% if row.untranslated %} lang=""{% endif %}>
                         <span class="idx">{{ "%03d" | format(loop.index) }}</span>
                         <div class="text">{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}{% if item.summary %}<p class="summary">{{ item.summary }}</p>{% endif %}</div>
                         {% if item.ref_urls | length > 1 %}{{ source_list(item) }}{% endif %}

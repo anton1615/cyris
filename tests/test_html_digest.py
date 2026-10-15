@@ -2458,3 +2458,137 @@ def test_the_archive_card_still_draws_its_lead_and_clusters_from_an_area_issue(t
 
     assert "Lead" in index
     assert "Health cluster" in index
+
+
+_VOID = {"meta", "link", "br", "img", "input", "hr"}
+
+
+class _Node:
+    def __init__(self, tag: str, attrs: dict[str, str | None], parent: "_Node | None") -> None:
+        self.tag = tag
+        self.attrs = attrs
+        self.parent = parent
+        self.children: list[_Node] = []
+        self.text = ""
+
+    @property
+    def classes(self) -> set[str]:
+        return set((self.attrs.get("class") or "").split())
+
+    def text_content(self) -> str:
+        return self.text + "".join(child.text_content() for child in self.children)
+
+    def find_all(self, match) -> list["_Node"]:
+        found = [self] if match(self) else []
+        for child in self.children:
+            found.extend(child.find_all(match))
+        return found
+
+
+class _Dom(HTMLParser):
+    """The page as a tree, so a test can ask what sits inside which element."""
+
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.root = _Node("root", {}, None)
+        self._open = [self.root]
+        self.feed(html)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        node = _Node(tag, dict(attrs), self._open[-1])
+        self._open[-1].children.append(node)
+        if tag not in _VOID:
+            self._open.append(node)
+
+    def handle_endtag(self, tag: str) -> None:
+        while len(self._open) > 1:
+            if self._open.pop().tag == tag:
+                return
+
+    def handle_data(self, data: str) -> None:
+        self._open[-1].text += data
+
+
+def test_a_radar_row_is_untranslated_and_a_wire_row_keeps_the_page_language(tmp_path):
+    content = _content(
+        "2026-04-15",
+        "morning",
+        output_language="en",
+        area_order=["Tech"],
+        attention_sections=[
+            DigestSection(
+                heading="Radar",
+                items=[
+                    DigestItem(
+                        title="Radar item",
+                        summary="A summary.",
+                        sources=["R"],
+                        urls=["https://r.test/1"],
+                        area="Tech",
+                    )
+                ],
+            )
+        ],
+        filtered_headlines=[
+            DigestItem(
+                title="Wire item",
+                summary="Wire summary.",
+                sources=["W"],
+                urls=["https://w.test/1"],
+                area="Tech",
+            )
+        ],
+    )
+
+    html = HtmlDigestWriter(tmp_path).render(content)
+    radar, wire = _Dom(html).root.find_all(lambda n: "headline-item" in n.classes)
+
+    assert radar.attrs["lang"] == ""
+    assert "lang" not in wire.attrs
+    assert wire.parent.attrs["lang"] == "en"
+
+
+def test_a_headline_without_a_group_summary_keeps_every_story_in_the_top_story(tmp_path):
+    headline = DigestSection(
+        heading="Top",
+        summary=None,
+        items=[
+            DigestItem(
+                title=title,
+                summary=f"{title} summary.",
+                sources=["S"],
+                urls=[f"https://h.test/{title}"],
+            )
+            for title in ("X1", "X2", "X3")
+        ],
+    )
+    feature = DigestSection(
+        heading="Feature",
+        items=[
+            DigestItem(
+                title="Tech feature",
+                summary="F.",
+                sources=["S"],
+                urls=["https://h.test/f"],
+                area="Tech",
+            )
+        ],
+    )
+    content = _content(
+        "2026-04-15",
+        "morning",
+        area_order=["Tech"],
+        featured_articles=[headline, feature],
+    )
+
+    dom = _Dom(HtmlDigestWriter(tmp_path).render(content))
+    lead = dom.root.find_all(lambda n: "lead-story" in n.classes)[0]
+    top = lead.parent
+    assert top.tag == "section"
+    cards = top.find_all(lambda n: "featured-item" in n.classes)
+    assert [card.find_all(lambda n: n.tag == "h3")[0].text_content() for card in cards] == [
+        "X2",
+        "X3",
+    ]
+    assert "X1" in lead.text_content()
+    assert top.find_all(lambda n: n.tag == "h2" and "section-tag" in n.classes) == []
