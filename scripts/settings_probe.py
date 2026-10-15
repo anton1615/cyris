@@ -499,18 +499,23 @@ window.fetch = async (input, init) => {
 """
 
 
-def rewrite_post(path: str, mutation: str) -> str:
-    """A preload that changes the body of the page's POST to `path` before it leaves."""
+def rewrite_post(path: str, mutation: str, method: str = "POST") -> str:
+    """A preload that changes the body of the page's `method` request to `path` before it leaves.
+
+    A block, so its `realFetch` does not clash with the one a `logged` preload declares.
+    """
     return f"""
+{{
 const realFetch = window.fetch;
 window.fetch = (input, init) => {{
-  if (String(input).endsWith({json.dumps(path)}) && init && init.method === "POST") {{
+  if (String(input).endsWith({json.dumps(path)}) && init && init.method === {json.dumps(method)}) {{
     const body = JSON.parse(init.body);
     {mutation}
     init = {{...init, body: JSON.stringify(body)}};
   }}
   return realFetch(input, init);
 }};
+}}
 """
 
 
@@ -693,12 +698,12 @@ SIGNED_IN = (
 )
 
 
-def answer_post(path: str, answer: str) -> str:
-    """A preload under which the page's POST to `path` gets `answer`, a JS promise, instead."""
+def answer_post(path: str, answer: str, method: str = "POST") -> str:
+    """A preload under which the page's `method` request to `path` gets `answer`, a JS promise."""
     return f"""
 const realFetch = window.fetch;
 window.fetch = (input, init) =>
-  String(input).endsWith({json.dumps(path)}) && init && init.method === "POST"
+  String(input).endsWith({json.dumps(path)}) && init && init.method === {json.dumps(method)}
     ? {answer}
     : realFetch(input, init);
 """
@@ -3715,6 +3720,69 @@ CHECKS += [
         sabotage="""
             fetch("/api/areas/order", {method: "PUT", body: JSON.stringify({ids: [3, 1, 2]})});
         """,
+    ),
+    Check(
+        id="areas-save-order",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=logged(),
+        act="""
+            await areasListed();
+            setValue($('[data-pos="3"]'), "0");
+            $("#save-order").click();
+            const saved = "Order saved. Effective next run.";
+            await waitFor(() => $("#order-result").textContent === saved, "the order notice");
+        """,
+        script="""
+            const puts = window.__calls.filter(([, method]) => method === "PUT");
+            expect(window.__calls.length === 1 && puts.length === 1,
+                   `requests: ${JSON.stringify(window.__calls)}`);
+            expect(puts[0][0].endsWith("/api/areas/order"), `url: ${puts[0][0]}`);
+            expect(same(JSON.parse(puts[0][2]).ids, [3, 1, 2]), `body: ${puts[0][2]}`);
+            expect($("#order-result").textContent === "Order saved. Effective next run.",
+                   `notice: ${$("#order-result").textContent}`);
+            expect($("#save-order").disabled, "Save order is enabled after the save");
+            expect(!navOf("areas").classList.contains("dirty"), "Areas still has a dot");
+        """,
+        sabotage_preload=rewrite_post("/api/areas/order", "body.ids = [3];", method="PUT"),
+    ),
+    Check(
+        id="areas-save-order-refused",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=answer_post(
+            "/api/areas/order",
+            """Promise.resolve(new Response(JSON.stringify({ok: false,
+              error: "ids must name every active area exactly once."}),
+              {status: 400, headers: {"Content-Type": "application/json"}}))""",
+            method="PUT",
+        ),
+        act="""
+            await areasListed();
+            setValue($('[data-pos="3"]'), "0");
+            window.__areaReads = 0;
+            const realFetch = window.fetch;
+            window.fetch = (input, init) => {
+              const plainGet = !(init && init.method);
+              if (String(input).endsWith("/api/areas") && plainGet) window.__areaReads += 1;
+              return realFetch(input, init);
+            };
+            $("#save-order").click();
+            await waitFor(() => $("#order-result").textContent, "the order notice");
+            await waitFor(() => window.__areaReads === 1 && !$("#area-body [data-loading]"),
+                          "the re-read");
+        """,
+        script="""
+            const notice = $("#order-result");
+            expect(visible(notice) && notice.classList.contains("err"),
+                   `notice: ${notice.className}`);
+            expect(notice.textContent === "ids must name every active area exactly once.",
+                   `notice: ${notice.textContent}`);
+            expect(window.__areaReads === 1, `re-reads: ${window.__areaReads}`);
+            expect(!$("#save-order").disabled, "Save order is disabled after a refusal");
+            expect(same(areaNames(), ["Finance", "Tech", "Food"]), `rows: ${areaNames()}`);
+        """,
+        sabotage="""$("#order-result").hidden = true;""",
     ),
     Check(
         id="areas-tap-375",

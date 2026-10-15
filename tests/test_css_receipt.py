@@ -608,6 +608,8 @@ EXPECTED_IDS = {
     "areas-dismiss-arms",
     "areas-dismiss-confirms",
     "areas-position-local",
+    "areas-save-order",
+    "areas-save-order-refused",
     "areas-tap-375",
     "areas-threshold-saves",
     "areas-threshold-refused",

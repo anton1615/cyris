@@ -1207,6 +1207,23 @@ $("area-body").addEventListener("change", (e) => {
   document.querySelector(`[data-pos="${id}"]`).focus();
 });
 
+// Sends the whole page order. A refusal re-reads the areas, which keeps the unsaved order.
+async function saveOrder() {
+  const button = $("save-order");
+  button.disabled = true;
+  show("busy", "Saving order…", "order-result");
+  try {
+    const data = await post("/api/areas/order", {ids: localOrder}, "PUT");
+    show("ok", `Order saved. ${data.note}`, "order-result");
+    await loadAreas();
+  } catch (err) {
+    show("err", err.message, "order-result");
+    if (err.status === 400) await loadAreas();
+    else button.disabled = false;
+  }
+}
+$("save-order").addEventListener("click", saveOrder);
+
 const loadAreas = () =>
   fetch("/api/areas")
     .then((r) => (r.status === 401 ? Promise.reject(SESSION_EXPIRED) : r.json()))
