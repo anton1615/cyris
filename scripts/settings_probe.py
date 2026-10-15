@@ -429,6 +429,12 @@ def build_fixture(kind: str) -> Fixture:
             store.sources["曼報"] = store.sources["曼報"].model_copy(update={"area_id": 1})
             # Stored to an area that was dismissed: the select keeps it as "not active".
             store.sources["<b>x</b>"] = store.sources["<b>x</b>"].model_copy(update={"area_id": 6})
+            store.sources["Cloudflare Blog"] = SourceConfig(
+                name="Cloudflare Blog",
+                type="rss",
+                tier=Tier.SUMMARIZE,
+                url="https://blog.cloudflare.com/rss/",
+            )
         if kind.startswith("writable-areas"):
             seeded = kind != "writable-areas-empty"
             threshold = (10, 3) if kind in ("writable-areas", "writable-areas-polish") else None
@@ -625,27 +631,6 @@ await settingsLoaded();
 setValue($("#type-scale"), "{value}");
 saveOf("digest").click();
 await waitFor(() => settled(noticeOf("digest")) && saveOf("digest").disabled, "the save");
-"""
-
-
-# The propose answer names X with two seeded sources; every POST the page makes is logged in
-# `window.__calls`, and the activate and assign go to the real fixture server.
-PROPOSE_ANSWER = """
-window.__calls = [];
-const realFetch = window.fetch;
-window.fetch = (input, init) => {
-  if (init && init.method && init.method !== "GET") {
-    window.__calls.push([String(input), init.method, init.body || null]);
-  }
-  if (String(input).endsWith("/api/areas/propose") && init && init.method === "POST") {
-    const answer = {ok: true, created: 0, proposals: [
-      {id: 3, name: "X", sources: ["Simon Willison", "Hacker News"]},
-    ]};
-    return Promise.resolve(new Response(JSON.stringify(answer),
-      {headers: {"Content-Type": "application/json"}}));
-  }
-  return realFetch(input, init);
-};
 """
 
 
@@ -4373,60 +4358,8 @@ CHECKS += [
     ),
 ]
 
-# Confirm turns a proposal into an active area and assigns the checked sources to it.
-PROPOSE_CLICK = """
-await areasListed();
-$("#propose-areas").click();
-await waitFor(() => $(".sources-check", $("#proposed-body")), "the checklist");
-"""
+# Proposal answers name groups of sources; a group id is an area id, and the page logs writes.
 CHECKS += [
-    Check(
-        id="areas-propose-confirm",
-        fixture="writable-areas",
-        path="/settings#areas",
-        preload=PROPOSE_ANSWER,
-        act=f"""
-            {PROPOSE_CLICK}
-            ctx.checked = $$(".sources-check input:checked", $("#proposed-body")).length;
-            $("[data-confirm='3']").click();
-            await waitFor(() => areaNames().includes("X"), "X to become active");
-        """,
-        script="""
-            expect(ctx.checked === 2, `checked before Confirm: ${ctx.checked}`);
-            const sent = window.__calls.map(([url, method, body]) => [url, method, body]);
-            expect(same(sent, [
-              ["/api/areas/propose", "POST", "{}"],
-              ["/api/areas/3/activate", "POST", null],
-              ["/api/areas/3/sources", "POST",
-               JSON.stringify({sources: ["Simon Willison", "Hacker News"]})],
-            ]), `calls: ${JSON.stringify(sent)}`);
-            expect(same(areaNames(), ["Tech", "Food", "X"]), `rows: ${areaNames()}`);
-            const notice = $("#areas-notice");
-            expect(notice.textContent === "X is active; 2 sources assigned.",
-                   `notice: ${notice.textContent}`);
-        """,
-        sabotage="""window.__calls.length = 0;""",
-        receipt=lambda fixture: _stored_in_area(fixture, 3),
-    ),
-    Check(
-        id="areas-propose-unchecked",
-        fixture="writable-areas",
-        path="/settings#areas",
-        preload=PROPOSE_ANSWER,
-        act=f"""
-            {PROPOSE_CLICK}
-            $$(".sources-check input").find((input) => input.value === "Hacker News").click();
-            $("[data-confirm='3']").click();
-            await waitFor(() => areaNames().includes("X"), "X to become active");
-        """,
-        script="""
-            const assign = window.__calls.find(([url]) => url === "/api/areas/3/sources");
-            expect(assign && assign[2] === JSON.stringify({sources: ["Simon Willison"]}),
-                   `assign: ${JSON.stringify(assign)}`);
-        """,
-        sabotage="""window.__calls.length = 0;""",
-        receipt=_stored("Simon Willison", area_id=3),
-    ),
     Check(
         id="areas-propose-refused",
         fixture="writable-areas",
@@ -4466,15 +4399,6 @@ PROPOSE_NOTHING = logged(
     }
 )
 PROPOSE_PENDING = answer_post("/api/areas/propose", "new Promise(() => {})")
-PROPOSE_FOR_ACTIVE = logged(
-    {
-        "/api/areas/propose": (
-            "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: ["
-            '{id: 1, name: "Tech", sources: ["Hacker News"]}]}), '
-            '{headers: {"Content-Type": "application/json"}}))'
-        )
-    }
-)
 CHECKS += [
     Check(
         id="areas-propose-empty",
@@ -4563,41 +4487,93 @@ window.fetch = (input, init) => {
         """,
         sabotage="""$("#propose-areas").textContent = "Propose areas from my sources";""",
     ),
+]
+
+
+def propose_answer(proposals: list[dict]) -> str:
+    """A preload that answers the page's propose with `proposals` and logs every write."""
+    body = json.dumps({"ok": True, "created": 0, "proposals": proposals}, ensure_ascii=False)
+    answer = (
+        f"Promise.resolve(new Response(JSON.stringify({body}), "
+        '{headers: {"Content-Type": "application/json"}}))'
+    )
+    return logged({"/api/areas/propose": answer})
+
+
+PROPOSE_GROUPS = propose_answer(
+    [
+        {"id": 4, "name": "X", "sources": ["Simon Willison", "Hacker News"]},
+        {"id": 5, "name": "Y", "sources": ["Hacker News", "曼報"]},
+    ]
+)
+PROPOSE_CLICK = """
+            await areasListed();
+            await waitFor(() => $('select[data-source="Cloudflare Blog"]'), "the rows");
+            $("#propose-areas").click();
+            await waitFor(() => !$("#save-assign").disabled, "the prefill");
+"""
+CHECKS += [
     Check(
-        id="areas-propose-active-suggestion",
-        fixture="writable-areas",
+        id="areas-propose-two-entries-one-area",
+        fixture="writable-areas-polish",
         path="/settings#areas",
-        preload=PROPOSE_FOR_ACTIVE,
+        preload=propose_answer(
+            [
+                {"id": 4, "name": "X", "sources": ["Hacker News"]},
+                {"id": 5, "name": "Y", "sources": ["Hacker News"]},
+            ]
+        ),
+        act=PROPOSE_CLICK,
+        script="""
+            expect($('select[data-source="Hacker News"]').value === "4",
+                   `Hacker News: ${$('select[data-source="Hacker News"]').value}`);
+        """,
+        sabotage="""$('select[data-source="Hacker News"]').value = "5";""",
+    ),
+    Check(
+        id="areas-propose-prefill",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=PROPOSE_GROUPS,
+        act=PROPOSE_CLICK,
+        script="""
+            const pick = (name) => $(`select[data-source="${name}"]`);
+            const pill = (name) => !!pick(name).parentElement.querySelector(".pill");
+            expect(pick("Simon Willison").value === "4" && pill("Simon Willison"),
+                   `Simon Willison: ${pick("Simon Willison").value}`);
+            expect(pick("Hacker News").value === "4" && pill("Hacker News"),
+                   `Hacker News: ${pick("Hacker News").value}`);
+            expect(pick("曼報").value === "1" && !pill("曼報"), `曼報: ${pick("曼報").value}`);
+            expect(pick("Cloudflare Blog").value === "" && !pill("Cloudflare Blog"),
+                   "a source in no group was pre-filled");
+            expect(!$("#save-assign").disabled, "Save assignments is disabled");
+        """,
+        sabotage="""$('select[data-source="Hacker News"]').value = "5";""",
+    ),
+    Check(
+        id="areas-propose-prefill-edited",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=PROPOSE_GROUPS,
         act="""
             await areasListed();
+            await waitFor(() => $('select[data-source="Cloudflare Blog"]'), "the rows");
             $("#propose-areas").click();
-            await waitFor(() => $(".sources-check", $("#area-body")), "the checklist");
-            $("[data-confirm='1']").click();
-            await waitFor(() => window.__calls.length === 2, "the assign");
+            await waitFor(() => !$("#save-assign").disabled, "the prefill");
+            setValue($('select[data-source="Simon Willison"]'), "3");
         """,
         script="""
-            const sent = window.__calls.map(([url, method, body]) => [url, method, body]);
-            expect(same(sent, [
-              ["/api/areas/propose", "POST", "{}"],
-              ["/api/areas/1/sources", "POST", JSON.stringify({sources: ["Hacker News"]})],
-            ]), `calls: ${JSON.stringify(sent)}`);
+            const pick = $('select[data-source="Simon Willison"]');
+            expect(pick.value === "3", `pick: ${pick.value}`);
+            expect(!pick.parentElement.querySelector(".pill"), "the Suggested pill stayed");
         """,
-        sabotage="""window.__calls.length = 0;""",
-        receipt=_stored("Hacker News", area_id=1),
+        sabotage="""
+            $('select[data-source="Simon Willison"]').insertAdjacentHTML(
+              "afterend", '<span class="pill">Suggested</span>');
+        """,
     ),
 ]
 
-# Two propose entries that resolve to one active area: the checklist holds the union of both.
-PROPOSE_TWO_ENTRIES = logged(
-    {
-        "/api/areas/propose": (
-            "Promise.resolve(new Response(JSON.stringify({ok: true, created: 0, proposals: ["
-            "{id: 1, name: 'Tech', sources: ['Hacker News']}, "
-            "{id: 1, name: 'Tech', sources: ['Simon Willison']}]}), "
-            '{headers: {"Content-Type": "application/json"}}))'
-        )
-    }
-)
 CLOSED_SUMMARY_FOCUSED = """
 const summary = $("#closed-list").closest("details").querySelector("summary");
 expect(document.activeElement === summary, `focus is on ${document.activeElement.tagName}`);
@@ -4612,22 +4588,6 @@ GONE_ACT = """
                   "the notice");
 """
 CHECKS += [
-    Check(
-        id="areas-propose-two-entries-one-area",
-        fixture="writable-areas",
-        path="/settings#areas",
-        preload=PROPOSE_TWO_ENTRIES,
-        act="""
-            await areasListed();
-            $("#propose-areas").click();
-            await waitFor(() => $(".sources-check", $("#area-body")), "the checklist");
-        """,
-        script="""
-            const names = $$("#area-body .sources-check input").map((i) => i.value);
-            expect(same(names, ["Hacker News", "Simon Willison"]), `checklist: ${names}`);
-        """,
-        sabotage="""$$("#area-body .sources-check input").forEach((i) => i.remove());""",
-    ),
     Check(
         id="areas-read-failure-no-empty-copy",
         fixture="writable-areas",

@@ -931,28 +931,21 @@ const areaNameOf = (id) => areas.find((area) => area.id === id)?.name ?? "";
 
 // Which editor is open: null for none, else the area's id.
 let openArea = null;
-// The sources each proposal named by the last propose answer, held in page memory.
-let proposalSources = {};
-// Proposals whose activate has landed, so their next Confirm sends only the assign.
-const activated = new Set();
+// The area each source is suggested, by the last propose answer: the first group naming it wins.
+let suggestions = {};
+// The sources whose select the reader has changed since the last propose answer.
+const touched = new Set();
 
-// A proposal from the last propose answer shows its sources, all checked, and its Confirm.
-const proposalRow = (area) => {
-  const sources = proposalSources[area.id];
-  return sources ? `
-      <tr class="proposal" data-proposal="${area.id}"><td colspan="2">
-        <fieldset class="sources-check">
-          <legend class="label">Sources</legend>
-          ${sources.map((name) => `<label class="choice">
-            <input type="checkbox" value="${esc(name)}" checked>
-            <span class="name">${esc(name)}</span>
-          </label>`).join("")}
-        </fieldset>
-        <div class="actions-line">
-          <button class="btn primary" type="button" data-confirm="${area.id}">Confirm</button>
-          <div class="notice" role="status" hidden></div>
-        </div>
-      </td></tr>` : "";
+// A suggestion counts while its area is active or proposed, and a source with a stored area
+// keeps it only while that area is active or proposed too.
+const suggestionFor = (name) => {
+  const id = suggestions[name];
+  const target = areas.find((area) => area.id === id);
+  if (!target || (target.status !== "active" && target.status !== "proposed")) return undefined;
+  const stored = storedArea(name);
+  const open = ["active", "proposed"];
+  if (stored !== null && !open.includes(areas.find((a) => a.id === stored)?.status)) return undefined;
+  return id;
 };
 
 const areaRow = (id) => document.querySelector(`tr.src-row[data-id="${id}"]`);
@@ -1012,7 +1005,7 @@ function renderAreas() {
         <td class="name">${esc(area.name)}</td>
         <td class="areas-pos-cell"><select class="select areas-pos" aria-label="Position of ${esc(area.name)}" data-pos="${area.id}"${areasWritable ? "" : " disabled"}>${
           ordered.map((_, k) => `<option value="${k}"${k === i ? " selected" : ""}>${k + 1}</option>`).join("")}</select></td>
-      </tr>${proposalRow(area)}`).join("")
+      </tr>`).join("")
     : areasLoaded
       ? `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" under Sources, or wait for the next run to suggest some.</td></tr>`
       : "";
@@ -1022,7 +1015,7 @@ function renderAreas() {
         <td class="name">${esc(area.name)}${picked(area.id)}</td>
         <td class="small">${area.proposal_articles} articles / ${area.proposal_issues} issues${
           meetsThreshold(area) ? ' <span class="pill">Meets birth threshold</span>' : ""}</td>
-      </tr>${proposalRow(area)}`).join("")
+      </tr>`).join("")
     : areasLoaded ? `<tr><td colspan="2" class="small">No proposals yet.</td></tr>` : "";
   $("closed-list").innerHTML = closed.length
     ? closed.map((area) => `<li>${esc(area.name)} — ${area.status === "merged"
@@ -1049,6 +1042,10 @@ function areaOptions(cur) {
     + (cur !== null && !known ? `<option value="${cur}" selected>Area ${cur} (not active)</option>` : "");
 }
 
+// Marks a suggestion the reader has not changed; a source with another area gets a note instead.
+const suggestPill = (name) => storedArea(name) === null && suggestionFor(name) !== undefined
+  && pickedArea(name) === suggestionFor(name) && !touched.has(name)
+  ? `<span class="pill">Suggested</span>` : "";
 // The table waits for both reads, so no select can show a stored area before the list it names.
 function renderAssign() {
   const ready = areasLoaded && sourcesLoaded;
@@ -1058,7 +1055,7 @@ function renderAssign() {
     : !ready ? `<tr data-loading><td colspan="2" class="small">Loading sources…</td></tr>`
     : sources.length ? sources.map((source) => `
       <tr><td class="name">${esc(source.name)}</td>
-        <td><div class="areas-cell"><select class="select" aria-label="Area for ${esc(source.name)}" data-source="${esc(source.name)}"${areasWritable ? "" : " disabled"}>${areaOptions(pickedArea(source.name))}</select></div></td></tr>`).join("")
+        <td><div class="areas-cell"><select class="select" aria-label="Area for ${esc(source.name)}" data-source="${esc(source.name)}"${areasWritable ? "" : " disabled"}>${areaOptions(pickedArea(source.name))}</select>${suggestPill(source.name)}</div></td></tr>`).join("")
     : `<tr><td class="small" colspan="2">No sources yet. <a href="#sources">Add one under Sources</a>.</td></tr>`;
   $("save-assign").disabled = !areasWritable || !changed.length;
 }
@@ -1194,34 +1191,6 @@ function toggleArea(id) {
   else document.querySelector("tr.editor #a-name").focus();
 }
 
-// Confirm activates a proposal, then assigns the sources still checked to it. A failure
-// after the activate keeps the row open, and its button retries the assign alone.
-async function confirmProposal(id, button) {
-  const row = button.closest("tr.proposal");
-  const notice = row.querySelector(".notice");
-  const name = areaNameOf(id);
-  const sources = [...row.querySelectorAll("input:checked")].map((input) => input.value);
-  button.disabled = true;
-  try {
-    if (areas.find((area) => area.id === id)?.status === "proposed" && !activated.has(id)) {
-      await post(`/api/areas/${id}/activate`, null);
-      activated.add(id);
-    }
-    const data = await post(`/api/areas/${id}/sources`, {sources});
-    activated.delete(id);
-    delete proposalSources[id];
-    await loadAreas();
-    show("ok", `${name} is active; ${data.assigned} sources assigned.`, "areas-notice");
-  } catch (err) {
-    const retry = activated.has(id);
-    show("err", retry
-      ? `${name} is active, but its sources were not assigned. ${err.message} Press Retry to try again.`
-      : err.message, notice);
-    button.textContent = retry ? "Retry" : "Confirm";
-    button.disabled = false;
-  }
-}
-
 $("propose-areas").addEventListener("click", async () => {
   const button = $("propose-areas");
   const label = button.textContent;
@@ -1230,14 +1199,20 @@ $("propose-areas").addEventListener("click", async () => {
   show("busy", "Proposing areas from your sources…", "areas-notice");
   try {
     const data = await post("/api/areas/propose", {});
-    proposalSources = {};
+    suggestions = {};
     for (const p of data.proposals) {
-      // Entries that resolve to one area (an active name and a name merged into it) share its list.
-      const known = areas.find((area) => area.id === p.id);
-      const key = known?.status === "merged" ? known.merged_into : p.id;
-      proposalSources[key] = [...new Set([...(proposalSources[key] ?? []), ...p.sources])];
+      for (const name of p.sources) suggestions[name] ??= p.id;
     }
+    touched.clear();
     await loadAreas();
+    // A source with no area takes its suggestion, which the reader can turn down by changing it.
+    for (const source of sources) {
+      const suggested = suggestionFor(source.name);
+      if (suggested !== undefined && storedArea(source.name) === null) {
+        picks[source.name] = suggested;
+      }
+    }
+    renderAreas();
     show("ok", data.created ? `${plural(data.created, "new proposal")} under Proposed.`
       : "No new proposals.", "areas-notice");
   } catch (err) {
@@ -1249,11 +1224,6 @@ $("propose-areas").addEventListener("click", async () => {
 });
 
 const areaBodyClick = (e) => {
-  const confirm = e.target.closest("[data-confirm]");
-  if (confirm) {
-    confirmProposal(Number(confirm.dataset.confirm), confirm);
-    return;
-  }
   if (e.target.closest("button, a, input, select")) return;
   const row = e.target.closest("tr.src-row");
   if (row) toggleArea(Number(row.dataset.id));
@@ -1333,6 +1303,7 @@ $("assign-body").addEventListener("change", (e) => {
   if (name === undefined) return;
   const value = e.target.value === "" ? null : Number(e.target.value);
   if (value === storedArea(name)) delete picks[name]; else picks[name] = value;
+  touched.add(name);
   $("assign-result").hidden = true;
   renderAreas();
   document.querySelector(`select[data-source="${CSS.escape(name)}"]`).focus();
