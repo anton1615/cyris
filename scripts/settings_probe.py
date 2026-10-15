@@ -4113,6 +4113,32 @@ CHECKS += [
         ),
     ),
     Check(
+        id="areas-assign-order",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=logged(),
+        act="""
+            await areasListed();
+            setValue($('[data-pos="3"]'), "0");
+            setValue($('select[data-source="Simon Willison"]'), "4");
+            $("#save-assign").click();
+            await waitFor(() => areaNames().includes("X"), "the activation");
+        """,
+        script="""
+            expect(same(areaNames(), ["Finance", "Tech", "Food", "X"]), `rows: ${areaNames()}`);
+            expect(!$("#save-order").disabled, "Save order is disabled");
+            const done = "Order saved. Effective next run.";
+            $("#save-order").click();
+            await waitFor(() => $("#order-result").textContent === done, "the order notice");
+            const puts = window.__calls.filter(([, method]) => method === "PUT");
+            expect(puts.length === 1, `requests: ${JSON.stringify(window.__calls)}`);
+            expect(same(JSON.parse(puts[0][2]).ids, [3, 1, 2, 4]), `body: ${puts[0][2]}`);
+        """,
+        sabotage_preload=rewrite_post(
+            "/api/areas/order", "body.ids = body.ids.filter((id) => id !== 4);", method="PUT"
+        ),
+    ),
+    Check(
         id="areas-assign-two-proposals",
         fixture="writable-areas-polish",
         path="/settings#areas",
