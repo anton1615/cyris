@@ -488,12 +488,10 @@
                 </article>
             </section>
             {% endif %}
-
-            {% if featured_articles %}
+            {% if headline_rest %}
             <section class="section">
-                <h2 class="section-tag"><span class="label">Features</span></h2>
                 <div class="featured-grid" lang="{{ content_lang }}">
-                    {% for item in featured_articles %}
+                    {% for item in headline_rest %}
                     <article class="featured-item"{% if item.passed_through %} lang=""{% endif %}>
                         <h3 class="item-title lg" lang="">{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h3>
                         <p class="summary">{{ item.summary }}</p>
@@ -508,6 +506,7 @@
                 </div>
             </section>
             {% endif %}
+
             {#- Whitespace-trimmed both ends, so an issue with no hit renders byte for byte
                 as it did before tracking existed. The topic name and the titles are the
                 reader's and the sources' own text, so the block's language is unknown. -#}
@@ -533,10 +532,42 @@
             </section>
             {%- endif %}
 
-            {% if news_clusters %}
+            {% for sec in sections %}
             <section class="section">
-                <h2 class="section-tag"><span class="label">In Focus</span></h2>
-                {% for cluster in news_clusters %}
+                {% if sec.label %}<h2 class="section-tag"><span class="label">{{ sec.label }}</span></h2>{% endif %}
+                {% if sec.features %}
+                <div class="featured-grid" lang="{{ content_lang }}">
+                    {% for feature in sec.features %}{% for item in feature.items %}
+                    <article class="featured-item"{% if item.passed_through %} lang=""{% endif %}>
+                        <h3 class="item-title lg" lang="">{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h3>
+                        <p class="summary">{{ item.summary }}</p>
+                        <div class="meta">
+                            {% if item.score %}<span class="pill score">{{ "%.1f" | format(item.score) }}</span>{% endif %}
+                            <span class="source-tag">{{ item.sources | join(' · ') }}</span>
+                            {% if item.link %}<a class="orig" href="{{ item.link }}" target="_blank" rel="noopener">↗</a>{% endif %}
+                            {{ promote_btn(item) }}
+                        </div>
+                    </article>
+                    {% endfor %}{% endfor %}
+                </div>
+                {% endif %}
+                {% for sec_fan in sec.following %}
+                <div class="thematic-block" lang="">
+                    <h3 class="item-title lg">{{ sec_fan.heading }}</h3>
+                    {% for item in sec_fan.items %}
+                    <article class="article-item">
+                        <h4 class="item-title">{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h4>
+                        {% if item.summary %}<p class="summary">{{ item.summary }}</p>{% endif %}
+                        <div class="meta">
+                            <span class="source-tag">{{ item.sources | join(' · ') }}</span>{% if item.ref_urls | length > 1 %} {{ source_list(item) }}{% endif %}
+                            {% if item.link %}<a class="orig" href="{{ item.link }}" target="_blank" rel="noopener">↗</a>{% endif %}
+                            {{ promote_btn(item) }}
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+                {% for cluster in sec.clusters %}
                 <div class="news-cluster" lang="{{ content_lang }}">
                     <h3 class="item-title lg">{{ cluster.heading }}</h3>
                     {% for item in cluster.items %}
@@ -550,57 +581,9 @@
                     {% endfor %}
                 </div>
                 {% endfor %}
-            </section>
-            {% endif %}
-
-            {% if fan_sections %}
-            <section class="section">
-                <h2 class="section-tag"><span class="label">Following</span></h2>
-                {% for sec in fan_sections %}
-                <div class="thematic-block" lang="">
-                    <h3 class="item-title lg">{{ sec.heading }}</h3>
-                    {% for item in sec.items %}
-                    <article class="article-item">
-                        <h4 class="item-title">{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h4>
-                        {% if item.summary %}<p class="summary">{{ item.summary }}</p>{% endif %}
-                        <div class="meta">
-                            <span class="source-tag">{{ item.sources | join(' · ') }}</span>{% if item.ref_urls | length > 1 %} {{ source_list(item) }}{% endif %}
-                            {% if item.link %}<a class="orig" href="{{ item.link }}" target="_blank" rel="noopener">↗</a>{% endif %}
-                            {{ promote_btn(item) }}
-                        </div>
-                    </article>
-                    {% endfor %}
-                </div>
-                {% endfor %}
-            </section>
-            {% endif %}
-
-            {% if attention_sections %}
-            <section class="section">
-                <h2 class="section-tag"><span class="label">On the Radar</span></h2>
-                {% for sec in attention_sections %}
-                <div class="thematic-block" lang="">
-                    <h3 class="item-title lg">{{ sec.heading }}</h3>
-                    {% if sec.description %}<p class="section-description">{{ sec.description }}</p>{% endif %}
-                    <div class="attention-list">
-                        {% for item in sec.items %}
-                        <article class="attention-item">
-                            <h4 class="item-title">{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h4>
-                            <p class="snippet">{{ item.summary }}</p>
-                            <div class="meta"><span class="source-tag">{{ item.sources | join(' · ') }}</span>{% if item.ref_urls | length > 1 %} {{ source_list(item) }}{% endif %} {{ promote_btn(item) }}</div>
-                        </article>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% endfor %}
-            </section>
-            {% endif %}
-
-            {% if filtered_headlines %}
-            <section class="section">
-                <h2 class="section-tag"><span class="label">The Wire</span></h2>
+                {% if sec.rows %}
                 <div class="headlines-compact" lang="{{ content_lang }}">
-                    {% for item in filtered_headlines %}
+                    {% for item in sec.rows %}
                     <div class="headline-item"{% if item.passed_through %} lang=""{% endif %}>
                         <span class="idx">{{ "%03d" | format(loop.index) }}</span>
                         <div class="text">{% if item.link %}<a href="{{ item.link }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}{% if item.summary %}<p class="summary">{{ item.summary }}</p>{% endif %}</div>
@@ -609,8 +592,9 @@
                     </div>
                     {% endfor %}
                 </div>
+                {% endif %}
             </section>
-            {% endif %}
+            {% endfor %}
         </main>
 
         <footer class="footer">

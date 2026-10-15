@@ -879,8 +879,8 @@ class TestEverySurfaceShowsTheSameLayout:
         from cyris.adapters.output.html_digest import HtmlDigestWriter
 
         html = HtmlDigestWriter(tmp_path).render(_laid_out_issue())
-        top = _between(html, "Top story", "Features</span>")
-        features = _between(html, "Features</span>", "</main>")
+        top = _between(html, "Top story", 'class="featured-grid"')
+        features = _between(html, 'class="featured-grid"', "</main>")
         assert top.count("Group summary") == 1 and "Alpha" in top and "Beta" in top
         assert "Gamma on its own" in features and "Group summary" not in features
 

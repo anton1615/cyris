@@ -46,7 +46,7 @@ Every change that touches a reader-facing page follows this spec: `src/cyris/ada
    the Wire's titles, which the filter writes in the output language, keep its tag. The archive
    headline card's title follows its lead, so a group's heading keeps the tag and a single article's
    title carries `lang=""`. Text passed through
-   untranslated, which is Following, On the Radar, Tracking and every raw row, carries `lang=""`, HTML's unknown
+   untranslated, which is Following, the radar rows, Tracking and every raw row, carries `lang=""`, HTML's unknown
    language: no reliable tag for it exists. So does a Top story, Features card or Wire row that holds the
    article's own title and excerpt because no usable LLM wrote it or the model wrote no summary for
    it; the step that writes that fallback marks the item, so the page and the mail tag those items by
@@ -290,17 +290,18 @@ wider fallback font before the webfont loads does not run into it. Below 720px i
 `minmax(0, 1fr)` column. The masthead is always `overflow-x: clip`, so a title widened by the fallback font
 is clipped on a phone instead of scrolling the whole page sideways.
 
-The body is seven sections in order: Top story, Features, Tracking, In Focus, Following, On the Radar and
-The Wire; a section with no content is left out entirely. Each section is one `<section class="section">`, and its name
-is printed once, only by the opening section marker (§4), with no number and no repeated large section
-title. The section marker is an `h2`; Top story is the exception and uses a `div`, because the lead card's
+The body is the Top story, then Tracking, then one section per active area in /settings order, cards above
+rows; `layout_by_area` (`domain/area_layout.py`) places every entry. With no areas, one unnamed section holds
+them all, and the trailing section of unclaimed entries is named by `UNPLACED_LABEL`. Empty sections are left
+out, and the Discord notification uses the same order, one embed per section. Each section is one `<section class="section">`, and its name is printed once, only by the opening
+section marker (§4), with no number and no repeated large section title. The section marker is an `h2`; Top story is the exception and uses a `div`, because the lead card's
 title is itself that section's `h2`.
 
 - **Heading levels follow the structure.** `h1` is the issue title; `h2` is the section markers and the
   lead title; `h3` is the titles of features, news groups and topic blocks; `h4` is the articles inside a
-  topic block and the On the Radar items. `h3` and `h4` are both the title role (§3), with the class
-  `.item-title`: `h3` adds `.lg` for 19px, and `h4` uses 18px. A row of The Wire has no heading element.
-- **A Wire row is its title and the filter's one sentence.** Each row is a number, the title link and,
+  topic block. `h3` and `h4` are both the title role (§3), with the class
+  `.item-title`: `h3` adds `.lg` for 19px, and `h4` uses 18px. A row has no heading element.
+- **A row is its title and the filter's one sentence.** Each row is a number, the title link and,
   below the title, the one-sentence summary the filter wrote for that article, in the small role (§3)
   under a title in `--text`; the source fold and the votes follow, the votes last. The summary takes
   `overflow-wrap: anywhere`: an unbroken run such as a URL breaks inside it rather than widen a row
@@ -328,13 +329,13 @@ title is itself that section's `h2`.
   nearest first, with a meta row of its source, the original link and the votes, and no summary. A
   topic with no hit is left out, and so is the whole section when none has one. Hits sit outside the
   issue's article limit and its article count, because a hit is a view of the run's candidates, not a
-  verdict on them. It follows Features because a topic is something the reader asked to see.
+  verdict on them. It follows the Top story because a topic is something the reader asked to see.
 - **Every item has a meta row below it.** `.meta` is flex, wrapping, spaced `--s-3`, and its font is the
   label role; it holds the source and the original link in that order (a feature has a score pill in
   front), and the small vote buttons are always last. Only the lead card's meta row adds `.ruled`, which
   puts a dashed line above it. A news group with more than two sources folds them into `<details>`, with
   the summary text `N sources`.
-- **Features and On the Radar share one fluid column rule:**
+- **Feature cards share one fluid column rule:**
   `repeat(auto-fit, minmax(min(100%, 320px), 1fr))`, with no column count set at any width. The Features
   grid lines are drawn on each card's right and bottom edges, so when the last row is not full, the empty
   cells are the page background, not a solid block of border colour.
@@ -457,8 +458,8 @@ by value, from `_tokens.css.j2` and the §2 light palette (`adapters/output/emai
   `@media (prefers-color-scheme: dark)` the §2 colours replace it, and the head declares
   `color-scheme: light dark` so Apple Mail does not re-tint either. Gmail ignores the media query and
   inverts the light message itself, which stays legible; an inverted dark one would not.
-- **One column.** `--measure` wide, `--s-4` gutters, no breakpoint. Sections keep the page's labels and
-  order: Top story, Features, In Focus, Following, On the Radar, The Wire. Tracking is not in the mail
+- **One column.** `--measure` wide, `--s-4` gutters, no breakpoint. Sections keep the page's order: the Top
+  story, then one section per area in /settings order, the trailing one named `UNPLACED_LABEL`. Tracking is not in the mail
   yet; the page is where it is read. The lead is the headline card's
   square panel; every other item is separated by a `--border` hairline.
 - **A Wire row keeps its sentence.** Its summary follows its title as on the page, in the small role in

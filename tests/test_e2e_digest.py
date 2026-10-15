@@ -822,9 +822,11 @@ def check_newsletter_reaches_the_digest(r: Receipts) -> None:
     card = next(c for c in r.page().find_all("article", "featured-item") if LETTER_URL in c.hrefs())
     assert card.one("h3").text() == LETTER_TITLE
     assert LETTERS.name in card.text()
-    # The unlinked letter is listed On the Radar, its reader link the letters' homepage.
-    radar = r.page().one("article", "attention-item")
-    assert (radar.one("h4").text(), radar.hrefs()) == (UNLINKED_TITLE, [LETTERS.homepage])
+    # The unlinked letter is listed as a row, its reader link the letters' homepage.
+    rows = [
+        row for row in r.page().find_all("div", "headline-item") if UNLINKED_TITLE in row.text()
+    ]
+    assert [row.hrefs() for row in rows] == [[LETTERS.homepage]]
 
 
 def test_a_queued_newsletter_reaches_the_digest_through_the_email_parser(receipts) -> None:
@@ -839,7 +841,9 @@ def check_rewritten_ids_match(r: Receipts) -> None:
     cluster = page.one("div", "news-cluster")
     assert cluster.one("h3").text() == CLUSTER["heading"]
     assert set(cluster.hrefs()) == {URL["n1"], URL["n2"]}
-    wire = page.find_all("div", "headline-item")
+    wire = [
+        row for row in page.find_all("div", "headline-item") if UNLINKED_TITLE not in row.text()
+    ]
     assert [row.hrefs() for row in wire] == [[URL["f1"]]]
     assert wire[0].one("p", "summary").text() == FILTER_PICKS["f1"]
 

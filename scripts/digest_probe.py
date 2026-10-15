@@ -63,7 +63,6 @@ ITEM_SELECTORS = (
     ".featured-item",
     ".news-cluster",
     ".article-item",
-    ".attention-item",
     ".headline-item",
 )
 
@@ -251,7 +250,6 @@ def first_vote_urls() -> dict[str, list[str]]:
         ".featured-item": features[1].urls,
         ".news-cluster": digest.news_clusters[0].items[0].urls,
         ".article-item": digest.tracked_topics[0].items[0].urls,
-        ".attention-item": digest.attention_sections[0].items[0].urls,
         ".headline-item": digest.filtered_headlines[0].urls,
     }
 
@@ -288,10 +286,6 @@ def strip_mark_sabotage(mark: str) -> str:
         $$(".promote-btn.{mark}").forEach((b) => b.classList.remove("{mark}"));
     }}).observe(document.body, {{subtree: true, attributes: true, attributeFilter: ["class"]}});"""
 
-
-# The column counts the body grids must show where the ticket names a width; every
-# other sampled width only has to agree between the two grids.
-GRID_COLUMNS = {360: 1, 880: 2, 1000: 2, 1440: 3}
 
 # Chromium keeps one profile for the whole run, and a fixture's origin is only as
 # fresh as its port, so every check starts from a browser that has voted nothing.
@@ -378,27 +372,6 @@ _CHECKS: list[Check] = [
             });""",
         )
         for width in WIDTHS
-    ),
-    # Both body grids hold five items, so each shows as many columns as fit.
-    *(
-        Check(
-            id=f"grids-agree-{width}",
-            fixture="signed-in",
-            path=PAGE,
-            width=width,
-            act="await signedIn();",
-            script=f"""
-                const featured = columns(".featured-grid");
-                const attention = columns(".attention-list");
-                const pinned = {json.dumps(GRID_COLUMNS.get(width))};
-                const agree = featured === attention && (pinned === null || featured === pinned);
-                expect(agree, `featured ${{featured}}, attention ${{attention}}, want ${{pinned}}`);
-            """,
-            sabotage="""
-                $(".attention-list").style.gridTemplateColumns = "repeat(4, minmax(0, 1fr))";
-            """,
-        )
-        for width in (360, 721, 880, 1000, 1100, 1160, 1440)
     ),
     # At the widest width, prose that spans the container still stops at --measure-wide.
     Check(

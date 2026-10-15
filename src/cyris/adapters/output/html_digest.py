@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from cyris.domain.area_layout import layout_by_area
 from cyris.domain.models import DigestContent, DigestItem, DigestSection, StoredArticle
 from cyris.service_layer.schedule import PERIOD_ORDER
 
@@ -180,9 +181,8 @@ class HtmlDigestWriter:
         """
         template = self.env.get_template("digest.html.j2")
 
-        features = _features(content)
-        lead_story = features[0] if features else None
-        featured_articles = features[1:]
+        layout = layout_by_area(content)
+        headline = _stories(layout.headline) if layout.headline else []
 
         return template.render(
             date=content.date,
@@ -192,13 +192,10 @@ class HtmlDigestWriter:
             articles_included=content.articles_included,
             triage_pending_count=content.triage_pending_count,
             usage=content.usage,
-            lead_story=lead_story,
-            featured_articles=featured_articles,
-            tracked_topics=content.tracked_topics,
-            news_clusters=content.news_clusters,
-            fan_sections=content.fan_sections,
-            attention_sections=content.attention_sections,
-            filtered_headlines=content.filtered_headlines,
+            lead_story=headline[0] if headline else None,
+            headline_rest=headline[1:],
+            tracked_topics=layout.tracking,
+            sections=layout.sections,
             raw_page=raw_page,
             degraded=degraded,
             content_lang=_html_lang(content.output_language),

@@ -407,7 +407,6 @@ DIGEST_ITEM_PROBES = {
     ".featured-item",
     ".news-cluster",
     ".article-item",
-    ".attention-item",
     ".headline-item",
     ".lead-story h2",
 }
@@ -1053,7 +1052,6 @@ EXPECTED_DIGEST_IDS = {
             "featured-item",
             "news-cluster",
             "article-item",
-            "attention-item",
             "headline-item",
         )
         for width in (360, 1440)
@@ -1061,7 +1059,6 @@ EXPECTED_DIGEST_IDS = {
     "vote-failure-says-why",
     "vote-failure-fits-360-signed-in",
     "vote-failure-fits-360-signed-in-largest",
-    *(f"grids-agree-{width}" for width in (360, 721, 880, 1000, 1100, 1160, 1440)),
     *(f"fits-{width}" for width in (360, 880, 1000, 1440)),
     *(f"head-fits-{width}" for width in (721, 740, 760, 800, 880, 1000, 1440)),
     "head-fits-largest-721",
@@ -1139,7 +1136,7 @@ def _placed_in(html: str, what: str) -> set[str]:
 
 def test_the_digest_probe_page_shows_a_vote_group_in_every_item_kind():
     items = {selector.lstrip(".") for selector in digest_probe.ITEM_SELECTORS}
-    assert len(items) == 6
+    assert len(items) == 5
     assert items <= _placed_in(digest_probe.render_page(), "vote-group")
     # KINDS names the fixtures; the page-side list of item selectors is another name.
     assert "KINDS" not in digest_probe.DIGEST_PRELUDE
@@ -1147,11 +1144,15 @@ def test_the_digest_probe_page_shows_a_vote_group_in_every_item_kind():
 
 def test_the_digest_probe_grouped_page_leads_with_two_articles_each_with_its_link():
     page = digest_probe.render_page(grouped_lead=True)
-    lead = page[page.index('class="lead-story"') : page.index("Features</span>")]
+    lead = page[
+        page.index('class="lead-story"') : page.index(
+            "</section>", page.index('class="lead-story"')
+        )
+    ]
     assert lead.count('class="article-item"') == 2
     assert lead.count('class="orig"') == 2
     single = digest_probe.render_page()
-    assert 'class="article-item"' not in single[: single.index("Features</span>")]
+    assert 'class="article-item"' not in single[: single.index('class="lead-story"')]
 
 
 def test_the_digest_probe_wire_has_a_long_summary_a_short_one_and_none():

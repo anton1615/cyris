@@ -20,6 +20,7 @@ from cyris.domain.models import (
     Tier,
     UsageStats,
 )
+from cyris.domain.selection import digest_urls
 
 pytestmark = pytest.mark.unit
 
@@ -113,12 +114,7 @@ def test_render_empty_sections(tmp_path):
 
 SECTION_LABELS = (
     "Top story",
-    "Features",
     "Tracking",
-    "In Focus",
-    "Following",
-    "On the Radar",
-    "The Wire",
 )
 
 EMPTY_SENTENCE = "this run judged the 7 articles it received and kept none"
@@ -205,8 +201,9 @@ def test_each_section_names_itself_once(label):
 
 
 def test_each_body_section_is_headed_by_its_tag_alone():
+    # The receipt has no area order, so its one area section is unnamed: only Tracking is tagged.
     digest = receipt_fixtures()[1]
-    assert digest.count('<h2 class="section-tag"><span class="label">') == 6
+    assert digest.count('<h2 class="section-tag"><span class="label">') == 1
     assert 'class="id"' not in digest
     assert "section-heading" not in digest
 
@@ -221,10 +218,10 @@ def test_the_heading_outline_skips_no_level():
     assert max(levels) <= 4
 
 
-def test_clusters_are_headed_at_h3_and_radar_items_at_h4():
+def test_clusters_are_headed_at_h3_and_radar_items_are_rows():
     digest = receipt_fixtures()[1]
     assert re.search(r'<div class="news-cluster" lang="[^"]*">\s*<h3', digest)
-    assert re.search(r'<article class="attention-item">\s*<h4', digest)
+    assert '<div class="headline-item">' in digest
     assert "<h5" not in digest
 
 
@@ -233,11 +230,17 @@ def test_every_body_title_carries_the_title_class_and_block_titles_the_large_one
     main = digest[digest.index("<main>") : digest.index("</main>")]
     h3s = re.findall(r"<h3\b[^>]*>", main)
     h4s = re.findall(r"<h4\b[^>]*>", main)
-    # Two featured cards, titled by their articles, then the tracked topic, one
-    # cluster, the Following block and the radar block.
-    assert h3s == ['<h3 class="item-title lg" lang="">'] * 2 + ['<h3 class="item-title lg">'] * 4
-    # The tracked hit, the Following article and the radar item.
-    assert h4s == ['<h4 class="item-title">'] * 3
+    # In page order: the Top story's extra card, the tracked topic, the area's featured
+    # card, the Following block and the cluster. Radar items are rows and carry no heading.
+    assert h3s == [
+        '<h3 class="item-title lg" lang="">',
+        '<h3 class="item-title lg">',
+        '<h3 class="item-title lg" lang="">',
+        '<h3 class="item-title lg">',
+        '<h3 class="item-title lg">',
+    ]
+    # The tracked hit and the Following article.
+    assert h4s == ['<h4 class="item-title">'] * 2
 
 
 def test_render_optional_score(tmp_path):
@@ -1145,14 +1148,11 @@ def test_all_sections_render(tmp_path):
     # Check all sections present
     assert "Featured Story" in html
     assert "Second Feature" in html
-    assert "In Focus" in html
     assert "Tech Industry" in html
-    # Thematic summaries render inside the Features stream, not as their own section
+    # Thematic summaries render inside the area section, not as their own section
     assert "Research Paper" in html
     assert "Thematic Summaries" not in html
-    assert "On the Radar" in html
-    assert "Worth Watching" in html
-    assert "The Wire" in html
+    assert "Attention Item" in html
     assert "Headline 1" in html
     assert "5 awaiting triage" in html
 
@@ -2127,9 +2127,7 @@ def _every_section(output_language: str) -> DigestContent:
         featured_articles=[DigestSection(heading="Features", items=[item("Lead"), item("Second")])],
         news_clusters=[DigestSection(heading="Cluster heading", items=[cluster])],
         fan_sections=[DigestSection(heading="Fan heading", items=[item("Fan")])],
-        attention_sections=[
-            DigestSection(heading="Radar heading", description="Why.", items=[item("Radar")])
-        ],
+        attention_sections=[DigestSection(heading="Radar heading", items=[item("Radar")])],
         filtered_headlines=[item("Wire")],
     )
 
@@ -2147,18 +2145,9 @@ PASSED_THROUGH_TEXT = [
     "Fan heading",
     "Fan",
     "Fan summary.",
-    "Radar heading",
-    "Why.",
-    "Radar",
-    "Radar summary.",
 ]
 DIGEST_CHROME_TEXT = [
     "Top story",
-    "Features",
-    "In Focus",
-    "Following",
-    "On the Radar",
-    "The Wire",
     "Sources",
     "Included",
     "3 sources",
@@ -2293,7 +2282,7 @@ def test_a_raw_title_has_no_reliable_language_so_it_is_unknown(tmp_path):
     assert "title.lang = next.querySelector('a').lang;" in html
 
 
-# ---- tracked topics: their own section, after Features ----------------------------
+# ---- tracked topics: their own section, after the Top story ----------------------------
 
 
 def _tracked_issue(tmp_path, topics: list[DigestSection]) -> str:
@@ -2310,11 +2299,11 @@ _HIT = DigestItem(
 )
 
 
-def test_each_tracked_topic_lists_its_hits_between_features_and_in_focus(tmp_path):
+def test_each_tracked_topic_lists_its_hits_between_the_top_story_and_the_areas(tmp_path):
     html = _tracked_issue(tmp_path, [DigestSection(heading="Anthropic", items=[_HIT])])
     texts = _main_text(html).texts
 
-    assert texts.index("Features") < texts.index("Tracking") < texts.index("In Focus")
+    assert texts.index("Top story") < texts.index("Tracking") < texts.index("Cluster heading")
     assert texts.index("Tracking") < texts.index("Anthropic") < texts.index(_HIT.title)
     assert '<a href="https://wire.test/hit" target="_blank"' in html
     assert '<span class="vote-group" data-urls=\'["https://wire.test/hit"]\'' in html
@@ -2332,3 +2321,140 @@ def test_an_issue_with_no_hit_has_no_tracking_section(tmp_path):
 
     assert "Tracking" not in _main_text(html).texts
     assert html == HtmlDigestWriter(tmp_path).render(_every_section("ja"))
+
+
+# ---- the page is one section per area, in the reader's order ---------------------
+
+
+def _area_item(title: str, area: str | None = None, url: str | None = None) -> DigestItem:
+    return DigestItem(
+        title=title,
+        summary=f"{title} summary.",
+        sources=["Src"],
+        urls=[url or f"https://x.test/{title}"],
+        area=area,
+    )
+
+
+def _areas_issue(area_order: list[str], **fields) -> DigestContent:
+    """Top story, a feature, a cluster, a following article, a radar item and two rows."""
+    content = DigestContent(
+        date="2026-04-15",
+        period="morning",
+        sources_processed=1,
+        articles_received=6,
+        articles_included=6,
+        usage=UsageStats(model=NO_LLM_MODEL),
+        area_order=area_order,
+        featured_articles=[DigestSection(heading="Lead", items=[_area_item("Lead")])],
+        thematic_summaries=[
+            DigestSection(heading="Tech feature", items=[_area_item("Tech feature", "Tech")])
+        ],
+        news_clusters=[
+            DigestSection(
+                heading="Health cluster",
+                story_id="story-health",
+                items=[
+                    DigestItem(
+                        title="Health cluster item",
+                        summary="Cluster summary.",
+                        sources=["A", "B"],
+                        urls=["https://a.test/health", "https://b.test/health"],
+                        area="Health",
+                    )
+                ],
+            )
+        ],
+        fan_sections=[
+            DigestSection(heading="Health fan", items=[_area_item("Health fan", "Health")])
+        ],
+        attention_sections=[
+            DigestSection(heading="Radar", items=[_area_item("Tech radar", "Tech")])
+        ],
+        filtered_headlines=[_area_item("Tech wire", "Tech"), _area_item("Unplaced wire")],
+    )
+    return content.model_copy(update=fields)
+
+
+_MARKER = re.compile(r'class="section-tag"><span class="label">([^<]*)</span>')
+
+
+def _markers(html: str) -> list[str]:
+    return _MARKER.findall(_body(html))
+
+
+def test_the_page_marks_the_top_story_then_each_area_then_other():
+    html = HtmlDigestWriter(Path("/unused")).render(_areas_issue(["Tech", "Health"]))
+
+    assert _markers(html) == ["Top story", "Tech", "Health", "Other"]
+    for old in ("Features", "In Focus", "On the Radar", "The Wire", "Following"):
+        assert old not in _markers(html)
+
+
+def test_tracking_sits_between_the_top_story_and_the_areas(tmp_path):
+    content = _areas_issue(["Tech", "Health"])
+    content.tracked_topics = [DigestSection(heading="Anthropic", items=[_area_item("Hit")])]
+    html = HtmlDigestWriter(tmp_path).render(content)
+
+    assert _markers(html) == ["Top story", "Tracking", "Tech", "Health", "Other"]
+
+
+def test_an_issue_without_an_area_order_is_one_unnamed_section(tmp_path):
+    html = HtmlDigestWriter(tmp_path).render(_areas_issue([]))
+
+    assert _markers(html) == ["Top story"]
+    for title in ("Tech feature", "Tech radar", "Tech wire", "Unplaced wire", "Health fan"):
+        assert title in html
+    assert html.count('class="headline-item"') == 3
+
+
+def test_a_legacy_issue_with_area_names_renders_every_entry_in_one_unnamed_section(tmp_path):
+    html = HtmlDigestWriter(tmp_path).render(
+        _areas_issue([], filtered_headlines=[_area_item("Tech wire", "Tech")])
+    )
+
+    assert _markers(html) == ["Top story"]
+    assert "Tech wire" in html
+
+
+def test_a_page_with_no_top_story_still_draws_its_areas(tmp_path):
+    content = _areas_issue(["Tech", "Health"], featured_articles=[], thematic_summaries=[])
+    html = HtmlDigestWriter(tmp_path).render(content)
+
+    assert _markers(html) == ["Tech", "Health", "Other"]
+    assert "Top story" not in _markers(html)
+
+
+def test_a_page_with_nothing_in_it_draws_no_marker_and_keeps_its_note(tmp_path):
+    html = HtmlDigestWriter(tmp_path).render(_issue(0))
+
+    assert EMPTY_SENTENCE in _body(html)
+    assert 'class="section-tag"' not in _body(html)
+
+
+def test_an_area_name_is_escaped(tmp_path):
+    name = "<script>x</script>"
+    content = _areas_issue([name], filtered_headlines=[_area_item("Named wire", name)])
+    html = HtmlDigestWriter(tmp_path).render(content)
+
+    assert "<script>x</script>" not in html
+    assert "&lt;script&gt;x&lt;/script&gt;" in html
+
+
+def test_a_cluster_keeps_its_story_id_and_every_url_is_shown_and_voted_once(tmp_path):
+    content = _areas_issue(["Tech", "Health"])
+    html = HtmlDigestWriter(tmp_path).render(content)
+
+    assert 'data-story-id="story-health"' in html
+    votes = re.findall(r"data-urls='([^']*)'", html)
+    for url in digest_urls(content):
+        assert url in html, url
+        assert sum(url in vote for vote in votes) == 1, url
+
+
+def test_the_archive_card_still_draws_its_lead_and_clusters_from_an_area_issue(tmp_path):
+    content = _areas_issue(["Tech", "Health"])
+    index = HtmlDigestWriter(tmp_path).render_index(["2026-04-15-morning.html"], content=content)
+
+    assert "Lead" in index
+    assert "Health cluster" in index
