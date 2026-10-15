@@ -208,6 +208,28 @@ def test_every_url_appears_exactly_once_and_the_input_is_unchanged() -> None:
     assert content.model_dump() == before
 
 
+def test_a_multi_item_top_story_without_a_summary_keeps_every_item_in_the_headline() -> None:
+    top = _sec("Top", _item("t1", "Tech"), _item("t2", "Health"), _item("t3", None))
+    content = _content(
+        ["Tech", "Health"],
+        featured_articles=[top, _sec("F", _item("F", "Tech"))],
+    )
+
+    layout = layout_by_area(content)
+
+    assert layout.headline is not None
+    assert [i.title for i in layout.headline.items] == ["t1", "t2", "t3"]
+    placed = []
+    for s in layout.sections:
+        assert not {"t1", "t2", "t3"} & {r.item.title for r in s.rows}
+        placed += [
+            u for sec in [*s.features, *s.following, *s.clusters] for i in sec.items for u in i.urls
+        ]
+        placed += [u for r in s.rows for u in r.item.urls]
+    placed += [u for i in layout.headline.items for u in i.urls]
+    assert Counter(placed) == Counter(digest_urls(content))
+
+
 def test_the_top_story_stands_above_the_sections_and_is_not_repeated_in_one() -> None:
     top = _sec("Top", _item("t1", "Tech"), _item("t2", "Health"))
     content = _content(
