@@ -121,7 +121,8 @@ def layout_by_area(content: DigestContent) -> AreaLayout:
 
 
 # Each named area shows at most this many lower rows. Milestone L4's measure: a
-# 15-paragraph area reads as a wall of text. Fixed until L6; L4 reuses it.
+# 15-paragraph area reads as a wall of text; 5 is the reader's pick (N7, 2026-10-15).
+# Fixed until L6; L4 reuses it.
 LOWER_ROWS_PER_AREA = 5
 
 
@@ -147,6 +148,8 @@ def cap_lower_layers(
             else:
                 removed.add(id(entry))
                 removed_articles += len(entry.items)
+    if not removed:
+        return content.model_copy()
 
     attention = []
     for section in content.attention_sections:

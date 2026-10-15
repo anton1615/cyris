@@ -485,3 +485,14 @@ def test_the_cut_of_a_named_other_area_leaves_the_unplaced_entries_whole() -> No
     kept = [i.title for i in cap_lower_layers(content).filtered_headlines]
 
     assert kept == ["n0", "n1", "n2", "n3", "n4", "u"]
+
+
+def test_a_cut_that_removes_nothing_keeps_an_empty_attention_section() -> None:
+    content = _content(
+        [],
+        attention_sections=[DigestSection(heading="A", items=[])],
+        filtered_headlines=[_item("h")],
+        articles_included=1,
+    )
+
+    assert cap_lower_layers(content) == content
