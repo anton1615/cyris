@@ -10,8 +10,10 @@ from fakes import FakeLLM, SqliteD1, settings_toml
 from test_run_digest import FakeSource, make_deps
 
 from cyris.adapters.store.areas import D1AreaStore
+from cyris.adapters.store.digests import D1DigestStore
 from cyris.domain.areas import Area
-from cyris.domain.models import Article, Tier
+from cyris.domain.models import Article, ArticleState, Tier
+from cyris.domain.selection import digest_urls
 from cyris.service_layer.run_digest import RunOptions, run_digest
 
 pytestmark = pytest.mark.integration
@@ -355,3 +357,117 @@ async def test_a_failed_stamp_saves_no_area_order_and_no_area(tmp_path: Path, mo
     assert report.status == "ok"
     assert content.area_order == []
     assert all(item.area is None for item in _walk_items(content))
+
+
+def _radar_articles(n: int, *, synthetic_last: bool = False) -> list[Article]:
+    """Low-scored summarize-tier articles: each one is a radar row, with no LLM call."""
+    return [
+        Article(
+            id=i,
+            title=f"Radar story {i}",
+            url="newsletter:abc" if synthetic_last and i == n else f"https://example.com/{i}",
+            content="A launch.",
+            published_at=datetime.now(UTC) - timedelta(hours=1),
+            source_name="TechSource",
+            source_tier=Tier.SUMMARIZE,
+            source_tags=["tech"],
+        )
+        for i in range(1, n + 1)
+    ]
+
+
+async def _run_radar(tmp_path: Path, articles: list[Article], *, areas=(), filtered=()):
+    """Run a digest over `articles` plus `filtered` (filter-tier), all scored into Tech."""
+    everything = [*articles, *filtered]
+    scores = [
+        {"id": a.id, "score": 10, "language": "en", "tags": ["s"], "area": "Tech"}
+        for a in everything
+    ]
+    replies = [json.dumps({"scores": scores})] + (
+        [json.dumps({"selected": []})] if filtered else []
+    )
+    deps, _ = make_deps(tmp_path, FakeLLM(replies), FakeSource(everything))
+    deps.cfg.areas = list(areas)
+    deps.cfg.sources = {}
+    db = SqliteD1()
+    digest_store = D1DigestStore(db)
+    summaries: list[dict] = []
+    deps = replace(
+        deps,
+        area_store=D1AreaStore(SqliteD1()) if areas else None,
+        digest_store=digest_store,
+        record_run=summaries.append,
+    )
+    report = await run_digest(deps, RunOptions())
+    (key,) = digest_store.issues()
+    content = digest_store.load(*key).content
+    states = {a.url: a.state for a in deps.store.get_by_urls([a.url for a in everything])}
+    return report, content, states, summaries
+
+
+async def test_the_accepted_set_is_the_shown_set_after_the_quota(tmp_path: Path) -> None:
+    articles = _radar_articles(7)
+
+    _, content, states, summaries = await _run_radar(tmp_path, articles, areas=[_active(1, "Tech")])
+
+    urls = [a.url for a in articles]
+    accepted = {u for u, s in states.items() if s == ArticleState.ACCEPTED}
+    assert accepted == digest_urls(content) == set(urls[:5])
+    assert {u for u, s in states.items() if s == ArticleState.PENDING} == set(urls[5:])
+    assert summaries[-1]["area_quota_cut"] == 2
+    assert content.articles_included == len(digest_urls(content)) == 5
+
+
+async def test_a_cut_article_with_a_synthetic_url_is_not_a_dead_link(tmp_path: Path) -> None:
+    articles = _radar_articles(7, synthetic_last=True)
+
+    _, content, _, _ = await _run_radar(tmp_path, articles, areas=[_active(1, "Tech")])
+
+    assert content.dead_link_count == 0
+    assert content.synthetic_url_count == 1
+
+
+async def test_a_failed_stamp_cuts_nothing_and_accepts_every_shown_article(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def fail(*args, **kwargs):
+        raise RuntimeError("stamp broke")
+
+    monkeypatch.setattr("cyris.service_layer.run_digest.stamp_areas", fail)
+    articles = _radar_articles(7)
+
+    _, content, states, summaries = await _run_radar(tmp_path, articles, areas=[_active(1, "Tech")])
+
+    assert summaries[-1]["area_quota_cut"] == 0
+    assert content.articles_included == 7
+    assert set(states.values()) == {ArticleState.ACCEPTED}
+    assert digest_urls(content) == {a.url for a in articles}
+
+
+async def test_a_json_run_accepts_and_shows_every_article(tmp_path: Path) -> None:
+    articles = _radar_articles(7)
+
+    _, content, states, _ = await _run_radar(tmp_path, articles)
+
+    assert set(states.values()) == {ArticleState.ACCEPTED}
+    assert digest_urls(content) == {a.url for a in articles}
+
+
+async def test_a_filter_rejected_article_stays_rejected_past_the_quota(tmp_path: Path) -> None:
+    articles = _radar_articles(7)
+    rejected = Article(
+        id=8,
+        title="Filtered story",
+        url="https://example.com/8",
+        content="Not news.",
+        published_at=datetime.now(UTC) - timedelta(hours=1),
+        source_name="Filtered",
+        source_tier=Tier.FILTER,
+        source_tags=["misc"],
+    )
+
+    _, _, states, _ = await _run_radar(
+        tmp_path, articles, areas=[_active(1, "Tech")], filtered=[rejected]
+    )
+
+    assert states[rejected.url] == ArticleState.REJECTED

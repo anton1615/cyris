@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from cyris.domain.area_layout import cap_lower_layers
 from cyris.domain.areas import AreaCatalog
 from cyris.domain.models import (
     NO_LLM_MODEL,
@@ -18,7 +19,7 @@ from cyris.domain.models import (
     UsageStats,
     is_degraded_run,
 )
-from cyris.domain.selection import count_dead_links
+from cyris.domain.selection import count_dead_links, digest_urls
 from cyris.domain.triage import RejectReason
 from cyris.service_layer.area_stamp import stamp_areas
 from cyris.service_layer.digest_pipeline import DigestPipeline
@@ -559,6 +560,26 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         except Exception as e:
             logger.warning("Failed to persist story membership: %s", e)
 
+    # In memory: the saved row and the page carry the stamp, and no other store does.
+    # The quota cut follows the stamp, so the counts and the accepted set below read
+    # the content the page shows.
+    summary["area_quota_cut"] = 0
+    try:
+        catalog = AreaCatalog(cfg.areas)
+        stamp = stamp_areas(
+            content,
+            placements=placements_from(area_picks, catalog),
+            sources=cfg.sources,
+            catalog=catalog,
+        )
+        content.area_order = catalog.names()
+        summary["area_stamp"] = stamp.model_dump()
+        before_cut = content.articles_included
+        content = cap_lower_layers(content)
+        summary["area_quota_cut"] = before_cut - content.articles_included
+    except Exception as e:
+        logger.error("Stamping areas failed: %s", type(e).__name__)
+
     content.synthetic_url_count = sum(1 for a in digest_articles if a.url.startswith("newsletter:"))
     if content.synthetic_url_count:
         progress(
@@ -577,20 +598,6 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     summary["degraded"] = degraded
     summary["received"] = content.articles_received
     summary["included"] = content.articles_included
-
-    # In memory: the saved row and the page carry the stamp, and no other store does.
-    try:
-        catalog = AreaCatalog(cfg.areas)
-        stamp = stamp_areas(
-            content,
-            placements=placements_from(area_picks, catalog),
-            sources=cfg.sources,
-            catalog=catalog,
-        )
-        content.area_order = catalog.names()
-        summary["area_stamp"] = stamp.model_dump()
-    except Exception as e:
-        logger.error("Stamping areas failed: %s", type(e).__name__)
 
     # Its own try/except, like every call below it: this one used to be the
     # single unguarded step between a finished digest and its publish, so a D1
@@ -612,7 +619,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         # Update article states in store — before the raw outputs, so they show
         # this run's verdicts rather than a store snapshot taken one step early.
         url_to_state: dict[str, tuple[ArticleState, str | None]] = {}
-        for url in result.accepted_urls:
+        for url in digest_urls(content):
             url_to_state[url] = (ArticleState.ACCEPTED, None)
         for url in result.rejected_urls:
             url_to_state[url] = (ArticleState.REJECTED, RejectReason.FILTERED)
