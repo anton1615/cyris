@@ -4,7 +4,7 @@ from collections import Counter
 
 import pytest
 
-from cyris.domain.area_layout import layout_by_area
+from cyris.domain.area_layout import UNPLACED_LABEL, layout_by_area
 from cyris.domain.models import DigestContent, DigestItem, DigestSection
 from cyris.domain.selection import digest_urls
 
@@ -243,3 +243,48 @@ def test_thematic_summaries_alone_give_the_first_as_the_top_story() -> None:
 
     assert layout.headline is not None and layout.headline.heading == "S1"
     assert [(s.label, _headings(s.features)) for s in layout.sections] == [("Tech", ["S2"])]
+
+
+def test_with_no_area_order_every_entry_sits_in_one_unnamed_section() -> None:
+    content = _content(
+        [],
+        filtered_headlines=[_item("a", "Tech"), _item("b", None)],
+        featured_articles=[_sec("Top", _item("top", "Tech"))],
+    )
+
+    layout = layout_by_area(content)
+
+    assert [(s.label, _rows(s)) for s in layout.sections] == [(None, ["a", "b"])]
+
+
+def test_an_entry_with_no_area_closes_the_issue_under_other() -> None:
+    content = _content(["Tech"], filtered_headlines=[_item("t", "Tech"), _item("h", None)])
+
+    layout = layout_by_area(content)
+
+    assert [(s.label, _rows(s)) for s in layout.sections] == [("Tech", ["t"]), ("Other", ["h"])]
+
+
+def test_an_entry_whose_area_was_renamed_or_dismissed_closes_under_other() -> None:
+    content = _content(["Tech"], filtered_headlines=[_item("g", "Gone")])
+
+    layout = layout_by_area(content)
+
+    assert [(s.label, _rows(s)) for s in layout.sections] == [("Other", ["g"])]
+
+
+def test_no_other_section_when_every_entry_is_placed() -> None:
+    content = _content(["Tech"], filtered_headlines=[_item("t", "Tech")])
+
+    layout = layout_by_area(content)
+
+    assert [s.label for s in layout.sections] == ["Tech"]
+
+
+def test_an_issue_with_no_entries_has_no_sections() -> None:
+    assert layout_by_area(_content(["Tech"])).sections == ()
+    assert layout_by_area(_content([])).sections == ()
+
+
+def test_the_unplaced_label_is_other() -> None:
+    assert UNPLACED_LABEL == "Other"

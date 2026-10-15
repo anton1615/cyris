@@ -11,6 +11,10 @@ from cyris.domain.areas import fold_name
 from cyris.domain.models import DigestContent, DigestItem, DigestSection
 from cyris.domain.selection import _by_score
 
+# The label of the section that closes an issue with a non-empty area order: entries no
+# active area claims (no area, or one renamed or dismissed since the issue was stamped).
+UNPLACED_LABEL = "Other"
+
 
 @dataclass(frozen=True)
 class AreaSection:
@@ -39,18 +43,26 @@ class _Bucket:
 
 def layout_by_area(content: DigestContent) -> AreaLayout:
     index = {fold_name(name): i for i, name in enumerate(content.area_order)}
+    unplaced = len(content.area_order)
 
-    def place(area: str | None) -> int | None:
-        return None if area is None else index.get(fold_name(area))
+    def place(area: str | None) -> int:
+        if not content.area_order:
+            return 0
+        if area is None or fold_name(area) not in index:
+            return unplaced
+        return index[fold_name(area)]
+
+    def label(key: int) -> str | None:
+        if not content.area_order:
+            return None
+        return content.area_order[key] if key < unplaced else UNPLACED_LABEL
 
     buckets: dict[int, _Bucket] = defaultdict(_Bucket)
 
     def place_section(section: DigestSection, into: str) -> None:
         if not section.items:
             return
-        key = place(section.items[0].area)
-        if key is not None:
-            getattr(buckets[key], into).append(section)
+        getattr(buckets[place(section.items[0].area)], into).append(section)
 
     pool = [*content.featured_articles, *content.thematic_summaries]
     headline = pool[0] if pool else None
@@ -62,20 +74,16 @@ def layout_by_area(content: DigestContent) -> AreaLayout:
         place_section(section, "clusters")
     for section in content.attention_sections:
         for item in section.items:
-            key = place(item.area)
-            if key is not None:
-                buckets[key].radar.append(item)
+            buckets[place(item.area)].radar.append(item)
     for item in content.filtered_headlines:
-        key = place(item.area)
-        if key is not None:
-            buckets[key].headlines.append(item)
+        buckets[place(item.area)].headlines.append(item)
 
     sections = []
     for key in sorted(buckets):
         bucket = buckets[key]
         sections.append(
             AreaSection(
-                label=content.area_order[key],
+                label=label(key),
                 features=tuple(bucket.features),
                 following=tuple(bucket.following),
                 clusters=tuple(bucket.clusters),
