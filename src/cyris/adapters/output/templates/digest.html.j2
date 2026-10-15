@@ -532,7 +532,8 @@
 
             {% for sec in sections %}
             <section class="section">
-                {% if sec.label %}<h2 class="section-tag"><span class="label">{{ sec.label }}</span></h2>{% endif %}
+                {% set label = sec|section_label %}
+                {% if label %}<h2 class="section-tag"><span class="label">{{ label }}</span></h2>{% endif %}
                 {% if sec.features %}
                 <div class="featured-grid" lang="{{ content_lang }}">
                     {% for feature in sec.features %}{% for item in feature.items %}

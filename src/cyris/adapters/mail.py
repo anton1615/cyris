@@ -14,7 +14,7 @@ import httpx
 from cyris.adapters.cloudflare import API_ROOT, TIMEOUT_SECONDS
 from cyris.adapters.notify import period_label, redact_webhook_tokens
 from cyris.adapters.output.email_digest import raw_page_url, render_digest_email
-from cyris.adapters.output.html_digest import Story, _stories
+from cyris.adapters.output.html_digest import Story, _stories, section_label
 from cyris.domain.area_layout import AreaSection, layout_by_area
 from cyris.domain.models import DigestContent, DigestItem
 
@@ -113,7 +113,7 @@ def build_digest_mail(
     stories = _stories(layout.headline) if layout.headline else []
     blocks = [
         ("Top story", [line for story in stories for line in _story_lines(story)]),
-        *((section.label, _area_entries(section)) for section in layout.sections),
+        *((section_label(section), _area_entries(section)) for section in layout.sections),
     ]
     for label, entries in blocks:
         if entries:

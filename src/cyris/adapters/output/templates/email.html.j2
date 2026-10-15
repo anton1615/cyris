@@ -125,13 +125,21 @@
 
         {% for area in layout.sections %}
         <section class="section">
-            {% if area.label is not none %}<h2 class="section-tag"><span class="rule"></span>{{ area.label }}</h2>{% endif %}
+            {% set label = area|section_label %}
+            {% if label is not none %}<h2 class="section-tag"><span class="rule"></span>{{ label }}</h2>{% endif %}
             {% for section in area.features %}{% for item in section.items %}
             <article class="item" lang="{{ '' if item.passed_through else content_lang }}">
                 {% if item.score %}<span class="pill">{{ "%.1f" | format(item.score) }}</span>{% endif %}
                 <h3 class="title" lang="">{{ title_link(item) }}</h3>
                 <p class="summary">{{ item.summary }}</p>
                 {{ meta(item) }}
+            </article>
+            {% endfor %}{% endfor %}
+            {% for section in area.following %}{% for item in section.items %}
+            <article class="item" lang="">
+                <h3 class="title">{{ title_link(item) }}</h3>
+                {% if item.summary %}<p class="summary">{{ item.summary }}</p>{% endif %}
+                <p class="meta">{{ section.heading }} · {{ item.sources | join(' · ') }}</p>
             </article>
             {% endfor %}{% endfor %}
             {% for cluster in area.clusters %}
@@ -143,13 +151,6 @@
                 {% endfor %}
             </article>
             {% endfor %}
-            {% for section in area.following %}{% for item in section.items %}
-            <article class="item" lang="">
-                <h3 class="title">{{ title_link(item) }}</h3>
-                {% if item.summary %}<p class="summary">{{ item.summary }}</p>{% endif %}
-                <p class="meta">{{ section.heading }} · {{ item.sources | join(' · ') }}</p>
-            </article>
-            {% endfor %}{% endfor %}
             {% if area.rows %}
             <ol class="wire" lang="{{ content_lang }}">
                 {% for row in area.rows %}{% set item = row.item %}

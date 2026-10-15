@@ -160,6 +160,30 @@ class TestSections:
         assert html.index(">Tech Feature<") < html.index(">Tech Wire<") < html.index(">Health Fan<")
         assert html.index(">Health Fan<") < html.index(">Gone Radar<")
 
+    def test_an_area_lists_its_cards_then_follows_then_clusters_then_rows(self):
+        def tech(title: str) -> DigestItem:
+            url = f"https://{title.lower().replace(' ', '-')}.test/"
+            return _item(title, url, "Src").model_copy(update={"area": "Tech"})
+
+        content = _placed(["Tech"])
+        content.fan_sections = [DigestSection(heading="Fans", items=[tech("Tech Fan")])]
+        content.news_clusters = [
+            DigestSection(
+                heading="Cluster Heading", items=[tech("Cluster One"), tech("Cluster Two")]
+            )
+        ]
+        content.filtered_headlines = [tech("Tech Wire")]
+
+        html = render_digest_email(content, DIGEST_URL)
+
+        positions = [
+            html.index(">Tech Feature<"),
+            html.index(">Tech Fan<"),
+            html.index(">Cluster Heading<"),
+            html.index(">Tech Wire<"),
+        ]
+        assert positions == sorted(positions)
+
     def test_an_issue_with_no_area_order_has_no_area_marker_and_every_entry(self):
         html = render_digest_email(_placed([], tech=None), DIGEST_URL)
 

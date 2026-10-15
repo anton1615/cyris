@@ -5,7 +5,7 @@ import re
 
 import httpx
 
-from cyris.adapters.output.html_digest import Story, _stories
+from cyris.adapters.output.html_digest import Story, _stories, section_label
 from cyris.domain.area_layout import AreaSection, layout_by_area
 from cyris.domain.models import NO_LLM_MODEL, DigestContent, DigestItem, DigestSection
 
@@ -181,7 +181,7 @@ def build_discord_embeds(
         if text:
             embeds.append(
                 {
-                    "title": section.label or UNNAMED_SECTION_TITLE,
+                    "title": section_label(section) or UNNAMED_SECTION_TITLE,
                     "description": text,
                     "color": 0x5865F2,
                 }

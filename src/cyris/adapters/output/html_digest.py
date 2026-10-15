@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from cyris.domain.area_layout import layout_by_area
+from cyris.domain.area_layout import AreaSection, layout_by_area
 from cyris.domain.models import DigestContent, DigestItem, DigestSection, StoredArticle
 from cyris.service_layer.schedule import PERIOD_ORDER
 
@@ -17,6 +17,16 @@ from cyris.service_layer.schedule import PERIOD_ORDER
 PROJECT_URL = "https://cyris.musingfox.com/"
 # A copy of website/assets/favicon.svg, because the image ships `src/` only.
 FAVICON = Path(__file__).parent / "favicon.svg"
+
+
+# The marker the surfaces draw above a section no active area claims. The layout gives only
+# the role; the words are the reader's, so they live here beside the other spec labels.
+UNPLACED_SECTION_LABEL = "Other"
+
+
+def section_label(section: AreaSection) -> str | None:
+    """The marker above an area section: its area's name, "Other", or none for the unnamed one."""
+    return UNPLACED_SECTION_LABEL if section.role == "unplaced" else section.label
 
 
 def _hostname(url: str) -> str:
@@ -156,6 +166,7 @@ class HtmlDigestWriter:
         )
         self.env.filters["hostname"] = _hostname
         self.env.filters["plural"] = _plural
+        self.env.filters["section_label"] = section_label
         self.env.globals["project_url"] = PROJECT_URL
 
     @staticmethod
