@@ -753,8 +753,8 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         # window overlaps the previous run's, so rows judged there are left off —
         # they were on that run's raw page. Nothing in the window escapes every raw
         # page: a row stays pending (and listed) until some run judges it.
-        # ponytail: a run whose publish failed has judged rows but no live raw page.
-        # The next run republishes the digest from D1 `digests`, but not this page.
+        # A run whose publish failed has judged rows but no live raw page; the next
+        # run republishes both, the raw page from `digest_inputs` at live state.
         # None of this may raise: the Discord notification still has to go out.
         collected = []
         if rerun:

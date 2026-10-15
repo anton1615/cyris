@@ -278,6 +278,9 @@ the writes downstream does not undo an upstream delete — a source that takes h
 differently, which is why the decision lives at the composition root. The silent dry run of
 `run_digest` keeps the same rule for the stores: `cyris regenerate --output` previews a stored
 period through the file only, and a rerun that publishes is the only form that writes a digest.
+A rerun is the one case `run_digest` enforces itself: it never pulls the vote queue, whatever it
+was built with, because it replays a period that already ran and must not consume clicks meant for
+the next one.
 
 | | RSS | Email |
 |---|---|---|
@@ -400,8 +403,10 @@ rerun rebuilds from. `cyris regenerate` has two forms over a stored issue: a re-
 no LLM call and no write, and a rerun over the recorded URLs, which publishes only when that issue is
 the newest by date and period (an older one returns `not_latest` before any LLM call). A rerun takes
 each article as its state is now, so the input set is fixed but the verdicts are not, and an issue
-recorded before `digest_inputs` has no record to rerun from. A publish counts as done only when the
-live page serves the bytes just rendered, compared byte for byte.
+recorded before `digest_inputs` has no record to rerun from. A rerun's publish counts as done only
+when the live page serves the bytes just rendered, compared byte for byte; a scheduled run keeps
+`_page_is_live`. A publishing rerun skips the republish check below and sends no Discord message
+or mail.
 
 `cyris run --dry-run --output PATH` is the silent preview of a period: it renders the page to PATH,
 prints `Wrote PATH`, and sends nothing, writes no `usage_log` row and changes no table but
@@ -520,7 +525,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Propose title lookback | A | `TITLE_LOOKBACK_DAYS` = 30 in `adapters/store/source_titles.py` | unchanged — the window `feed_health.py`'s `QUIET_DAYS` uses: a source silent that long is quiet, not described. `tests/test_area_source_titles.py` holds the value to this row |
 | RSS Worker read ceiling | A | `WORKER_ROW_CEILING` in `adapters/fetch/rss_worker_source.py`, mirroring the clamp on `GET /articles` in `workers/rss/src/index.js` | done 2026-10-02 — a memory bound, not the run cap: every row carries full feed content. It is sent by value because the Worker's default without one is lower; `tests/test_rss_worker_source.py` holds the two equal |
 | Feed health thresholds: unhealthy at 3 consecutive failed polls, or no stored article for 30 days (never included) | A | `UNHEALTHY_FAILURE_STREAK`, `QUIET_DAYS` in `adapters/store/feed_health.py` | done 2026-10-08 — one Substack 429 is routine, three hourly polls failing in a row is not; feeds publish weekly or monthly, so a shorter silence is noise. `cyris doctor` and `/settings` both judge through `FeedHealth.problems`, so neither copies a number |
-| Pages publish timing: the 180s budget and 120s run reserve, the stage and alias poll counts and intervals, the 20s per-request timeout and a deploy attempt's worst case | A | `adapters/output/publish.py`, `adapters/output/pages_deploy.py` | unchanged — reasons in the comments beside each constant; `tests/test_publish.py` pins the budget against `RUN_SLEEP_AFTER` in `workers/app/src/index.js`, and what the budget does not cover is in *Publishing* (§6) |
+| Pages publish timing: the 180s budget and 120s run reserve, the 120s verify budget of a publishing rerun, the stage and alias poll counts and intervals, the 20s per-request timeout and a deploy attempt's worst case | A | `adapters/output/publish.py`, `adapters/output/pages_deploy.py` | unchanged — reasons in the comments beside each constant; `tests/test_publish.py` pins the budget against `RUN_SLEEP_AFTER` in `workers/app/src/index.js`, and what the budget does not cover is in *Publishing* (§6) |
 | `/settings` verification time limits: the LLM probe's 30s, the embedding probe's 15s, the Discord probe's 10s | A | `LLM_PROBE_TIMEOUT_SECONDS`, `EMBEDDING_PROBE_TIMEOUT_SECONDS`, `DISCORD_PROBE_TIMEOUT_SECONDS` in `diagnostics/doctor.py`; `triage_server.py` also bounds the area Suggest and Propose model calls with `LLM_PROBE_TIMEOUT_SECONDS` | done 2026-10-02 — a Save is a person waiting, so each bound sits far below the minutes a run allows the same client; reasons in the comments beside the first two. The area calls fit the same 30s: Suggest is one short reply, and Propose is one reply for all sources, the longer of the two. Both fail soft (a Suggest never blocks a save, a Propose writes nothing on timeout), so a slow reply shows the reader a notice and changes no row. A probe past its bound fails with what to do next, and nothing is stored |
 | Vote request timeout on the digest and raw pages | A | `VOTE_TIMEOUT_MS` in `adapters/output/templates/_promote_script.html.j2` | done 2026-10-02 — reason in the comment beside it; a vote that outlasts it is shown to the reader as not landed |
 | Per-provider default model, per-model embedding threshold | A | `src/cyris/provider_defaults.json` | unchanged — values in the file, reasons in *Provider defaults* below |
