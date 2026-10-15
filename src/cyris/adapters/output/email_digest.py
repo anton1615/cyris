@@ -20,10 +20,11 @@ from cyris.adapters.notify import period_label
 from cyris.adapters.output.html_digest import (
     PROJECT_URL,
     HtmlDigestWriter,
-    _features,
     _hostname,
     _html_lang,
+    _stories,
 )
+from cyris.domain.area_layout import layout_by_area
 from cyris.domain.models import DigestContent
 
 TEMPLATES = Path(__file__).parent / "templates"
@@ -70,7 +71,8 @@ def render_digest_email(
         site = f"{parts.scheme}://{parts.netloc}"
     raw_url = raw_page_url(content, digest_url, raw_page)
 
-    features = _features(content)
+    layout = layout_by_area(content)
+    stories = _stories(layout.headline) if layout.headline else []
     # Our own tokens, not feed text: escaping would turn a font stack's quotes into
     # entities, which a <style> block does not decode.
     dark = {name: Markup(value) for name, value in tokens().items()}
@@ -78,8 +80,9 @@ def render_digest_email(
         content=content,
         content_lang=_html_lang(content.output_language),
         period_label=period_label(content.period),
-        lead_story=features[0] if features else None,
-        featured_articles=features[1:],
+        lead_story=stories[0] if stories else None,
+        featured_articles=stories[1:],
+        layout=layout,
         digest_url=digest_url,
         raw_url=raw_url,
         site=site,

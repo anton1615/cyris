@@ -876,8 +876,8 @@ class TestEverySurfaceShowsTheSameLayout:
         from cyris.adapters.output.email_digest import render_digest_email
 
         html = render_digest_email(_laid_out_issue(), "https://digest.example/2026-04-10")
-        top = _between(html, "Top story</h2>", "Features</h2>")
-        features = _between(html, "Features</h2>", "</body>")
+        top = _between(html, "Top story</h2>", "Gamma</a>")
+        features = _between(html, "Gamma</a>", "</body>")
         assert top.count("Group summary") == 1 and "Alpha" in top and "Beta" in top
         assert "Gamma on its own" in features and "Group summary" not in features
 

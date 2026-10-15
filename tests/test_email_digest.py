@@ -125,29 +125,79 @@ class TestWhatAMailClientKeeps:
         assert "&lt;script&gt;" in html
 
 
+MARKER = re.compile(r'<h2 class="section-tag"><span class="rule"></span>([^<]*)</h2>')
+
+
+def _placed(area_order: list[str], tech: str | None = "Tech") -> DigestContent:
+    def item(title: str, area: str | None) -> DigestItem:
+        url = f"https://{title.lower().replace(' ', '-')}.test/"
+        return _item(title, url, "Src").model_copy(update={"area": area})
+
+    return DigestContent(
+        date="2026-09-27",
+        period="morning",
+        sources_processed=3,
+        articles_received=9,
+        articles_included=4,
+        usage=UsageStats(input_tokens=1, output_tokens=1, api_calls=1, model="m"),
+        area_order=area_order,
+        featured_articles=[
+            DigestSection(heading="Lead", items=[item("Lead Story", None)]),
+            DigestSection(heading="Feature", items=[item("Tech Feature", tech)]),
+        ],
+        fan_sections=[DigestSection(heading="Fans", items=[item("Health Fan", "Health")])],
+        attention_sections=[DigestSection(heading="Watch", items=[item("Gone Radar", "Retired")])],
+        filtered_headlines=[item("Tech Wire", tech)],
+    )
+
+
 class TestSections:
-    def test_every_section_the_page_has_is_named_in_its_order(self):
-        html = render_digest_email(_full(), DIGEST_URL)
+    def test_each_area_is_a_marker_in_its_stored_order_after_the_top_story(self):
+        html = render_digest_email(_placed(["Tech", "Health"]), DIGEST_URL)
 
-        labels = ["Top story", "Features", "In Focus", "Following", "On the Radar", "The Wire"]
-        positions = [html.index(f">{label}<") for label in labels]
-        assert positions == sorted(positions)
+        assert MARKER.findall(html) == ["Top story", "Tech", "Health", "Other"]
+        assert html.index(">Lead Story<") < html.index(">Tech Feature<")
+        assert html.index(">Tech Feature<") < html.index(">Tech Wire<") < html.index(">Health Fan<")
+        assert html.index(">Health Fan<") < html.index(">Gone Radar<")
 
-    def test_an_empty_section_is_left_out(self):
-        content = DigestContent(
-            date="2026-09-27",
-            period="evening",
-            sources_processed=1,
-            articles_received=2,
-            articles_included=1,
-            filtered_headlines=[_item("Only", "https://wire.test/only", "Wire")],
+    def test_an_issue_with_no_area_order_has_no_area_marker_and_every_entry(self):
+        html = render_digest_email(_placed([], tech=None), DIGEST_URL)
+
+        assert MARKER.findall(html) == ["Top story"]
+        for title in ["Tech Feature", "Tech Wire", "Health Fan", "Gone Radar"]:
+            assert f">{title}<" in html
+
+    def test_an_unplaced_entry_closes_the_issue_under_other(self):
+        html = render_digest_email(_placed(["Tech", "Health"]), DIGEST_URL)
+
+        assert MARKER.findall(html)[-1] == "Other"
+
+    def test_an_area_name_is_escaped(self):
+        html = render_digest_email(_placed(["<b>Tech</b>"], tech="<b>Tech</b>"), DIGEST_URL)
+
+        assert "<b>Tech</b>" not in html
+        assert "&lt;b&gt;Tech&lt;/b&gt;" in html
+
+    def test_an_empty_issue_has_no_section_marker(self):
+        html = render_digest_email(_issue(), DIGEST_URL)
+
+        assert MARKER.findall(html) == []
+        assert EMPTY_SENTENCE in html
+
+    def test_tracked_topics_are_not_in_the_mail(self):
+        content = _placed(["Tech"]).model_copy(
+            update={
+                "tracked_topics": [
+                    DigestSection(
+                        heading="Watched Topic", items=[_item("Topic Item", "https://t.test/", "T")]
+                    )
+                ]
+            }
         )
-
         html = render_digest_email(content, DIGEST_URL)
 
-        assert ">The Wire<" in html
-        for label in ["Top story", "Features", "In Focus", "Following", "On the Radar"]:
-            assert f">{label}<" not in html
+        assert "Tracking" not in html
+        assert "Watched Topic" not in html
 
     def test_the_lead_carries_its_score_and_the_article_links(self):
         html = render_digest_email(_full(), DIGEST_URL)
@@ -183,7 +233,7 @@ class TestSections:
 
         title = '<a href="https://wire.test/1">Wire One</a>'
         assert f'{title}<p class="summary">Wire One summary.</p></li>' in wire
-        assert '<li><span class="idx">002</span>No Link</li>' in wire
+        assert '<li><span class="idx">003</span>No Link</li>' in wire
 
 
 class TestLanguage:
@@ -194,9 +244,9 @@ class TestLanguage:
         "Wire One",
         "Wire One summary.",
     ]
-    PASSED_THROUGH = ["Fan Item", "Watching — Why these.", "Radar Item", "Radar Item summary."]
+    PASSED_THROUGH = ["Fan Item"]
     TITLES = ["Lead Story", "Second Feature"]
-    CHROME = ["Top story", "Features", "In Focus", "Following", "On the Radar", "The Wire"]
+    CHROME = ["Top story"]
 
     def test_the_chrome_is_english_and_the_content_carries_the_output_language(self):
         content = _full().model_copy(update={"output_language": "ja"})
