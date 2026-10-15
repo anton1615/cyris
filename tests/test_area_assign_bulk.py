@@ -18,10 +18,10 @@ async def _client(server: TriageServer) -> TestClient:
     return client
 
 
-def _area(db: SqliteD1, name: str, status: str, position: int = 0) -> int:
+def _area(db: SqliteD1, name: str, status: str, position: int = 0, articles: int = 0) -> int:
     db.query(
-        "INSERT INTO areas (name, position, status) VALUES (?, ?, ?)",
-        [name, position, status],
+        "INSERT INTO areas (name, position, status, proposal_articles) VALUES (?, ?, ?, ?)",
+        [name, position, status, articles],
     )
     return db.query("SELECT max(id) AS id FROM areas").rows[0]["id"]
 
@@ -165,3 +165,58 @@ async def test_an_empty_assignment_writes_nothing(db: SqliteD1) -> None:
     assert status == 200
     assert data == {"ok": True, "assigned": 0, "activated": []}
     assert _area_ids(db, "A") is None
+
+
+async def test_proposals_named_in_a_request_activate_in_list_order_after_the_actives(
+    db: SqliteD1,
+) -> None:
+    _area(db, "Second", "active", 1)
+    _area(db, "Third", "active", 2)
+    prop_p = _area(db, "P", "proposed", articles=9)
+    prop_q = _area(db, "Q", "proposed", articles=2)
+    _source(db, "C")
+
+    server = _server(db)
+    client = await _client(server)
+    try:
+        listed = [a["id"] for a in (await (await client.get("/api/areas")).json())["areas"]]
+    finally:
+        await client.close()
+    status, data = await _post(db, {"assignments": {"A": prop_q, "B": prop_p}}, server)
+
+    assert status == 200
+    expected = [i for i in listed if i in (prop_p, prop_q)]
+    assert [a["id"] for a in data["activated"]] == expected == [prop_p, prop_q]
+    rows = {r["id"]: r for r in db.query("SELECT id, status, position FROM areas").rows}
+    assert (rows[prop_p]["status"], rows[prop_p]["position"]) == ("active", 3)
+    assert (rows[prop_q]["status"], rows[prop_q]["position"]) == ("active", 4)
+
+
+async def test_a_request_with_only_active_or_no_area_activates_nothing(db: SqliteD1) -> None:
+    _source(db, "C")
+
+    status, data = await _post(db, {"assignments": {"A": 1, "C": None}})
+
+    assert status == 200
+    assert data["activated"] == []
+
+
+async def test_a_proposal_activated_before_the_request_is_assigned_without_activation(
+    db: SqliteD1,
+) -> None:
+    db.query("UPDATE areas SET status = 'active' WHERE name = 'Energy'")
+
+    status, data = await _post(db, {"assignments": {"A": 4}})
+
+    assert status == 200
+    assert data["activated"] == []
+    assert _area_ids(db, "A") == 4
+
+
+async def test_a_proposal_no_source_points_at_stays_proposed(db: SqliteD1) -> None:
+    status, _ = await _post(db, {"assignments": {"A": 1}})
+
+    assert status == 200
+    assert _statuses(db)["Energy"] == "proposed"
+    assert _area_ids(db, "A") == 1
+    assert _area_ids(db, "B") is None
