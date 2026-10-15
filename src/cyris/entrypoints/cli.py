@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import signal
 import sys
 from collections import Counter
@@ -278,6 +279,8 @@ def regenerate(
     """Regenerate a stored digest: re-render its page, or rerun it over its recorded inputs."""
     from cyris.service_layer.schedule import PERIOD_ORDER
 
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        _usage_error("DATE must be YYYY-MM-DD")
     try:
         datetime.strptime(date, "%Y-%m-%d")
     except ValueError:

@@ -318,3 +318,15 @@ def test_a_rerun_publish_is_refused_for_rerender_before_any_build(tmp_path: Path
 
     assert result.exit_code == 2
     assert "--publish is only available with --mode rerun" in result.stderr
+
+
+def test_an_unpadded_date_is_a_usage_error(tmp_path: Path, wire) -> None:
+    wire(_config(tmp_path))
+    out = str(tmp_path / "out.html")
+
+    results = [
+        _run(tmp_path, "2026-1-4", "evening", "--mode", "rerender", "--output", out),
+        _run(tmp_path, "2026-10-4", "evening", "--mode", "rerender", "--output", out),
+    ]
+
+    assert [r.exit_code for r in results] == [2, 2]
