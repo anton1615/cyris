@@ -147,7 +147,7 @@ def _render_area_section(section: AreaSection) -> str:
         for feature in section.features
         for item in feature.items
     ]
-    rows = [line for item in section.rows for line in _render_row(item)]
+    rows = [line for row in section.rows for line in _render_row(row.item)]
     parts = [
         *cards,
         *(_render_fan_section(group) for group in section.following),

@@ -890,6 +890,56 @@ class TestEverySurfaceShowsTheSameLayout:
         assert "Lead topic" in top and "Alpha" in top and "Beta" in top
         assert "Gamma" in features and "Alpha" not in features
 
+    def test_three_top_story_entries_sit_in_the_top_story_on_every_surface(self, tmp_path):
+        from cyris.adapters.mail import build_digest_mail
+        from cyris.adapters.output.email_digest import render_digest_email
+        from cyris.adapters.output.html_digest import HtmlDigestWriter
+
+        issue = _headline_issue()
+        page = HtmlDigestWriter(tmp_path).render(issue)
+        page_top = _between(page, '<span class="label">Top story</span>', "</section>")
+        mail = render_digest_email(issue, "https://digest.example/2026-04-10")
+        mail_top = _between(mail, "Top story</h2>", "</section>")
+        _, text = build_digest_mail(issue)
+        text_top = _between(text, "\nTop story\n", "\nTech\n")
+        embeds = {e["title"]: e["description"] for e in build_discord_embeds(issue)}
+
+        for title in ("X1", "X2", "X3"):
+            assert f">{title}<" in page_top and f">{title}<" in mail_top
+            assert f"\n{title}\n" in text_top or f"— https://example.com/{title}\n" in text_top
+            assert f"[{title}](https://example.com/{title})" in embeds["⭐ Top story"]
+        assert "Tech Card" not in embeds["⭐ Top story"]
+        assert "X2" not in embeds["Tech"]
+
+
+def _headline_issue() -> DigestContent:
+    """A Top story of three articles with no group summary, then one area's Features card."""
+    headline = DigestSection(
+        heading="Top",
+        summary=None,
+        items=[
+            DigestItem(
+                title=title,
+                summary=f"{title} summary.",
+                sources=["Src"],
+                urls=[f"https://example.com/{title}"],
+            )
+            for title in ("X1", "X2", "X3")
+        ],
+    )
+    return DigestContent(
+        date="2026-04-10",
+        period="morning",
+        sources_processed=2,
+        articles_received=4,
+        articles_included=4,
+        featured_articles=[
+            headline,
+            DigestSection(heading="F", items=[_placed("Tech Card", "Tech")]),
+        ],
+        area_order=["Tech"],
+    )
+
 
 def _placed(title: str, area: str | None) -> DigestItem:
     return DigestItem(
@@ -996,3 +1046,10 @@ class TestDiscordAreaSkeleton:
         assert "/api/webhooks/" not in body
         assert "s3cr3t" not in body
         assert "https://digest.example/x" in body
+
+    def test_the_top_story_holds_every_entry_and_no_area_embed_repeats_one(self):
+        embeds = {e["title"]: e["description"] for e in build_discord_embeds(_headline_issue())}
+
+        for title in ("X1", "X2", "X3"):
+            assert title in embeds["⭐ Top story"]
+            assert all(title not in text for name, text in embeds.items() if name != "⭐ Top story")
