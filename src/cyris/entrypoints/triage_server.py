@@ -208,6 +208,7 @@ class TriageServer:
         self._app.router.add_get("/api/areas", self._handle_get_areas)
         self._app.router.add_post("/api/sources/suggest-area", self._handle_suggest_area)
         self._app.router.add_post("/api/areas/propose", self._handle_propose_areas)
+        self._app.router.add_post("/api/areas/assign", self._handle_bulk_assign)
         self._app.router.add_put("/api/areas/birth-threshold", self._handle_put_birth_threshold)
         self._app.router.add_put("/api/areas/order", self._handle_put_area_order)
         self._app.router.add_post(r"/api/areas/{id:\d+}/activate", self._handle_activate_area)
@@ -1010,6 +1011,79 @@ class TriageServer:
 
         logger.info("%d sources assigned to area %s", len(set(names)), area_id)
         return web.json_response({"ok": True, "assigned": len(set(names))})
+
+    async def _handle_bulk_assign(self, request: web.Request) -> web.Response:
+        """Give each named source its area, or none, in one request.
+
+        A proposal named here is activated first.
+
+        Every refusal is decided before the first write, so a refused request changes nothing.
+        A write that fails midway answers 500 with what did land, so the page can recompute.
+        """
+        if self._area_store is None or self._source_store is None:
+            return self._no_area_table()
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+        assignments = body.get("assignments") if isinstance(body, dict) else None
+        if not isinstance(assignments, dict) or not all(
+            value is None or (isinstance(value, int) and not isinstance(value, bool))
+            for value in assignments.values()
+        ):
+            return _refused(
+                "assignments must map each source name to an area id or null.", "assignments"
+            )
+        assigned: list[str] = []
+        activated: list[dict[str, Any]] = []
+        try:
+            stored = self._source_store.list_sources()
+            unknown = [name for name in assignments if name not in stored]
+            if unknown:
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": "Unknown sources: " + ", ".join(unknown),
+                        "field": "assignments",
+                        "names": unknown,
+                    },
+                    status=400,
+                )
+            targets: dict[int, Area] = {}
+            for area_id in dict.fromkeys(v for v in assignments.values() if v is not None):
+                area = self._area_store.get(area_id)
+                if area is None:
+                    return web.json_response(
+                        {"ok": False, "error": f"No area with id {area_id}: reload the page."},
+                        status=404,
+                    )
+                if area.status in ("dismissed", "merged"):
+                    return web.json_response(
+                        {"ok": False, "error": f"{area.name} is {area.status}, not assignable."},
+                        status=409,
+                    )
+                targets[area_id] = area
+            for area in sorted(
+                (a for a in targets.values() if a.status == "proposed"), key=_area_order
+            ):
+                if self._area_store.activate(area.id):
+                    activated.append({"id": area.id, "name": area.name})
+            for name, area_id in assignments.items():
+                self._source_store.upsert(stored[name].model_copy(update={"area_id": area_id}))
+                assigned.append(name)
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": str(e),
+                    "assigned": assigned,
+                    "activated": activated,
+                },
+                status=500,
+            )
+
+        logger.info("%d sources assigned, %d areas activated", len(assigned), len(activated))
+        return web.json_response({"ok": True, "assigned": len(assigned), "activated": activated})
 
     def _llm(self):
         return self._llm_factory(self._values) if self._llm_factory is not None else None
