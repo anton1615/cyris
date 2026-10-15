@@ -4506,6 +4506,13 @@ PROPOSE_GROUPS = propose_answer(
         {"id": 5, "name": "Y", "sources": ["Hacker News", "曼報"]},
     ]
 )
+PROPOSE_ANSWERED = """
+            await areasListed();
+            await waitFor(() => $('select[data-source="Cloudflare Blog"]'), "the rows");
+            $("#propose-areas").click();
+            const none = "No new proposals.";
+            await waitFor(() => $("#areas-notice").textContent === none, "the answer");
+"""
 PROPOSE_CLICK = """
             await areasListed();
             await waitFor(() => $('select[data-source="Cloudflare Blog"]'), "the rows");
@@ -4570,6 +4577,36 @@ CHECKS += [
         sabotage="""
             $('select[data-source="Simon Willison"]').insertAdjacentHTML(
               "afterend", '<span class="pill">Suggested</span>');
+        """,
+    ),
+    Check(
+        id="areas-propose-suggests",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=propose_answer([{"id": 5, "name": "Y", "sources": ["曼報"]}]),
+        act=PROPOSE_ANSWERED,
+        script="""
+            const row = $('select[data-source="曼報"]').closest("tr");
+            const note = row.querySelector(".areas-note");
+            expect(note && note.textContent === "Suggests Y", `note: ${note && note.textContent}`);
+            expect($('select[data-source="曼報"]').value === "1", "the select moved");
+            expect($("#save-assign").disabled, "Save assignments is enabled with no change");
+        """,
+        sabotage="""$('select[data-source="曼報"]').value = "5";""",
+    ),
+    Check(
+        id="areas-propose-suggests-same",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=propose_answer([{"id": 1, "name": "Tech", "sources": ["曼報"]}]),
+        act=PROPOSE_ANSWERED,
+        script="""
+            const row = $('select[data-source="曼報"]').closest("tr");
+            expect(!row.querySelector(".areas-note"), "a line for the stored area");
+        """,
+        sabotage="""
+            $('select[data-source="曼報"]').closest("tr").querySelector("td.name").insertAdjacentHTML(
+              "beforeend", '<span class="small areas-note">Suggests Tech</span>');
         """,
     ),
 ]

@@ -636,6 +636,8 @@ EXPECTED_IDS = {
     "areas-propose-busy",
     "areas-propose-prefill",
     "areas-propose-prefill-edited",
+    "areas-propose-suggests",
+    "areas-propose-suggests-same",
     "areas-propose-two-entries-one-area",
     "areas-rename-gone",
     "areas-save-inert",

@@ -1046,6 +1046,10 @@ function areaOptions(cur) {
 const suggestPill = (name) => storedArea(name) === null && suggestionFor(name) !== undefined
   && pickedArea(name) === suggestionFor(name) && !touched.has(name)
   ? `<span class="pill">Suggested</span>` : "";
+const suggestNote = (name) => storedArea(name) !== null && suggestionFor(name) !== undefined
+  && suggestionFor(name) !== storedArea(name)
+  ? `<span class="small areas-note">Suggests ${esc(areaNameOf(suggestionFor(name)))}</span>` : "";
+
 // The table waits for both reads, so no select can show a stored area before the list it names.
 function renderAssign() {
   const ready = areasLoaded && sourcesLoaded;
@@ -1054,7 +1058,7 @@ function renderAssign() {
   $("assign-body").innerHTML = failed ? ""
     : !ready ? `<tr data-loading><td colspan="2" class="small">Loading sources…</td></tr>`
     : sources.length ? sources.map((source) => `
-      <tr><td class="name">${esc(source.name)}</td>
+      <tr><td class="name">${esc(source.name)}${suggestNote(source.name)}</td>
         <td><div class="areas-cell"><select class="select" aria-label="Area for ${esc(source.name)}" data-source="${esc(source.name)}"${areasWritable ? "" : " disabled"}>${areaOptions(pickedArea(source.name))}</select>${suggestPill(source.name)}</div></td></tr>`).join("")
     : `<tr><td class="small" colspan="2">No sources yet. <a href="#sources">Add one under Sources</a>.</td></tr>`;
   $("save-assign").disabled = !areasWritable || !changed.length;
