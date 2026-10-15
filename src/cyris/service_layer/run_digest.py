@@ -126,12 +126,35 @@ def _with_archive(deps: "Deps", pages: dict[str, str], *, lead) -> dict[str, byt
     return {**{path: html.encode("utf-8") for path, html in pages.items()}, **assets}
 
 
+def _raw_page_for(deps: "Deps", key: tuple[str, str], stored) -> tuple[bool, dict[str, str]]:
+    """The raw page of a republished issue, rebuilt from its recorded inputs.
+
+    Each article is read as its state is now, in the order the run was given it. No
+    record, no row left, or a failed read gives no raw page, and the digest page
+    republishes without a link to one.
+    """
+    if not stored.raw_page or deps.digest_input_store is None:
+        return False, {}
+    try:
+        urls = deps.digest_input_store.load(*key) or []
+        by_url = {a.url: a for a in deps.store.get_by_urls(urls)}
+    except Exception as e:
+        logger.error("Failed to rebuild the raw page for %s %s: %s", *key, e)
+        return False, {}
+    rows = [by_url[url] for url in urls if url in by_url]
+    if not rows:
+        return False, {}
+    writer = deps.html_writer
+    path = "/" + writer.raw_filename(*key)
+    return True, {path: writer.render_raw(key[0], key[1], rows)}
+
+
 def _republish_missing(deps: "Deps", summary: dict, *, chooses_no_llm: bool) -> None:
     """Publish every stored issue the site does not list: one whose run failed to publish.
 
     That run marked the issue's articles accepted, so no later run digests them
-    again; the issue survives only as its D1 `digests` row. Its raw page does
-    not — the collected articles were never stored — so the page links none.
+    again; the issue survives as its D1 `digests` row, and its raw page is rebuilt
+    from the `digest_inputs` row when one exists.
     """
     if deps.digest_store is None or deps.publish_site is None or deps.html_writer is None:
         return
@@ -147,9 +170,11 @@ def _republish_missing(deps: "Deps", summary: dict, *, chooses_no_llm: bool) -> 
     for key in missing:
         stored = deps.digest_store.load(*key)
         degraded = is_degraded_run(stored.content.usage, chooses_no_llm=chooses_no_llm)
+        raw_page, extra = _raw_page_for(deps, key, stored)
         pages["/" + writer.digest_filename(*key)] = writer.render(
-            stored.content, raw_page=False, degraded=degraded
+            stored.content, raw_page=raw_page, degraded=degraded
         )
+        pages.update(extra)
     # The most recently saved issue, not the republished one, so a newer live
     # issue keeps the archive's headline card.
     lead = deps.digest_store.load(*issues[0]).content
