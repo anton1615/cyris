@@ -467,3 +467,21 @@ def test_the_input_content_is_unchanged_by_the_cut() -> None:
 
     assert content.model_dump() == before
 
+
+def test_the_cut_spares_the_unplaced_section_even_when_an_area_is_named_other() -> None:
+    headlines = [_item(f"o{i}", None) for i in range(7)]
+    content = _content(["Other"], filtered_headlines=headlines, articles_included=7)
+
+    assert len(cap_lower_layers(content).filtered_headlines) == 7
+
+
+def test_the_cut_of_a_named_other_area_leaves_the_unplaced_entries_whole() -> None:
+    content = _content(
+        ["Other"],
+        filtered_headlines=[_item(f"n{i}", "other") for i in range(6)] + [_item("u", None)],
+        articles_included=7,
+    )
+
+    kept = [i.title for i in cap_lower_layers(content).filtered_headlines]
+
+    assert kept == ["n0", "n1", "n2", "n3", "n4", "u"]

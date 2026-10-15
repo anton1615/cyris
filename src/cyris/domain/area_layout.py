@@ -135,11 +135,10 @@ def cap_lower_layers(
     """
     if rows_per_area < 0:
         raise ValueError(f"rows_per_area must be >= 0, got {rows_per_area}")
-    names = {fold_name(name) for name in content.area_order}
     removed: set[int] = set()
     removed_articles = 0
     for section in layout_by_area(content).sections:
-        if section.label is None or fold_name(section.label) not in names:
+        if section.role != "named":
             continue
         for entry in [*section.clusters, *section.rows][rows_per_area:]:
             if isinstance(entry, LowerRow):
