@@ -144,17 +144,86 @@ class TestDigestMail:
         assert "Publishing the online edition failed" in text
         assert "http" not in text
 
-    def test_the_text_part_lists_what_the_issue_holds(self):
+    @staticmethod
+    def _areas_issue() -> DigestContent:
+        def card(title: str, area: str) -> DigestSection:
+            url = f"https://a.test/{title}"
+            item = DigestItem(title=title, summary="", sources=["S"], urls=[url], area=area)
+            return DigestSection(heading=title, items=[item])
+
         content = _content()
-        content.news_clusters = [DigestSection(heading="Cluster Heading", items=[])]
+        content.area_order = ["Tech", "Health"]
+        content.featured_articles = [
+            card("Lead", "Tech"),
+            card("TechCard", "Tech"),
+            card("HealthCard", "Health"),
+        ]
+        content.news_clusters = [
+            DigestSection(
+                heading="Tech Cluster",
+                items=[DigestItem(title="C", summary="", sources=["S"], urls=[], area="Tech")],
+            )
+        ]
         content.filtered_headlines = [
-            DigestItem(title="Wire One", summary="", sources=["W"], urls=["https://w.test/1"])
+            DigestItem(title="Unfiled", summary="", sources=["S"], urls=["https://u.test/1"])
+        ]
+        return content
+
+    def test_the_text_part_lists_each_area_in_the_stored_order(self):
+        _, text = build_digest_mail(self._areas_issue())
+
+        lines = text.splitlines()
+        labels = [line for line in lines if line in ("Top story", "Tech", "Health", "Other")]
+        assert labels == ["Top story", "Tech", "Health", "Other"]
+        at = lines.index("Tech")
+        assert lines[at : lines.index("Health")] == [
+            "Tech",
+            "- TechCard — https://a.test/TechCard",
+            "- Tech Cluster",
+            "",
+        ]
+        assert lines[lines.index("Health") : lines.index("Other")] == [
+            "Health",
+            "- HealthCard — https://a.test/HealthCard",
+            "",
         ]
 
-        _, text = build_digest_mail(content, "https://digest.example.org/x")
+    def test_the_text_part_lists_a_clusters_heading_under_its_area(self):
+        _, text = build_digest_mail(self._areas_issue())
 
-        assert "In Focus" in text and "Cluster Heading" in text
-        assert "The Wire" in text and "Wire One — https://w.test/1" in text
+        lines = text.splitlines()
+        assert lines.index("Tech") < lines.index("- Tech Cluster") < lines.index("Health")
+
+    def test_the_text_part_without_an_area_order_has_no_label_but_top_story(self):
+        content = _content()
+        content.featured_articles = [
+            DigestSection(
+                heading="Lead", items=[DigestItem(title="Lead", summary="", sources=["S"], urls=[])]
+            ),
+            DigestSection(
+                heading="Card", items=[DigestItem(title="Card", summary="", sources=["S"], urls=[])]
+            ),
+        ]
+
+        _, text = build_digest_mail(content)
+
+        assert text.splitlines()[-2:] == ["", "- Card"]
+        assert "Top story" in text.splitlines()
+
+    def test_the_text_part_puts_unplaced_entries_under_other_last(self):
+        _, text = build_digest_mail(self._areas_issue())
+
+        assert text.splitlines()[-2:] == ["Other", "- Unfiled — https://u.test/1"]
+
+    @pytest.mark.parametrize("area_order", [[], ["Tech", "Health"]], ids=["no-areas", "areas"])
+    def test_no_old_section_label_is_a_line_of_its_own(self, area_order):
+        content = self._areas_issue()
+        content.area_order = area_order
+
+        _, text = build_digest_mail(content)
+
+        old = {"Features", "In Focus", "Following", "On the Radar", "The Wire"}
+        assert not old & set(text.splitlines())
 
     def test_the_text_part_puts_a_wire_rows_summary_on_the_line_below_it(self):
         content = _content()
@@ -168,8 +237,8 @@ class TestDigestMail:
         _, text = build_digest_mail(content, "https://digest.example.org/x")
 
         lines = text.splitlines()
-        at = lines.index("The Wire")
-        assert lines[at + 1 :] == [
+        at = lines.index("- Wire One — https://w.test/1")
+        assert lines[at:] == [
             "- Wire One — https://w.test/1",
             "  One sentence.",
             "- Wire Two — https://w.test/2",

@@ -885,8 +885,8 @@ class TestEverySurfaceShowsTheSameLayout:
         from cyris.adapters.mail import build_digest_mail
 
         _, text = build_digest_mail(_laid_out_issue())
-        top = _between(text, "\nTop story\n", "\nFeatures\n")
-        features = text[text.index("\nFeatures\n") :]
+        top = _between(text, "\nTop story\n", "\n- Gamma")
+        features = text[text.index("\n- Gamma") :]
         assert "Lead topic" in top and "Alpha" in top and "Beta" in top
         assert "Gamma" in features and "Alpha" not in features
 
