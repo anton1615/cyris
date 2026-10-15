@@ -915,7 +915,8 @@ let sourcesLoaded = false;
 let sourcesFailed = false;
 let areasFailed = false;
 // The Area each source's select was changed to, only where it differs from the stored area.
-const picks = {};
+// A null-prototype map, so a source named like an Object.prototype member keeps its own key.
+const picks = Object.create(null);
 // The (articles, issues) a proposal must reach to be marked; null until it is set.
 let birthThreshold = null;
 
@@ -932,19 +933,15 @@ const areaNameOf = (id) => areas.find((area) => area.id === id)?.name ?? "";
 // Which editor is open: null for none, else the area's id.
 let openArea = null;
 // The area each source is suggested, by the last propose answer: the first group naming it wins.
-let suggestions = {};
+let suggestions = Object.create(null);
 // The sources whose select the reader has changed since the last propose answer.
 const touched = new Set();
 
-// A suggestion counts while its area is active or proposed, and a source with a stored area
-// keeps it only while that area is active or proposed too.
+// A suggestion counts while its area is active or proposed, whatever the source's stored area is.
 const suggestionFor = (name) => {
   const id = suggestions[name];
   const target = areas.find((area) => area.id === id);
   if (!target || (target.status !== "active" && target.status !== "proposed")) return undefined;
-  const stored = storedArea(name);
-  const open = ["active", "proposed"];
-  if (stored !== null && !open.includes(areas.find((a) => a.id === stored)?.status)) return undefined;
   return id;
 };
 
@@ -957,7 +954,7 @@ const focusAfterLeaving = (id) => (areaRow(id) ?? closedSummary()).focus();
 const activeAreas = () => areas.filter((area) => area.status === "active");
 const orderDirty = () => localOrder.join() !== storedOrder.join();
 const storedArea = (name) => sources.find((source) => source.name === name)?.area_id ?? null;
-const pickedArea = (name) => (name in picks ? picks[name] : storedArea(name));
+const pickedArea = (name) => (Object.hasOwn(picks, name) ? picks[name] : storedArea(name));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const listJoin = (words) => words.length < 2 ? words.join("")
   : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
@@ -995,6 +992,9 @@ function updateAreasDot() {
   areasNav().classList.toggle("dirty", areasWritable && dirty);
 }
 
+// Propose needs an area table to write to and a sources list that has answered with sources.
+const proposable = () => areasWritable && sourcesLoaded && sources.length > 0;
+
 function renderAreas() {
   const active = activeAreas();
   const proposed = areas.filter((area) => area.status === "proposed");
@@ -1007,9 +1007,9 @@ function renderAreas() {
         <td class="areas-pos-cell"><select class="select areas-pos" aria-label="Position of ${esc(area.name)}" data-pos="${area.id}"${areasWritable ? "" : " disabled"}>${
           ordered.map((_, k) => `<option value="${k}"${k === i ? " selected" : ""}>${k + 1}</option>`).join("")}</select></td>
       </tr>`).join("")
-    : areasLoaded
-      ? `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" under Sources, or wait for the next run to suggest some.</td></tr>`
-      : "";
+    : areasFailed ? ""
+    : !areasLoaded ? `<tr data-loading><td colspan="2" class="small">Loading areas…</td></tr>`
+    : `<tr><td colspan="2" class="small">No areas yet. Use "Propose areas from my sources" under Sources, or wait for the next run to suggest some.</td></tr>`;
   $("proposed-body").innerHTML = proposed.length
     ? proposed.map((area) => `
       <tr class="src-row" data-id="${area.id}" tabindex="0">
@@ -1024,7 +1024,7 @@ function renderAreas() {
     : areasLoaded ? "<li>No closed areas.</li>" : "";
   $("threshold-hint").hidden = birthThreshold !== null;
   $("save-order").disabled = !areasWritable || !orderDirty();
-  $("propose-areas").disabled = !areasWritable || !sources.length;
+  $("propose-areas").disabled = !proposable();
   renderAssign();
   updateAreasDot();
   if (openArea !== null) openAreaEditor(openArea);
@@ -1062,7 +1062,7 @@ function renderAssign() {
       <tr><td class="name">${esc(source.name)}${suggestNote(source.name)}</td>
         <td><div class="areas-cell"><select class="select" aria-label="Area for ${esc(source.name)}" data-source="${esc(source.name)}"${areasWritable ? "" : " disabled"}>${areaOptions(pickedArea(source.name))}</select>${suggestPill(source.name)}</div></td></tr>`).join("")
     : `<tr><td class="small" colspan="2">No sources yet. <a href="#sources">Add one under Sources</a>.</td></tr>`;
-  $("save-assign").disabled = !areasWritable || !changed.length;
+  $("save-assign").disabled = failed || !ready || !areasWritable || !changed.length;
 }
 
 // The destructive confirm: the first press arms the button, a second within three seconds acts.
@@ -1204,7 +1204,7 @@ $("propose-areas").addEventListener("click", async () => {
   show("busy", "Proposing areas from your sources…", "areas-notice");
   try {
     const data = await post("/api/areas/propose", {});
-    suggestions = {};
+    suggestions = Object.create(null);
     for (const p of data.proposals) {
       for (const name of p.sources) suggestions[name] ??= p.id;
     }
@@ -1222,7 +1222,7 @@ $("propose-areas").addEventListener("click", async () => {
       : "No new proposals.", "areas-notice");
   } catch (err) {
     show("err", err.message, "areas-notice");
-    button.disabled = !areasWritable || !sources.length;
+    button.disabled = !proposable();
   } finally {
     button.textContent = label;
   }
@@ -1375,7 +1375,7 @@ async function saveThreshold() {
   const button = $("save-threshold");
   unrefuse($("threshold-block"));
   button.disabled = true;
-  show("busy", "Saving…", "areas-notice");
+  show("busy", "Saving…", "threshold-result");
   try {
     const data = await post("/api/areas/birth-threshold", {
       articles: Number($("th-articles").value),
@@ -1383,12 +1383,12 @@ async function saveThreshold() {
     }, "PUT");
     birthThreshold = {articles: data.articles, issues: data.issues};
     thresholdTyped = false;
-    show("ok", "Birth threshold saved. It only marks proposals on this page.", "areas-notice");
+    show("ok", "Birth threshold saved. It only marks proposals on this page.", "threshold-result");
     renderAreas();
     renderThreshold();
   } catch (err) {
     if (err.field) refuse([$(`th-${err.field}`)], err.message);
-    else show("err", err.message, "areas-notice");
+    else show("err", err.message, "threshold-result");
     thresholdEdited();
   }
 }

@@ -4338,7 +4338,7 @@ CHECKS += [
             expect(ctx.hint, "no hint while the threshold is unset");
             expect(window.__marker === 1, "the page reloaded");
             expect($("#threshold-hint").hidden, "the hint stays after a save");
-            const notice = $("#areas-notice");
+            const notice = $("#threshold-result");
             const saved = "Birth threshold saved. It only marks proposals on this page.";
             expect(notice.textContent === saved, `notice: ${notice.textContent}`);
             expect(!!$(".pill", $("#proposed-body")), "the proposal gained no pill");

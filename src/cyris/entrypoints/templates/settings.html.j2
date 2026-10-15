@@ -58,7 +58,14 @@
     .areas-cell .select { flex: 0 1 320px; min-width: 0; }
     .areas-foot, .areas-foot .actions-line { align-items: flex-end; }
     .areas-merge .select { width: 200px; }
+    .areas-part { margin-top: var(--s-12); }
+    .tab-head + .areas-part { margin-top: 0; }
+    .areas-part-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s-4); flex-wrap: wrap; min-height: 44px; margin-bottom: var(--s-3); }
+    .areas-save { margin-top: var(--s-4); }
+    table.src.areas-table, table.src.assign { min-width: 0; }
+    .areas-threshold { display: flex; flex-wrap: wrap; }
     @media (max-width: 720px) {
+      .areas-part { margin-top: var(--s-8); }
       .page { padding-top: var(--s-8); }
       .settings { grid-template-columns: minmax(0, 1fr); gap: var(--s-6); }
       .settings-nav { position: static; display: flex; overflow-x: auto; overflow-y: hidden; border-left: 0; border-bottom: 1px solid var(--border); }
@@ -321,53 +328,60 @@
             <h2 class="heading">Areas</h2>
             <p class="small">The areas the model files each article under, and the proposals waiting for you.</p>
           </div>
-          <h3 class="label">Areas</h3>
-          <div class="table-wrap">
-            <table class="src">
-              <thead><tr><th class="label">Name</th><th class="label">Position</th></tr></thead>
-              <tbody id="area-body"><tr data-loading><td colspan="2" class="small">Loading areas…</td></tr></tbody>
-            </table>
-          </div>
-          <div class="actions-line">
-            <button class="btn primary" type="button" id="save-order" disabled>Save order</button>
-            <div class="notice" id="order-result" role="status" hidden></div>
-          </div>
-          <h3 class="label">Proposed</h3>
-          <div class="table-wrap">
-            <table class="src">
-              <thead><tr><th class="label">Name</th><th class="label">Counts</th></tr></thead>
-              <tbody id="proposed-body"></tbody>
-            </table>
-          </div>
-          <div class="toolbar">
-            <h3 class="label">Sources</h3>
-            <div class="actions-line">
-              <div class="notice" id="areas-notice" role="status" hidden></div>
-              <button class="btn primary" type="button" id="propose-areas" disabled>Propose areas from my sources</button>
+          <section class="areas-part" aria-labelledby="areas-active-h">
+            <div class="areas-part-head"><h3 class="label" id="areas-active-h">Areas</h3></div>
+            <div class="table-wrap">
+              <table class="src areas-table">
+                <thead><tr><th class="label">Name</th><th class="label">Position</th></tr></thead>
+                <tbody id="area-body"><tr data-loading><td colspan="2" class="small">Loading areas…</td></tr></tbody>
+              </table>
             </div>
-          </div>
-          <div class="table-wrap">
-            <table class="src assign">
-              <thead><tr><th class="label">Source</th><th class="label">Area</th></tr></thead>
-              <tbody id="assign-body"><tr data-loading><td colspan="2" class="small">Loading sources…</td></tr></tbody>
-            </table>
-          </div>
-          <div class="actions-line">
-            <button class="btn primary" type="button" id="save-assign" disabled>Save assignments</button>
-            <div class="notice" id="assign-result" role="status" hidden></div>
-          </div>
-          <div id="threshold-block">
-            <h3 class="label">Birth threshold</h3>
-            <div class="field-row">
+            <div class="actions-line areas-save">
+              <button class="btn primary" type="button" id="save-order" disabled>Save order</button>
+              <div class="notice" id="order-result" role="status" hidden></div>
+            </div>
+          </section>
+          <section class="areas-part" aria-labelledby="areas-proposed-h">
+            <div class="areas-part-head"><h3 class="label" id="areas-proposed-h">Proposed</h3></div>
+            <div class="table-wrap">
+              <table class="src areas-table">
+                <thead><tr><th class="label">Name</th><th class="label">Counts</th></tr></thead>
+                <tbody id="proposed-body"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="areas-part" aria-labelledby="areas-sources-h">
+            <div class="areas-part-head">
+              <h3 class="label" id="areas-sources-h">Sources</h3>
+              <div class="actions-line">
+                <div class="notice" id="areas-notice" role="status" hidden></div>
+                <button class="btn primary" type="button" id="propose-areas" disabled>Propose areas from my sources</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="src assign">
+                <thead><tr><th class="label">Source</th><th class="label">Area</th></tr></thead>
+                <tbody id="assign-body"><tr data-loading><td colspan="2" class="small">Loading sources…</td></tr></tbody>
+              </table>
+            </div>
+            <div class="actions-line areas-save">
+              <button class="btn primary" type="button" id="save-assign" disabled>Save assignments</button>
+              <div class="notice" id="assign-result" role="status" hidden></div>
+            </div>
+          </section>
+          <section class="areas-part" id="threshold-block" aria-labelledby="areas-threshold-h">
+            <div class="areas-part-head"><h3 class="label" id="areas-threshold-h">Birth threshold</h3></div>
+            <div class="field-row areas-threshold">
               <div class="field"><label class="label" for="th-articles">Articles</label><input class="input narrow" id="th-articles" type="number" min="1" step="1" autocomplete="off" disabled></div>
               <div class="field"><label class="label" for="th-issues">Issues</label><input class="input narrow" id="th-issues" type="number" min="1" step="1" autocomplete="off" disabled></div>
             </div>
-            <div class="actions-line">
+            <div class="actions-line areas-save">
               <button class="btn primary" type="button" id="save-threshold" disabled>Save</button>
+              <div class="notice" id="threshold-result" role="status" hidden></div>
               <p class="small" id="threshold-hint" hidden>Birth threshold not set</p>
             </div>
-          </div>
-          <details class="more"><summary>Closed</summary>
+          </section>
+          <details class="more areas-part"><summary>Closed</summary>
             <ul class="small" id="closed-list"></ul>
           </details>
         </div>
