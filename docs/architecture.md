@@ -80,7 +80,7 @@ flowchart TB
         FEEDS[("Publisher feeds")]
         CFW{{"Cloudflare · Workers · D1 · KV · Pages"}}
         DISC{{"Discord"}}
-        FS["Local filesystem<br/>json backend only"]
+        FS["Local filesystem<br/>json backend, or --output PATH"]
     end
 
     CLI --> DEPS
@@ -126,6 +126,7 @@ flowchart TB
     EMB --> CFW
     CLEF --> CFW
     HTML -->|json backend only| FS
+    CLI -->|--output PATH, operator's file| FS
 
     classDef port fill:#0F6E7A,stroke:#5AC3CC,color:#fff;
     classDef fallback fill:#A8590C,stroke:#DFA45E,color:#fff;
@@ -166,6 +167,10 @@ closed by moving to the storage product first named for it:
 One filesystem edge remains, and it is the documented fallback rather than a defect:
 `HtmlDigestWriter` writes `agent-vault/html/` when `[store] backend` is still `json`. With D1 wired,
 the site's file list comes from the `pages_manifest` table and nothing is written locally.
+
+The other local write is deliberate and holds no state: `cyris run --dry-run --output PATH` and
+`cyris regenerate --output PATH` write the rendered page to the path the operator names, and nothing
+else. The file is a preview for a person to open, so it is not a store and needs no §4 row.
 
 **The Container move was done when the `Local filesystem` node left the D1 path.** That was the acceptance
 test.
@@ -397,6 +402,10 @@ the newest by date and period (an older one returns `not_latest` before any LLM 
 each article as its state is now, so the input set is fixed but the verdicts are not, and an issue
 recorded before `digest_inputs` has no record to rerun from. A publish counts as done only when the
 live page serves the bytes just rendered, compared byte for byte.
+
+`cyris run --dry-run --output PATH` is the silent preview of a period: it renders the page to PATH,
+prints `Wrote PATH`, and sends nothing, writes no `usage_log` row and changes no table but
+`digest_runs`.
 
 Output is the HTML digest and a companion raw page listing what this run judged plus whatever is
 still pending — uncapped, so what the digest dropped stays visible; rows an earlier run in the
