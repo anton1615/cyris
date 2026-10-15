@@ -444,6 +444,24 @@ async def test_a_failed_stamp_cuts_nothing_and_accepts_every_shown_article(
     assert digest_urls(content) == {a.url for a in articles}
 
 
+async def test_a_failed_cap_keeps_every_shown_article_and_logs_its_own_failure(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    def fail(*args, **kwargs):
+        raise RuntimeError("cap broke")
+
+    monkeypatch.setattr("cyris.service_layer.run_digest.cap_lower_layers", fail)
+    articles = _radar_articles(7)
+
+    _, content, states, summaries = await _run_radar(tmp_path, articles, areas=[_active(1, "Tech")])
+
+    assert summaries[-1]["area_quota_cut"] == 0
+    assert set(states.values()) == {ArticleState.ACCEPTED}
+    assert digest_urls(content) == {a.url for a in articles}
+    assert "Capping area rows failed" in caplog.text
+    assert "Stamping areas failed" not in caplog.text
+
+
 async def test_a_json_run_accepts_and_shows_every_article(tmp_path: Path) -> None:
     articles = _radar_articles(7)
 

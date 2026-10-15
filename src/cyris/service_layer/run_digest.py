@@ -574,11 +574,15 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         )
         content.area_order = catalog.names()
         summary["area_stamp"] = stamp.model_dump()
-        before_cut = content.articles_included
-        content = cap_lower_layers(content)
-        summary["area_quota_cut"] = before_cut - content.articles_included
     except Exception as e:
         logger.error("Stamping areas failed: %s", type(e).__name__)
+    else:
+        before_cut = content.articles_included
+        try:
+            content = cap_lower_layers(content)
+        except Exception as e:
+            logger.error("Capping area rows failed: %s", type(e).__name__)
+        summary["area_quota_cut"] = before_cut - content.articles_included
 
     content.synthetic_url_count = sum(1 for a in digest_articles if a.url.startswith("newsletter:"))
     if content.synthetic_url_count:
