@@ -191,6 +191,20 @@ def _republish_missing(deps: "Deps", summary: dict, *, chooses_no_llm: bool) -> 
         summary["republish_failed"] = slugs
 
 
+def rerender_digest(deps: "Deps", date: str, period: str) -> RunReport:
+    """A stored issue re-rendered with today's templates; no LLM call, no write, no send."""
+    if deps.digest_store is None or deps.html_writer is None:
+        raise ValueError("rerendering needs the digest store and the HTML writer")
+    stored = deps.digest_store.load(date, period)
+    if stored is None:
+        return RunReport(status="not_found")
+    degraded = is_degraded_run(
+        stored.content.usage, chooses_no_llm=deps.cfg.app.llm_provider.chooses_no_llm
+    )
+    html = deps.html_writer.render(stored.content, raw_page=stored.raw_page, degraded=degraded)
+    return RunReport(status="ok", rendered=html)
+
+
 async def run_digest(deps: "Deps", options: RunOptions) -> RunReport:
     """Run the full pipeline, and leave one line saying what it cost.
 
