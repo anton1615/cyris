@@ -254,6 +254,20 @@ async def test_the_deploy_holds_the_raw_page_of_the_input_rows(tmp_path: Path) -
     assert SLUG.encode() in site.live["/index.html"]
 
 
+async def test_the_raw_page_shows_the_states_the_rerun_left(tmp_path: Path) -> None:
+    u1, u2 = _article(1, "Kept one"), _article(2, "Kept two")
+    deps, _, site, _, _, _, _, _ = _setup(
+        tmp_path, [u1, u2], replies=[_scores([u1, u2]), _sections([u1, u2])]
+    )
+    deps.digest_store.save(_content("2026-10-14", "evening"), raw_page=False)
+
+    await run_digest(deps, RunOptions(dry_run=False, rerun_of=RERUN, period="evening"))
+
+    raw = site.live[f"/{SLUG}-raw.html"]
+    assert b'class="state accepted"' in raw
+    assert b'class="state pending"' not in raw
+
+
 async def test_the_run_record_names_the_issue_it_reran(tmp_path: Path) -> None:
     a = _article(1, "Kept one")
     db = RecordingD1()

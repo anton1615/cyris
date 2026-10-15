@@ -752,7 +752,14 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         # None of this may raise: the Discord notification still has to go out.
         collected = []
         if rerun:
-            collected = inputs
+            # Re-read after update_states, as the normal path reloads its window, so the
+            # raw page shows this run's verdicts rather than the rows read before scoring.
+            try:
+                fresh = {a.url: a for a in store.get_by_urls([a.url for a in inputs])}
+                collected = [fresh[a.url] for a in inputs if a.url in fresh]
+            except Exception as e:
+                logger.error("Failed to reload the rerun's articles: %s", e)
+                collected = inputs
         else:
             try:
                 collected = [
