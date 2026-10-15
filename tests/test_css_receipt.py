@@ -619,6 +619,7 @@ EXPECTED_IDS = {
     "areas-reload-keeps-unsaved",
     "areas-reload-source-gone",
     "areas-reload-activated",
+    "areas-dot-combined",
     "areas-assign-save",
     "areas-assign-refused",
     "areas-assign-two-proposals",

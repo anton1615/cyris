@@ -4256,6 +4256,43 @@ window.fetch = (input, init) => {
         sabotage="""$("#assign-result").classList.remove("err");""",
     ),
     Check(
+        id="areas-dot-combined",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        act="await areasListed();",
+        script="""
+            const dot = () => navOf("areas").classList.contains("dirty");
+            const stored = $("#save-threshold");
+            setValue($('[data-pos="3"]'), "0");
+            expect(dot(), "a moved order shows no dot");
+            setValue($('[data-pos="3"]'), "2");
+            expect(!dot(), "a restored order keeps the dot");
+            setValue($('select[data-source="Simon Willison"]'), "3");
+            expect(dot(), "a changed source shows no dot");
+            setValue($('select[data-source="Simon Willison"]'), "");
+            expect(!dot(), "a reverted source keeps the dot");
+            setValue($("#th-articles"), "4");
+            expect(dot(), "an edited threshold shows no dot");
+            setValue($("#th-articles"), "10");
+            expect(!dot(), "a reverted threshold keeps the dot");
+            setValue($('[data-pos="3"]'), "0");
+            setValue($("#th-articles"), "4");
+            expect(dot(), "order and threshold show no dot");
+            $("#save-order").click();
+            const saved = "Order saved. Effective next run.";
+            await waitFor(() => $("#order-result").textContent === saved, "the order notice");
+            expect(dot(), "Save order cleared the threshold's dot");
+            stored.click();
+            await waitFor(() => !dot(), "the threshold save");
+            expect(!dot(), "the threshold save left the dot on");
+            setValue($('select[data-source="Simon Willison"]'), "3");
+            setValue($("#th-articles"), "5");
+            setValue($("#th-articles"), "4");
+            expect(dot(), "a reverted threshold cleared an assignment's dot");
+        """,
+        sabotage="""thresholdEdited = () => navOf("areas").classList.remove("dirty");""",
+    ),
+    Check(
         id="areas-tap-375",
         fixture="writable-areas",
         path="/settings#areas",

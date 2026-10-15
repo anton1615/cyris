@@ -991,7 +991,8 @@ const thresholdDirty = () => thresholdValues() !== storedThreshold();
 
 // The Areas nav link carries one dot for every unsaved change on the tab.
 function updateAreasDot() {
-  areasNav().classList.toggle("dirty", areasWritable && (orderDirty() || thresholdDirty()));
+  const dirty = orderDirty() || thresholdDirty() || changedSources().length > 0;
+  areasNav().classList.toggle("dirty", areasWritable && dirty);
 }
 
 function renderAreas() {
