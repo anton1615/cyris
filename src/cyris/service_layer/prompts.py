@@ -378,4 +378,8 @@ def build_propose_areas_prompt(
         lines.append(f"- {name} ({url}) tags: {', '.join(tags)}")
         if titles and titles.get(name):
             lines.append(f"  recent titles: {json.dumps(list(titles[name]), ensure_ascii=False)}")
+    if area_names:
+        lines.append("")
+        lines.append("Existing areas: when a source fits one of these, reuse its name exactly.")
+        lines.extend(f"- {name}" for name in area_names)
     return "\n".join(lines)

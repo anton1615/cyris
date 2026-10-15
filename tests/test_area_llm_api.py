@@ -479,3 +479,73 @@ def test_triage_ui_without_d1_has_no_title_reader(tmp_path: Path, monkeypatch) -
     kwargs = _triage_ui_kwargs(tmp_path, monkeypatch, None)
 
     assert kwargs["source_titles"] is None
+
+
+async def test_the_propose_prompt_lists_active_then_proposed_areas_and_no_others(
+    db: SqliteD1,
+) -> None:
+    _row(db, 5, "Energy", "proposed")
+    _row(db, 6, "Old", "dismissed")
+    _row(db, 7, "Sports", "merged")
+    db.query("UPDATE areas SET merged_into = 1 WHERE id = 7")
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({"Tech": ["a"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        await client.post("/api/areas/propose")
+    finally:
+        await client.close()
+
+    prompt = llm.calls[0]["prompt"]
+    section = prompt.split("Existing areas", 1)[1]
+    assert "- Tech" in section and "- Food" in section and "- Energy" in section
+    assert "Old" not in section and "Sports" not in section
+    assert section.index("- Food") < section.index("- Energy")
+
+
+async def test_with_no_areas_the_propose_prompt_has_no_existing_section() -> None:
+    db = SqliteD1()
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({"Sports": ["a"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        await client.post("/api/areas/propose")
+    finally:
+        await client.close()
+
+    assert "Existing areas" not in llm.calls[0]["prompt"]
+
+
+async def test_a_reply_reusing_an_existing_name_in_other_case_is_that_area(db: SqliteD1) -> None:
+    D1SourceStore(db).upsert(SourceConfig(name="A", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({"tech": ["A"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        data = await (await client.post("/api/areas/propose")).json()
+    finally:
+        await client.close()
+
+    assert data["created"] == 0
+    assert [(p["id"], p["name"]) for p in data["proposals"]] == [(1, "Tech")]
+
+
+async def test_an_unreadable_area_table_is_refused_before_the_model_is_asked(
+    db: SqliteD1, monkeypatch
+) -> None:
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+
+    def unreadable(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(D1AreaStore, "list_areas", unreadable)
+    llm = FakeLLM(json.dumps({"Tech": ["a"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        response = await client.post("/api/areas/propose")
+        data = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 500
+    assert data["error"] == "The area table could not be read."
+    assert len(llm.calls) == 0

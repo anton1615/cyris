@@ -1093,6 +1093,20 @@ class TriageServer:
                 {"ok": False, "error": "No LLM is configured, so no areas are proposed."},
                 status=409,
             )
+        try:
+            areas = self._area_store.list_areas()
+        except Exception as e:  # noqa: BLE001 - the reason stays in the log, not the page
+            logger.error("Reading areas failed: %s", type(e).__name__)
+            return web.json_response(
+                {"ok": False, "error": "The area table could not be read."}, status=500
+            )
+        catalog = AreaCatalog(areas)
+        # The model is offered the active areas by position, then the proposals.
+        names = [
+            area.name
+            for area in sorted(areas, key=_area_order)
+            if area.status in ("active", "proposed")
+        ]
         titles = None
         if self._source_titles is not None:
             try:
@@ -1101,18 +1115,12 @@ class TriageServer:
                 logger.warning("Reading source titles failed: %s", type(e).__name__)
         try:
             grouping = await asyncio.wait_for(
-                area_llm.propose_areas(llm, sources, titles=titles), LLM_PROBE_TIMEOUT_SECONDS
+                area_llm.propose_areas(llm, sources, titles=titles, area_names=names),
+                LLM_PROBE_TIMEOUT_SECONDS,
             )
         except Exception as e:  # noqa: BLE001 - only the class name leaves this handler
             return model_failed(e)
 
-        try:
-            catalog = AreaCatalog(self._area_store.list_areas())
-        except Exception as e:  # noqa: BLE001 - the reason stays in the log, not the page
-            logger.error("Reading areas failed: %s", type(e).__name__)
-            return web.json_response(
-                {"ok": False, "error": "The area table could not be read."}, status=500
-            )
         # Every name is placed before the first write, so a refused reply writes nothing.
         placements = [(name, members, catalog.place(name)) for name, members in grouping.items()]
         placements = [entry for entry in placements if entry[2].kind != "dismissed"]
