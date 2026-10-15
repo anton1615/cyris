@@ -614,6 +614,7 @@ EXPECTED_IDS = {
     "areas-sources-both-reads",
     "areas-empty-sources-link",
     "areas-editor-groups",
+    "areas-side-by-side-1300",
     "areas-tap-375",
     "areas-threshold-saves",
     "areas-threshold-refused",

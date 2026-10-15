@@ -3955,13 +3955,46 @@ CHECKS += [
         sabotage="""$('select[data-source="曼報"]').value = "";""",
     ),
     Check(
+        id="areas-side-by-side-1300",
+        fixture="writable-areas",
+        path="/settings#areas",
+        width=1300,
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="Simon Willison"]'), "the row");
+        """,
+        script="""
+            const select = $('#assign-body select[data-source="Simon Willison"]');
+            const name = select.closest("tr").querySelector("td.name");
+            expect(select.getBoundingClientRect().left > name.getBoundingClientRect().right,
+                   "the select is not beside its name");
+        """,
+        sabotage=restyle("table.src.assign tr, table.src.assign td { display: block; }"),
+    ),
+    Check(
         id="areas-tap-375",
         fixture="writable-areas",
         path="/settings#areas",
         width=375,
-        act="await areasListed();",
-        script="""expectTapTargets("#area-body .btn, #area-body tr.src-row, #area-body select");""",
-        sabotage=restyle("#area-body .areas-pos { height: 20px !important; }"),
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="Simon Willison"]'), "the row");
+        """,
+        script="""
+            expectTapTargets("#area-body .btn, #area-body tr.src-row, #area-body select, "
+              + "#assign-body select, #assign-body .btn");
+            const select = $('#assign-body select[data-source="Simon Willison"]');
+            const name = select.closest("tr").querySelector("td.name");
+            const cell = select.closest("td");
+            const style = getComputedStyle(cell);
+            const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+            const inner = cell.clientWidth - padding;
+            expect(select.getBoundingClientRect().top >= name.getBoundingClientRect().bottom,
+                   "the select is not below its name");
+            expect(Math.abs(select.getBoundingClientRect().width - inner) <= 2,
+                   `select ${select.getBoundingClientRect().width}px, cell ${inner}px`);
+        """,
+        sabotage=restyle("#assign-body .select { height: 20px !important; }"),
     ),
 ]
 
