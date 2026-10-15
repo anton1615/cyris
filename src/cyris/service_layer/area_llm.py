@@ -48,6 +48,8 @@ async def suggest_area(
 async def propose_areas(
     llm: LLMClient,
     sources: Mapping[str, SourceConfig],
+    *,
+    titles: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, list[str]]:
     """The areas the model groups `sources` into, each with its source names, in the model's order.
 
@@ -55,7 +57,7 @@ async def propose_areas(
     Names that differ only in case or outer space are one area, its sources united.
     """
     prompt = build_propose_areas_prompt(
-        [(s.name, _host(s.url or ""), s.tags) for s in sources.values()]
+        [(s.name, _host(s.url or ""), s.tags) for s in sources.values()], titles=titles
     )
     data = await complete_json(llm, prompt, system=PROPOSE_AREAS_SYSTEM)
     if not isinstance(data, dict):

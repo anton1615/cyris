@@ -1,17 +1,24 @@
 """/settings suggests an area per source and proposes areas for all, never failing a save."""
 
+import asyncio
 import json
 import logging
+import signal
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from fakes import FakeLLM, SqliteD1
+from typer.testing import CliRunner
 
 from cyris.adapters.store.areas import D1AreaStore
 from cyris.adapters.store.d1 import MAX_BOUND_PARAMS
 from cyris.adapters.store.source_store import D1SourceStore
+from cyris.adapters.store.source_titles import D1SourceTitles
 from cyris.diagnostics import doctor
 from cyris.domain.models import SourceConfig
+from cyris.entrypoints.cli import app as cli_app
 from cyris.entrypoints.triage_server import TriageServer
 
 pytestmark = pytest.mark.integration
@@ -363,3 +370,112 @@ async def test_a_line_break_in_a_proposed_name_becomes_a_space(db: SqliteD1) -> 
     assert [r.name for r in D1AreaStore(db).list_areas() if r.status == "proposed"] == [
         "Line Break"
     ]
+
+
+def _article(db: SqliteD1, url: str, source: str, title: str) -> None:
+    seen = datetime.now(UTC).isoformat(timespec="microseconds")
+    db.query(
+        "INSERT INTO stored_articles (url, title, published_at, source_name, source_tier, "
+        "first_seen_at) VALUES (?, ?, ?, ?, 'filter', ?)",
+        [url, title, seen, source, seen],
+    )
+
+
+async def test_the_propose_prompt_puts_each_sources_titles_under_its_line(db: SqliteD1) -> None:
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    _article(db, "https://a.example/1", "a", "Title of A")
+    _article(db, "https://x.example/1", "stranger", "Stranger headline")
+    llm = FakeLLM(json.dumps({"Tech": ["a"]}))
+    client = await _client(db, lambda values: llm, source_titles=D1SourceTitles(db))
+    try:
+        response = await client.post("/api/areas/propose")
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    lines = llm.calls[0]["prompt"].splitlines()
+    line = lines.index('  recent titles: ["Title of A"]')
+    assert lines[line - 1].startswith("- a (a.example) tags:")
+    assert "Stranger headline" not in llm.calls[0]["prompt"]
+
+
+async def test_without_a_title_reader_the_prompt_has_no_titles(db: SqliteD1) -> None:
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({"Sports": ["a"]}))
+    client = await _client(db, lambda values: llm, source_titles=None)
+    try:
+        response = await client.post("/api/areas/propose")
+        data = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    assert data["created"] == 1
+    assert "recent titles" not in llm.calls[0]["prompt"]
+
+
+class _BrokenTitles:
+    def recent(self, now):
+        raise RuntimeError("secret title X")
+
+
+async def test_a_failing_title_reader_is_logged_by_class_and_never_fails_the_propose(
+    db: SqliteD1, caplog
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    D1SourceStore(db).upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({"Tech": ["a"]}))
+    client = await _client(db, lambda values: llm, source_titles=_BrokenTitles())
+    try:
+        response = await client.post("/api/areas/propose")
+        data = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    assert data["ok"] is True
+    assert "RuntimeError" in caplog.text
+    assert "secret title X" not in caplog.text
+    assert "recent titles" not in llm.calls[0]["prompt"]
+
+
+def _triage_ui_kwargs(tmp_path: Path, monkeypatch, d1) -> dict:
+    config_path = tmp_path / "cyris.toml"
+    config_path.write_text(
+        f'[general]\ntimezone = "Asia/Taipei"\n\n[llm_provider]\napi_key = "test"\n'
+        f'model = "test"\n\n[agent_vault]\npath = "{tmp_path / "agent-vault"}"\n'
+    )
+    sources_path = tmp_path / "sources.yaml"
+    sources_path.write_text("sources: []")
+    (tmp_path / "agent-vault").mkdir()
+    captured: dict = {}
+
+    class Capture:
+        def __init__(self, *args, **kwargs) -> None:
+            captured.update(kwargs)
+
+        async def start(self) -> None:
+            asyncio.get_running_loop().call_soon(signal.raise_signal, signal.SIGINT)
+
+        async def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr("cyris.bootstrap.build_d1_client", lambda cfg: d1)
+    monkeypatch.setattr("cyris.entrypoints.triage_server.TriageServer", Capture)
+    result = CliRunner().invoke(
+        cli_app, ["triage-ui", "--config", str(config_path), "--sources", str(sources_path)]
+    )
+    assert result.exit_code == 0, result.output
+    return captured
+
+
+def test_triage_ui_on_d1_reads_titles_from_d1(tmp_path: Path, monkeypatch) -> None:
+    kwargs = _triage_ui_kwargs(tmp_path, monkeypatch, SqliteD1())
+
+    assert isinstance(kwargs["source_titles"], D1SourceTitles)
+
+
+def test_triage_ui_without_d1_has_no_title_reader(tmp_path: Path, monkeypatch) -> None:
+    kwargs = _triage_ui_kwargs(tmp_path, monkeypatch, None)
+
+    assert kwargs["source_titles"] is None

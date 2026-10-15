@@ -174,7 +174,7 @@ test.
 | Wiring | Targets | Swap difficulty |
 |---|---|---|
 | **Via Protocol** (`ports.py`) | `LLMClient`, `ArticleRepository`, `FetchSource`, `Embedder` | **Low** — swapping the implementation never touches the core |
-| **Direct injection** (no Protocol) | `HtmlDigestWriter`, `publish`, `sync_promotions`, `append_usage`, `notify`, `send_email`, `send_email_alert`, `D1TagStore`, `D1StoryStore`, `D1DigestStore`, `D1AreaStore`, `ask_clef` (`ClefClient`) | **Medium** — the core calls them directly; a second backend needs a Protocol first |
+| **Direct injection** (no Protocol) | `HtmlDigestWriter`, `publish`, `sync_promotions`, `append_usage`, `notify`, `send_email`, `send_email_alert`, `D1TagStore`, `D1StoryStore`, `D1DigestStore`, `D1AreaStore`, `D1SourceTitles`, `ask_clef` (`ClefClient`) | **Medium** — the core calls them directly; a second backend needs a Protocol first |
 
 `ports.py`'s rule: *only genuine IO boundaries get a Protocol; single-implementation components are
 injected directly.*

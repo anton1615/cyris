@@ -151,6 +151,7 @@ class TriageServer:
         blind_labels=None,
         article_store=None,
         area_store=None,
+        source_titles=None,
         llm_factory=None,
     ) -> None:
         self._host = host
@@ -181,6 +182,9 @@ class TriageServer:
         self._article_store = article_store
         # D1's areas and birth threshold; absent on a `backend = "json"` deployment.
         self._area_store = area_store
+        # D1's recent article titles for the Propose prompt; absent on a `backend = "json"`
+        # deployment, and a Propose without it asks the model with no titles.
+        self._source_titles = source_titles
         # Called with the grade-D values for an LLM client; None when no LLM can be built.
         self._llm_factory = llm_factory
         self._settings_page = render_settings_page()
@@ -1089,9 +1093,15 @@ class TriageServer:
                 {"ok": False, "error": "No LLM is configured, so no areas are proposed."},
                 status=409,
             )
+        titles = None
+        if self._source_titles is not None:
+            try:
+                titles = self._source_titles.recent(datetime.now(UTC))
+            except Exception as e:  # noqa: BLE001 - only the class name leaves this handler
+                logger.warning("Reading source titles failed: %s", type(e).__name__)
         try:
             grouping = await asyncio.wait_for(
-                area_llm.propose_areas(llm, sources), LLM_PROBE_TIMEOUT_SECONDS
+                area_llm.propose_areas(llm, sources, titles=titles), LLM_PROBE_TIMEOUT_SECONDS
             )
         except Exception as e:  # noqa: BLE001 - only the class name leaves this handler
             return model_failed(e)
