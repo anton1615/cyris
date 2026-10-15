@@ -742,6 +742,9 @@ function openEditor(name) {
 function loaded(d) {
   sources = d.sources;
   sourcesWritable = d.writable;
+  sourcesLoaded = true;
+  sourcesFailed = false;
+  renderAreas();
   $("add-source").disabled = !d.writable;
   if (!d.writable) show("err", NO_SOURCE_TABLE, "sources-notice");
   // No source stops the next run, as a missing setting does.
@@ -884,6 +887,9 @@ const loadSources = () =>
     .catch((e) => {
       $("src-body").querySelector("[data-loading]")?.remove();
       $("add-source").disabled = true;
+      sourcesLoaded = false;
+      sourcesFailed = true;
+      renderAreas();
       show("err", e === SESSION_EXPIRED ? e.message
         : `Could not load sources: ${e}. Reload the page to try again.`, "sources-notice");
     });
@@ -902,6 +908,12 @@ let syncSourceArea = null;
 // locally until Save order sends it.
 let storedOrder = [];
 let localOrder = [];
+// Whether each read has answered, and whether it failed; the Sources part waits for both.
+let sourcesLoaded = false;
+let sourcesFailed = false;
+let areasFailed = false;
+// The Area each source's select was changed to, only where it differs from the stored area.
+const picks = {};
 // The (articles, issues) a proposal must reach to be marked; null until it is set.
 let birthThreshold = null;
 
@@ -949,6 +961,10 @@ const focusAfterLeaving = (id) => (areaRow(id) ?? closedSummary()).focus();
 
 const activeAreas = () => areas.filter((area) => area.status === "active");
 const orderDirty = () => localOrder.join() !== storedOrder.join();
+const storedArea = (name) => sources.find((source) => source.name === name)?.area_id ?? null;
+const pickedArea = (name) => (name in picks ? picks[name] : storedArea(name));
+const changedSources = () => sources.map((source) => source.name)
+  .filter((name) => pickedArea(name) !== storedArea(name));
 const thresholdDirty = () => thresholdValues() !== storedThreshold();
 
 // The Areas nav link carries one dot for every unsaved change on the tab.
@@ -985,8 +1001,36 @@ function renderAreas() {
     : areasLoaded ? "<li>No closed areas.</li>" : "";
   $("threshold-hint").hidden = birthThreshold !== null;
   $("save-order").disabled = !areasWritable || !orderDirty();
+  renderAssign();
   updateAreasDot();
   if (openArea !== null) openAreaEditor(openArea);
+}
+
+// Every select lists None, the active areas in order, the proposals, and the stored area
+// when it is neither, so an untouched row keeps its value.
+function areaOptions(cur) {
+  const active = activeAreas();
+  const proposed = areas.filter((area) => area.status === "proposed");
+  const option = (area) => `<option value="${area.id}"${area.id === cur ? " selected" : ""}>${esc(area.name)}</option>`;
+  const known = [...active, ...proposed].some((area) => area.id === cur);
+  return `<option value=""${cur === null ? " selected" : ""}>None</option>`
+    + active.map(option).join("")
+    + (proposed.length ? `<optgroup label="Proposed">${proposed.map(option).join("")}</optgroup>` : "")
+    + (cur !== null && !known ? `<option value="${cur}" selected>Area ${cur} (not active)</option>` : "");
+}
+
+// The table waits for both reads, so no select can show a stored area before the list it names.
+function renderAssign() {
+  const ready = areasLoaded && sourcesLoaded;
+  const failed = areasFailed || sourcesFailed;
+  const changed = changedSources();
+  $("assign-body").innerHTML = failed ? ""
+    : !ready ? `<tr data-loading><td colspan="2" class="small">Loading sources…</td></tr>`
+    : sources.length ? sources.map((source) => `
+      <tr><td class="name">${esc(source.name)}</td>
+        <td><div class="areas-cell"><select class="select" aria-label="Area for ${esc(source.name)}" data-source="${esc(source.name)}"${areasWritable ? "" : " disabled"}>${areaOptions(pickedArea(source.name))}</select></div></td></tr>`).join("")
+    : `<tr><td class="small" colspan="2">No sources yet. <a href="#sources">Add one under Sources</a>.</td></tr>`;
+  $("save-assign").disabled = !areasWritable || !changed.length;
 }
 
 // The destructive confirm: the first press arms the button, a second within three seconds acts.
@@ -1224,6 +1268,16 @@ async function saveOrder() {
 }
 $("save-order").addEventListener("click", saveOrder);
 
+$("assign-body").addEventListener("change", (e) => {
+  const name = e.target.dataset.source;
+  if (name === undefined) return;
+  const value = e.target.value === "" ? null : Number(e.target.value);
+  if (value === storedArea(name)) delete picks[name]; else picks[name] = value;
+  $("assign-result").hidden = true;
+  renderAssign();
+  document.querySelector(`select[data-source="${CSS.escape(name)}"]`).focus();
+});
+
 const loadAreas = () =>
   fetch("/api/areas")
     .then((r) => (r.status === 401 ? Promise.reject(SESSION_EXPIRED) : r.json()))
@@ -1232,6 +1286,7 @@ const loadAreas = () =>
       areas = d.areas;
       areasWritable = d.writable;
       areasLoaded = true;
+      areasFailed = false;
       const activeIds = activeAreas().map((area) => area.id);
       const clean = !orderDirty();
       storedOrder = activeIds;
@@ -1249,6 +1304,7 @@ const loadAreas = () =>
       areas = [];
       areasWritable = false;
       areasLoaded = false;
+      areasFailed = true;
       localOrder = [];
       storedOrder = [];
       syncSourceArea?.();

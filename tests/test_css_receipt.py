@@ -610,6 +610,7 @@ EXPECTED_IDS = {
     "areas-position-local",
     "areas-save-order",
     "areas-save-order-refused",
+    "areas-source-options",
     "areas-tap-375",
     "areas-threshold-saves",
     "areas-threshold-refused",

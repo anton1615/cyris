@@ -241,6 +241,7 @@ def _seed_polish_areas() -> dict[int, Area]:
     """Three active areas in order Tech, Food, Finance; X proposed at 12/3; Y at 4/1."""
     active = [("Tech", 0), ("Food", 1), ("Finance", 2)]
     proposed = [("X", 12, 3), ("Y", 4, 1)]
+    dismissed = [("Old", 2, 1)]
     listed = [
         Area(
             id=index,
@@ -266,6 +267,19 @@ def _seed_polish_areas() -> dict[int, Area]:
             last_proposed_run=None,
         )
         for index, (name, articles, issues) in enumerate(proposed, start=len(active) + 1)
+    ]
+    listed += [
+        Area(
+            id=index,
+            name=name,
+            position=0,
+            status="dismissed",
+            merged_into=None,
+            proposal_articles=articles,
+            proposal_issues=issues,
+            last_proposed_run=None,
+        )
+        for index, (name, articles, issues) in enumerate(dismissed, start=len(listed) + 1)
     ]
     return {area.id: area for area in listed}
 
@@ -413,6 +427,8 @@ def build_fixture(kind: str) -> Fixture:
         if kind == "writable-areas-polish":
             # The source the assignment table opens with Tech selected.
             store.sources["曼報"] = store.sources["曼報"].model_copy(update={"area_id": 1})
+            # Stored to an area that was dismissed: the select keeps it as "not active".
+            store.sources["<b>x</b>"] = store.sources["<b>x</b>"].model_copy(update={"area_id": 6})
         if kind.startswith("writable-areas"):
             seeded = kind != "writable-areas-empty"
             threshold = (10, 3) if kind in ("writable-areas", "writable-areas-polish") else None
@@ -3783,6 +3799,35 @@ CHECKS += [
             expect(same(areaNames(), ["Finance", "Tech", "Food"]), `rows: ${areaNames()}`);
         """,
         sabotage="""$("#order-result").hidden = true;""",
+    ),
+    Check(
+        id="areas-source-options",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            await waitFor(() => $$("#assign-body select").length, "the source selects");
+        """,
+        script="""
+            const stored = $('select[data-source="<b>x</b>"]');
+            expect(stored.value === "6", `value: ${stored.value}`);
+            expect(stored.selectedOptions[0].textContent === "Area 6 (not active)",
+                   `option: ${stored.selectedOptions[0].textContent}`);
+            expect($("#save-assign").disabled, "Save assignments is enabled with no change");
+            const plain = $('select[data-source="Simon Willison"]');
+            expect(plain.value === "" && plain.selectedOptions[0].textContent === "None",
+                   `none: ${plain.value}`);
+            expect(same([...plain.options].map((o) => o.textContent),
+                        ["None", "Tech", "Food", "Finance", "X", "Y"]),
+                   `options: ${[...plain.options].map((o) => o.textContent)}`);
+            const group = plain.querySelector("optgroup");
+            expect(group && group.label === "Proposed"
+                   && same([...group.children].map((o) => o.textContent), ["X", "Y"]),
+                   "no Proposed optgroup with X and Y");
+            setValue($('select[data-source="Simon Willison"]'), "3");
+            expect(!$("#save-assign").disabled, "Save assignments is disabled after a pick");
+        """,
+        sabotage="""$('select[data-source="<b>x</b>"] option[value="6"]').remove();""",
     ),
     Check(
         id="areas-tap-375",

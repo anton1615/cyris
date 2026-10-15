@@ -39,3 +39,9 @@ def test_the_areas_category_has_a_panel_with_one_heading(page: str) -> None:
 def test_the_script_routes_the_areas_hash() -> None:
     script = (STATIC / "settings.js").read_text()
     assert re.search(r'const TABS = \[[^\]]*"areas"[^\]]*\];', script)
+
+
+def test_the_areas_doc_names_the_not_active_option() -> None:
+    doc = (Path(__file__).parents[1] / "docs/design/ui-language.md").read_text()
+    row = next(line for line in doc.splitlines() if line.startswith("| `#areas`"))
+    assert row.count("`Area N (not active)`") == 1
