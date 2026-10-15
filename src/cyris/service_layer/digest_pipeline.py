@@ -86,6 +86,7 @@ class DigestPipeline:
         timezone: str,
         article_scores: dict[str, float] | None = None,
         preference: PreferenceSource | None = None,
+        date: str | None = None,
     ) -> ProcessResult:
         """Process articles through tier-based pipeline.
 
@@ -99,11 +100,12 @@ class DigestPipeline:
             timezone: IANA timezone for date formatting.
             preference: Scores the articles this issue kept, by URL, to order the
                 headlines and Features before the cap; None keeps the model's order.
+            date: The issue's date, YYYY-MM-DD; None means today in `timezone`.
 
         Returns:
             ProcessResult with content and URL classification.
         """
-        today = now_in_timezone(timezone).strftime("%Y-%m-%d")
+        today = date or now_in_timezone(timezone).strftime("%Y-%m-%d")
         source_names = {a.source_name for a in articles}
 
         if not articles:

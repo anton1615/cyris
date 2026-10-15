@@ -149,6 +149,30 @@ def _raw_page_for(deps: "Deps", key: tuple[str, str], stored) -> tuple[bool, dic
     return True, {path: writer.render_raw(key[0], key[1], rows)}
 
 
+def _rerun_rows(deps: "Deps", options: RunOptions, summary: dict) -> list[StoredArticle]:
+    """The stored articles a rerun was given, in recorded order, whatever their state.
+
+    A recorded URL whose row is gone is skipped and counted in `inputs_missing`.
+    """
+    if deps.digest_input_store is None:
+        return []
+    urls = deps.digest_input_store.load(options.rerun_of, options.period) or []
+    found = {a.url: a for a in deps.store.get_by_urls(urls)}
+    summary["inputs_missing"] = len(urls) - len(found)
+    return [found[url] for url in urls if url in found]
+
+
+def _keeping_scores(kept: dict[str, float], then):
+    """A score persist that also keeps each batch's scores by URL, then calls `then`."""
+
+    def persist(url_to_score_lang: dict[str, tuple[float, str]]) -> None:
+        kept.update({url: score for url, (score, _lang) in url_to_score_lang.items()})
+        if then is not None:
+            then(url_to_score_lang)
+
+    return persist
+
+
 def _republish_missing(deps: "Deps", summary: dict, *, chooses_no_llm: bool) -> None:
     """Publish every stored issue the site does not list: one whose run failed to publish.
 
@@ -387,14 +411,14 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
 
     # Before anything that can end the run early: the run after a failed publish
     # is often one with nothing new, and it still owes the site that issue.
-    if not options.dry_run:
+    if not options.dry_run and options.rerun_of is None:
         try:
             _republish_missing(deps, summary, chooses_no_llm=llm_cfg.chooses_no_llm)
         except Exception as e:
             logger.error("Failed to check for unpublished issues: %s", e)
 
     # Pull promote-button clicks from the cloud Worker (non-blocking on failure)
-    if deps.sync_promotions is not None:
+    if deps.sync_promotions is not None and options.rerun_of is None:
         try:
             vote_count = await asyncio.to_thread(deps.sync_promotions)
             if vote_count:
@@ -402,48 +426,59 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         except Exception as e:
             logger.warning("Promotion sync failed: %s", e)
 
-    # Fetch
-    articles, failed_sources = await fetch_all_articles(
-        fetch_sources=deps.fetch_sources,
-        after=window_start,
-        before=now,
-        sources=cfg.sources,
-    )
-
-    summary["fetched"] = len(articles)
-    summary["failed_sources"] = failed_sources
-
-    if failed_sources:
-        progress(f"WARNING: fetch failed for: {', '.join(failed_sources)}")
-
-    if not articles:
-        logger.warning("No articles found in time window")
-        progress("No articles found. Nothing to process.")
-        summary["status"] = "no_articles"
-        return RunReport(status="no_articles", failed_sources=failed_sources)
-
-    # Save articles to store
-    if not options.dry_run:
-        save_result = store.save(articles)
-        logger.info(
-            "Saved %d new articles to store (%d skipped duplicates)",
-            save_result.saved_count,
-            save_result.skipped_count,
+    rerun = options.rerun_of is not None
+    failed_sources: list[str] = []
+    fresh_scores: dict[str, float] = {}
+    if rerun:
+        summary["rerun_of"] = options.rerun_of
+        pending_articles = _rerun_rows(deps, options, summary)
+        if not pending_articles:
+            summary["status"] = "no_inputs"
+            return RunReport(status="no_inputs")
+        scorable = select_scorable(pending_articles, force=True)
+        load_end = datetime.now(UTC)
+    else:
+        # Fetch
+        articles, failed_sources = await fetch_all_articles(
+            fetch_sources=deps.fetch_sources,
+            after=window_start,
+            before=now,
+            sources=cfg.sources,
         )
 
-    # Articles saved in this run get a first_seen_at later than the `now`
-    # captured at run start, and load_by_time_range's end bound is exclusive —
-    # take a fresh end bound so this run's own articles are included.
-    load_end = datetime.now(UTC)
+        summary["fetched"] = len(articles)
+        summary["failed_sources"] = failed_sources
 
-    # Score unscored PENDING non-news articles
-    state_filter = None if options.force else ArticleState.PENDING
-    pending_articles = _newest(
-        store.load_by_time_range(start=window_start, end=load_end, state_filter=state_filter),
-        cfg.app.digest.max_articles_per_digest,
-    )
+        if failed_sources:
+            progress(f"WARNING: fetch failed for: {', '.join(failed_sources)}")
 
-    scorable = select_scorable(pending_articles, force=options.force)
+        if not articles:
+            logger.warning("No articles found in time window")
+            progress("No articles found. Nothing to process.")
+            summary["status"] = "no_articles"
+            return RunReport(status="no_articles", failed_sources=failed_sources)
+
+        # Save articles to store
+        if not options.dry_run:
+            save_result = store.save(articles)
+            logger.info(
+                "Saved %d new articles to store (%d skipped duplicates)",
+                save_result.saved_count,
+                save_result.skipped_count,
+            )
+
+        # Articles saved in this run get a first_seen_at later than the `now`
+        # captured at run start, and load_by_time_range's end bound is exclusive —
+        # take a fresh end bound so this run's own articles are included.
+        load_end = datetime.now(UTC)
+        # Score unscored PENDING non-news articles
+        state_filter = None if options.force else ArticleState.PENDING
+        pending_articles = _newest(
+            store.load_by_time_range(start=window_start, end=load_end, state_filter=state_filter),
+            cfg.app.digest.max_articles_per_digest,
+        )
+
+        scorable = select_scorable(pending_articles, force=options.force)
 
     total_usage = UsageStats(model=cfg.app.llm_provider.model or NO_LLM_MODEL)
     area_picks: dict[str, AreaPick] = {}
@@ -457,6 +492,10 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
             except Exception as e:
                 logger.warning("Failed to persist scoring tags: %s", e)
 
+    persist_scores = None if options.dry_run else store.update_scores
+    if rerun:
+        persist_scores = _keeping_scores(fresh_scores, persist_scores)
+
     if scorable and deps.llm is not None:
         progress(f"Scoring {len(scorable)} articles...")
         try:
@@ -465,7 +504,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
                 deps.llm,
                 snippet_length=cfg.app.digest.scoring_snippet_length,
                 progress=progress,
-                persist=None if options.dry_run else store.update_scores,
+                persist=persist_scores,
                 persist_tags=persist_tags,
                 area_names=AreaCatalog(cfg.areas).names(),
             )
@@ -476,7 +515,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     elif scorable:
         logger.info("No LLM configured; skipping scoring for %d articles", len(scorable))
 
-    if deps.area_store is not None and not options.dry_run:
+    if deps.area_store is not None and not options.dry_run and not rerun:
         try:
             counts = proposal_counts(area_picks, AreaCatalog(cfg.areas))
             if counts:
@@ -486,10 +525,16 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
             summary["area_proposal_error"] = type(e).__name__
 
     # Reload pending articles after scoring
-    pending_articles = _newest(
-        store.load_by_time_range(start=window_start, end=load_end, state_filter=state_filter),
-        cfg.app.digest.max_articles_per_digest,
-    )
+    if rerun:
+        pending_articles = [
+            a.model_copy(update={"score": fresh_scores[a.url]}) if a.url in fresh_scores else a
+            for a in pending_articles
+        ]
+    else:
+        pending_articles = _newest(
+            store.load_by_time_range(start=window_start, end=load_end, state_filter=state_filter),
+            cfg.app.digest.max_articles_per_digest,
+        )
 
     # Vote similarity runs over every candidate, not just the scored ones: the
     # scorer skips news, and the class that drew the first downvote is news-tagged.
@@ -592,6 +637,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         cfg.sources,
         period=options.period,
         timezone=tz,
+        date=options.rerun_of,
         article_scores=article_scores,
         preference=order,
     )
