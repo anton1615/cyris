@@ -73,7 +73,6 @@ PROSE_SELECTORS = (
     ".lead-story .summary",
     ".news-cluster .summary",
     ".article-item .summary",
-    ".section-description",
     ".headline-item .summary",
 )
 
@@ -149,7 +148,7 @@ def content(grouped_lead: bool = False) -> DigestContent:
                 story_id=f"{DATE}-{PERIOD}-1",
             ),
         ],
-        # Between Features and In Focus on the page, so it holds the first `.article-item`.
+        # Between the Top story and the first area on the page: the first `.article-item`.
         tracked_topics=[
             DigestSection(
                 heading="A tracked topic",
@@ -162,7 +161,7 @@ def content(grouped_lead: bool = False) -> DigestContent:
                 items=[_item(f"fan-{n}", f"Followed story {n}", ["Fan"]) for n in range(1, 3)],
             )
         ],
-        # One section, so the five items share one list.
+        # Five radar items: with no area order they are the first rows of the one unnamed section.
         attention_sections=[
             DigestSection(
                 heading="Worth watching",
@@ -170,7 +169,7 @@ def content(grouped_lead: bool = False) -> DigestContent:
                 items=[_item(f"radar-{n}", f"Radar item {n}", ["Blog"]) for n in range(1, 6)],
             )
         ],
-        # One Wire row with a sentence as long as the filter writes, one with a short one
+        # Three Wire rows: one with a sentence as long as the filter writes, one with a short one
         # and a folded source list, and one the filter wrote no summary for.
         filtered_headlines=[
             _item("wire-1", "Headline one", ["Wire"], summary=LONG_WIRE_SUMMARY),
@@ -318,9 +317,6 @@ const expectEveryItem = (measure) => {
 const bringIntoView = (selector) => {
   $(selector).scrollIntoView({block: "center", behavior: "instant"});
 };
-// A grid's column count: the distinct left edges among its items.
-const columns = (selector) => new Set(
-  [...$(selector).children].map((item) => Math.round(item.getBoundingClientRect().left))).size;
 const oneRow = (group) => {
   const up = $('[data-vote="up"]', group).getBoundingClientRect();
   const down = $('[data-vote="down"]', group).getBoundingClientRect();
