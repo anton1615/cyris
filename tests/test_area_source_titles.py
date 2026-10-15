@@ -1,10 +1,13 @@
 """The Propose prompt reads each source's newest titles, flattened and shortened, in one query."""
 
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fakes import CountingD1
 
+from cyris.adapters.store import source_titles
 from cyris.adapters.store.source_titles import D1SourceTitles
 
 pytestmark = pytest.mark.unit
@@ -66,3 +69,24 @@ def test_a_source_with_no_article_is_absent() -> None:
     _article(db, "https://a.test/1", "A", "A title", NOW, NOW)
 
     assert "B" not in D1SourceTitles(db).recent(NOW)
+
+
+ARCHITECTURE = Path(__file__).parent.parent / "docs/architecture.md"
+
+
+@pytest.mark.parametrize("name", ["TITLES_PER_SOURCE", "TITLE_MAX_CHARS", "TITLE_LOOKBACK_DAYS"])
+def test_each_title_budget_constant_has_a_grade_a_row_with_its_value(name: str) -> None:
+    rows = [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in ARCHITECTURE.read_text(encoding="utf-8").splitlines()
+        if line.startswith("|") and f"`{name}` = " in line
+    ]
+    stated = [
+        int(match.group(1))
+        for cells in rows
+        if cells[1] == "A"
+        for match in [re.search(rf"`{name}` = (\d+)", cells[2])]
+        if match
+    ]
+
+    assert stated == [getattr(source_titles, name)], f"{name} has no grade-A row in §5"
