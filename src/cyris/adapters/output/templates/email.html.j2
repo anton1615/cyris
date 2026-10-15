@@ -112,11 +112,6 @@
                 <p class="summary">{{ lead_story.summary }}</p>
                 {% if lead_story.grouped %}{{ members(lead_story) }}{% else %}{{ meta(lead_story) }}{% endif %}
             </article>
-        </section>
-        {% endif %}
-
-        {% if featured_articles %}
-        <section class="section">
             {% for item in featured_articles %}
             <article class="item" lang="{{ '' if item.passed_through else content_lang }}">
                 {% if item.score %}<span class="pill">{{ "%.1f" | format(item.score) }}</span>{% endif %}
@@ -157,8 +152,8 @@
             {% endfor %}{% endfor %}
             {% if area.rows %}
             <ol class="wire" lang="{{ content_lang }}">
-                {% for item in area.rows %}
-                <li{% if item.passed_through %} lang=""{% endif %}><span class="idx">{{ "%03d" | format(loop.index) }}</span>{{ title_link(item) }}{% if item.summary %}<p class="summary">{{ item.summary }}</p>{% endif %}</li>
+                {% for row in area.rows %}{% set item = row.item %}
+                <li lang="{{ '' if row.untranslated else content_lang }}"><span class="idx">{{ "%03d" | format(loop.index) }}</span>{{ title_link(item) }}{% if item.summary %}<p class="summary">{{ item.summary }}</p>{% endif %}</li>
                 {% endfor %}
             </ol>
             {% endif %}

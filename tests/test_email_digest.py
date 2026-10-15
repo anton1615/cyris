@@ -233,7 +233,72 @@ class TestSections:
 
         title = '<a href="https://wire.test/1">Wire One</a>'
         assert f'{title}<p class="summary">Wire One summary.</p></li>' in wire
-        assert '<li><span class="idx">003</span>No Link</li>' in wire
+        assert '<li lang=""><span class="idx">003</span>No Link</li>' in wire
+
+
+def _entry(title: str, summary: str, area: str | None = None) -> DigestItem:
+    return DigestItem(
+        title=title,
+        summary=summary,
+        sources=["Src"],
+        urls=[f"https://{title.lower().replace(' ', '-')}.test/"],
+        area=area,
+    )
+
+
+def _top_story_block(html: str) -> str:
+    start = html.index('<h2 class="section-tag"><span class="rule"></span>Top story</h2>')
+    return html[start : html.index("</section>", start)]
+
+
+class TestAreaSkeletonLayout:
+    def test_the_top_story_block_holds_every_story_of_the_headline(self):
+        headline = DigestSection(
+            heading="Top",
+            summary=None,
+            items=[_entry(title, f"{title} summary.") for title in ("X1", "X2", "X3")],
+        )
+        content = DigestContent(
+            date="2026-09-27",
+            period="morning",
+            sources_processed=1,
+            articles_received=4,
+            articles_included=4,
+            usage=UsageStats(),
+            featured_articles=[
+                headline,
+                DigestSection(heading="F", items=[_entry("Tech Feature", "F.", area="Tech")]),
+            ],
+            area_order=["Tech"],
+        )
+
+        html = render_digest_email(content, DIGEST_URL)
+        block = _top_story_block(html)
+
+        for title in ("X1", "X2", "X3"):
+            assert f">{title}<" in block
+        assert MARKER.findall(block) == ["Top story"]
+        assert MARKER.findall(html) == ["Top story", "Tech"]
+
+    def test_a_radar_row_is_untranslated_and_a_headline_row_takes_the_output_language(self):
+        content = DigestContent(
+            date="2026-09-27",
+            period="morning",
+            sources_processed=1,
+            articles_received=2,
+            articles_included=2,
+            usage=UsageStats(),
+            output_language="en",
+            area_order=["Tech"],
+            attention_sections=[
+                DigestSection(heading="Radar", items=[_entry("Radar Row", "R.", area="Tech")])
+            ],
+            filtered_headlines=[_entry("Wire Row", "W.", area="Tech")],
+        )
+
+        html = render_digest_email(content, DIGEST_URL)
+
+        assert re.findall(r'<li lang="([^"]*)"', html) == ["", "en"]
 
 
 class TestLanguage:
