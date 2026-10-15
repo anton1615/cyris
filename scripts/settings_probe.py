@@ -3972,6 +3972,27 @@ CHECKS += [
         sabotage=restyle("table.src.assign tr, table.src.assign td { display: block; }"),
     ),
     Check(
+        id="areas-proposal-picked",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="Hacker News"]'), "the row");
+            setValue($('select[data-source="Simon Willison"]'), "4");
+            setValue($('select[data-source="Hacker News"]'), "4");
+        """,
+        script="""
+            const line = () => areaRowOf("X").querySelector(".areas-note");
+            expect(line()?.textContent === "2 sources picked", `two: ${line()?.textContent}`);
+            setValue($('select[data-source="Hacker News"]'), "");
+            expect(line()?.textContent === "1 source picked", `one: ${line()?.textContent}`);
+            setValue($('select[data-source="Simon Willison"]'), "");
+            expect(!line(), `none: ${line()?.textContent}`);
+            expect(!$("#area-body .areas-note"), "an active area shows a picked line");
+        """,
+        sabotage="""$("#proposed-body .areas-note").textContent = "3 sources picked";""",
+    ),
+    Check(
         id="areas-tap-375",
         fixture="writable-areas",
         path="/settings#areas",

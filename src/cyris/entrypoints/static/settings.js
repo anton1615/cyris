@@ -963,6 +963,12 @@ const activeAreas = () => areas.filter((area) => area.status === "active");
 const orderDirty = () => localOrder.join() !== storedOrder.join();
 const storedArea = (name) => sources.find((source) => source.name === name)?.area_id ?? null;
 const pickedArea = (name) => (name in picks ? picks[name] : storedArea(name));
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+// The unsaved selects that point at a proposal, said under its name.
+const picked = (id) => {
+  const n = Object.keys(picks).filter((name) => picks[name] === id).length;
+  return n ? `<span class="small areas-note">${plural(n, "source")} picked</span>` : "";
+};
 const changedSources = () => sources.map((source) => source.name)
   .filter((name) => pickedArea(name) !== storedArea(name));
 const thresholdDirty = () => thresholdValues() !== storedThreshold();
@@ -990,7 +996,7 @@ function renderAreas() {
   $("proposed-body").innerHTML = proposed.length
     ? proposed.map((area) => `
       <tr class="src-row" data-id="${area.id}" tabindex="0">
-        <td class="name">${esc(area.name)}</td>
+        <td class="name">${esc(area.name)}${picked(area.id)}</td>
         <td class="small">${area.proposal_articles} articles / ${area.proposal_issues} issues${
           meetsThreshold(area) ? ' <span class="pill">Meets birth threshold</span>' : ""}</td>
       </tr>${proposalRow(area)}`).join("")
@@ -1276,7 +1282,7 @@ $("assign-body").addEventListener("change", (e) => {
   const value = e.target.value === "" ? null : Number(e.target.value);
   if (value === storedArea(name)) delete picks[name]; else picks[name] = value;
   $("assign-result").hidden = true;
-  renderAssign();
+  renderAreas();
   document.querySelector(`select[data-source="${CSS.escape(name)}"]`).focus();
 });
 
