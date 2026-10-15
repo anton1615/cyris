@@ -3993,6 +3993,96 @@ CHECKS += [
         sabotage="""$("#proposed-body .areas-note").textContent = "3 sources picked";""",
     ),
     Check(
+        id="areas-reload-keeps-unsaved",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="Hacker News"]'), "the rows");
+            setValue($('[data-pos="3"]'), "0");
+            setValue($('select[data-source="Simon Willison"]'), "3");
+            setValue($('select[data-source="Hacker News"]'), "4");
+            setValue($('select[data-source="曼報"]'), "5");
+            areaRowOf("X").click();
+            await waitFor(editor, "the editor");
+            editorAct("merge").click();
+            editorAct("merge").click();
+            await waitFor(() => !areaRowOf("X") && !editor(), "the merge");
+            areaRowOf("Y").click();
+            await waitFor(editor, "the editor");
+            editorAct("dismiss").click();
+            editorAct("dismiss").click();
+            await waitFor(() => !areaRowOf("Y") && !editor(), "the dismiss");
+        """,
+        script="""
+            expect(same(areaNames(), ["Finance", "Tech", "Food"]), `rows: ${areaNames()}`);
+            const value = (name) => $(`select[data-source="${name}"]`).value;
+            expect(value("Simon Willison") === "3", `pick: ${value("Simon Willison")}`);
+            expect(value("Hacker News") === "1", `merged pick: ${value("Hacker News")}`);
+            expect(value("曼報") === "1", `dismissed pick: ${value("曼報")}`);
+            expect(!$("#save-order").disabled, "Save order is disabled");
+        """,
+        sabotage="""localOrder = storedOrder.slice(); renderAreas();""",
+    ),
+    Check(
+        id="areas-reload-source-gone",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="Hacker News"]'), "the rows");
+            setValue($('select[data-source="Simon Willison"]'), "3");
+            setValue($('select[data-source="Hacker News"]'), "4");
+            const realFetch = window.fetch;
+            window.fetch = async (input, init) => {
+              if (!String(input).endsWith("/api/sources") || (init && init.method)) {
+                return realFetch(input, init);
+              }
+              const data = await (await realFetch(input, init)).json();
+              const sources = data.sources.filter((s) => s.name !== "Hacker News");
+              return new Response(JSON.stringify({...data, sources}));
+            };
+            await loadSources();
+        """,
+        script="""
+            expect(!$('#assign-body select[data-source="Hacker News"]'),
+                   "Hacker News is still listed");
+            expect($('select[data-source="Simon Willison"]').value === "3",
+                   `pick: ${$('select[data-source="Simon Willison"]').value}`);
+            expect(!$("#save-assign").disabled, "Save assignments is disabled");
+        """,
+        sabotage="""delete picks["Simon Willison"]; renderAreas();""",
+    ),
+    Check(
+        id="areas-reload-activated",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        act="""
+            await areasListed();
+            await waitFor(() => $('#assign-body select[data-source="Simon Willison"]'), "the rows");
+            setValue($('[data-pos="3"]'), "0");
+            setValue($('select[data-source="Simon Willison"]'), "4");
+            areaRowOf("X").click();
+            await waitFor(editor, "the editor");
+            editorAct("activate").click();
+            await waitFor(() => areaNames().includes("X"), "the activation");
+            await fetch("/api/areas/assign", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({assignments: {"Simon Willison": 4}}),
+            });
+            await loadSources();
+        """,
+        script="""
+            expect(same(areaNames(), ["Finance", "Tech", "Food", "X"]), `rows: ${areaNames()}`);
+            expect($('select[data-source="Simon Willison"]').value === "4",
+                   `pick: ${$('select[data-source="Simon Willison"]').value}`);
+            expect($("#save-assign").disabled, "Save assignments still has a change");
+            expect(!$("#save-order").disabled, "Save order is disabled");
+        """,
+        sabotage="""$("#save-assign").disabled = false;""",
+    ),
+    Check(
         id="areas-tap-375",
         fixture="writable-areas",
         path="/settings#areas",

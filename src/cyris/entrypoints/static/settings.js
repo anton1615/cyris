@@ -744,6 +744,7 @@ function loaded(d) {
   sourcesWritable = d.writable;
   sourcesLoaded = true;
   sourcesFailed = false;
+  reconcilePicks();
   renderAreas();
   $("add-source").disabled = !d.writable;
   if (!d.writable) show("err", NO_SOURCE_TABLE, "sources-notice");
@@ -969,6 +970,25 @@ const picked = (id) => {
   const n = Object.keys(picks).filter((name) => picks[name] === id).length;
   return n ? `<span class="small areas-note">${plural(n, "source")} picked</span>` : "";
 };
+// What a pick means after a reload: a merged area's pick follows it to its target, and a pick
+// is dropped when its area is dismissed or gone, or when it no longer differs from the stored one.
+const resolvePick = (id) => {
+  if (id === null) return null;
+  const area = areas.find((x) => x.id === id);
+  if (area?.status === "merged") {
+    return activeAreas().some((x) => x.id === area.merged_into) ? area.merged_into : undefined;
+  }
+  return area && (area.status === "active" || area.status === "proposed") ? id : undefined;
+};
+function reconcilePicks() {
+  // Nothing is judged against a list that has not answered, so a failed read keeps every pick.
+  if (!areasLoaded || !sourcesLoaded) return;
+  for (const name of Object.keys(picks)) {
+    const value = sources.some((s) => s.name === name) ? resolvePick(picks[name]) : undefined;
+    if (value === undefined || value === storedArea(name)) delete picks[name];
+    else picks[name] = value;
+  }
+}
 const changedSources = () => sources.map((source) => source.name)
   .filter((name) => pickedArea(name) !== storedArea(name));
 const thresholdDirty = () => thresholdValues() !== storedThreshold();
@@ -1295,6 +1315,7 @@ const loadAreas = () =>
       areasWritable = d.writable;
       areasLoaded = true;
       areasFailed = false;
+      reconcilePicks();
       const activeIds = activeAreas().map((area) => area.id);
       const clean = !orderDirty();
       storedOrder = activeIds;
@@ -1313,8 +1334,6 @@ const loadAreas = () =>
       areasWritable = false;
       areasLoaded = false;
       areasFailed = true;
-      localOrder = [];
-      storedOrder = [];
       syncSourceArea?.();
       $("propose-areas").disabled = true;
       show("err", e === SESSION_EXPIRED ? e.message
