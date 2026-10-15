@@ -667,7 +667,6 @@ TYPE_ROLES = [
     (9, "digest", ".issue-title", "clamp(56px, 8.75vw, 119px)"),
     (10, "digest", ".stats-card", "14px"),
     (12, "digest", ".section-tag", "12px"),
-    (14, "digest", ".section-description", "18px"),
     (17, "digest", ".lead-story h2", "clamp(28px, 4vw, 46px)"),
     (18, "digest", ".lead-story .summary", "18px"),
     (19, "digest", ".meta", "12px"),
@@ -678,7 +677,6 @@ TYPE_ROLES = [
     (27, "digest", ".thematic-block h3::before", "12px"),
     (28, "digest", ".item-title", "18px"),
     (29, "digest", ".article-item .summary", "18px"),
-    (32, "digest", ".attention-item .snippet", "18px"),
     (34, "digest", ".headline-item", "14px"),
     (35, "digest", ".headline-item .idx", "14px"),
     (48, "digest", ".headline-item .summary", "14px"),
@@ -829,15 +827,10 @@ def test_a_short_last_row_of_features_leaves_its_empty_cells_blank() -> None:
 BODY_TRACKS = "grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr))"
 
 
-def test_features_and_the_radar_list_share_one_fluid_track_rule() -> None:
+def test_the_feature_grid_is_one_fluid_track_rule() -> None:
     digest = _parsed("digest")
     assert BODY_TRACKS in digest[".featured-grid"]
-    assert BODY_TRACKS in digest[".attention-list"]
-    narrowed = [
-        key
-        for key in digest
-        if key.startswith("@media") and ("featured-grid" in key or "attention-list" in key)
-    ]
+    narrowed = [key for key in digest if key.startswith("@media") and "featured-grid" in key]
     assert narrowed == []
 
 
@@ -895,16 +888,13 @@ def test_every_footer_is_the_prototype_footer(page: str) -> None:
     assert _parsed(page)[".footer"] == parse_style_block(PROTOTYPE.read_text())[".footer"]
 
 
-# Every block of digest prose: the empty or degraded note, a section's description, and
-# each item's summary or snippet.
+# Every block of digest prose: the empty or degraded note and each item's summary.
 DIGEST_PROSE = (
     ".issue-note",
-    ".section-description",
     ".lead-story .summary",
     ".featured-item .summary",
     ".news-cluster .summary",
     ".article-item .summary",
-    ".attention-item .snippet",
 )
 
 
@@ -915,7 +905,7 @@ def test_digest_prose_stops_at_the_measure(key: str) -> None:
 
 def test_the_prototype_prose_stops_at_the_measure() -> None:
     prototype = parse_style_block(PROTOTYPE.read_text())
-    assert "max-width: var(--measure-wide)" in prototype[".summary, .snippet"]
+    assert "max-width: var(--measure-wide)" in prototype[".summary"]
     assert [key for key, rules in prototype.items() if "max-width: 70ch" in rules] == []
 
 

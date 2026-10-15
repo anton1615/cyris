@@ -238,7 +238,7 @@ details.more summary::after { content: ""; position: absolute; inset: calc(-1 * 
 .orig { display: inline-flex; justify-content: center; min-width: 44px; position: relative; }
 .orig::after { content: ""; position: absolute; inset: min(0px, calc((100% - 44px) / 2)); }
 .source-tag { color: var(--text-dim); }
-.summary, .snippet { font-size: calc(18px * var(--type-scale)); line-height: 1.65; color: var(--text-dim); max-width: var(--measure-wide); }
+.summary { font-size: calc(18px * var(--type-scale)); line-height: 1.65; color: var(--text-dim); max-width: var(--measure-wide); }
 .lead { border: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), var(--bg-elev)); padding: var(--s-8) var(--s-12); position: relative; }
 .lead::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }
 .lead h2 { font-weight: 600; font-size: calc(clamp(28px, 4vw, 46px) * var(--type-scale)); line-height: 1.1; letter-spacing: -.025em; margin: var(--s-3) 0 var(--s-5); }
@@ -262,12 +262,8 @@ details.more summary::after { content: ""; position: absolute; inset: calc(-1 * 
 .thematic-block h3::before { content: "▸"; color: var(--accent); font-size: calc(12px * var(--type-scale)); }
 .article-item { padding: var(--s-5) 0; border-bottom: 1px solid var(--border); }
 .article-item:last-child { border-bottom: 0; }
-.article-item h3, .article-item h4, .attention-item h4 { margin-bottom: var(--s-2); }
+.article-item h3, .article-item h4 { margin-bottom: var(--s-2); }
 .article-item .summary { margin-bottom: var(--s-3); }
-.attention-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--s-6); }
-.attention-item { padding: var(--s-4) var(--s-5); background: var(--bg-elev); border: 1px solid var(--border); transition: border-color var(--t-fast); }
-.attention-item:hover { border-color: var(--border-strong); }
-.attention-item .snippet { line-height: 1.55; margin-bottom: var(--s-2); }
 .headlines-compact { border: 1px solid var(--border); background: var(--bg-elev); padding: var(--s-1) 0; }
 .headline-item {
   display: flex; align-items: baseline; gap: var(--s-3); padding: var(--s-2) var(--s-5);
