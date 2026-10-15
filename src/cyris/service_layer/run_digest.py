@@ -24,7 +24,7 @@ from cyris.domain.triage import RejectReason
 from cyris.service_layer.area_stamp import stamp_areas
 from cyris.service_layer.digest_pipeline import DigestPipeline
 from cyris.service_layer.fetching import fetch_all_articles
-from cyris.service_layer.schedule import Period
+from cyris.service_layer.schedule import Period, is_latest_issue
 from cyris.service_layer.scoring import AreaPick, score_in_batches, select_scorable
 from cyris.service_layer.vote_order import VoteOrder
 from cyris.utils.timezone import now_in_timezone
@@ -429,12 +429,19 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     rerun = options.rerun_of is not None
     failed_sources: list[str] = []
     fresh_scores: dict[str, float] = {}
+    inputs: list[StoredArticle] = []
     if rerun:
         summary["rerun_of"] = options.rerun_of
+        # Before any LLM call or write: a publishing rerun only ever replaces the newest issue.
+        issues = deps.digest_store.issues() if deps.digest_store is not None else []
+        if not options.dry_run and not is_latest_issue((options.rerun_of, options.period), issues):
+            summary["status"] = "not_latest"
+            return RunReport(status="not_latest")
         pending_articles = _rerun_rows(deps, options, summary)
         if not pending_articles:
             summary["status"] = "no_inputs"
             return RunReport(status="no_inputs")
+        inputs = pending_articles
         scorable = select_scorable(pending_articles, force=True)
         load_end = datetime.now(UTC)
     else:
@@ -744,14 +751,17 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         # The next run republishes the digest from D1 `digests`, but not this page.
         # None of this may raise: the Discord notification still has to go out.
         collected = []
-        try:
-            collected = [
-                a
-                for a in store.load_by_time_range(start=window_start, end=load_end)
-                if a.url in url_to_state or a.state == ArticleState.PENDING
-            ]
-        except Exception as e:
-            logger.error("Failed to load the window's collected articles: %s", e)
+        if rerun:
+            collected = inputs
+        else:
+            try:
+                collected = [
+                    a
+                    for a in store.load_by_time_range(start=window_start, end=load_end)
+                    if a.url in url_to_state or a.state == ArticleState.PENDING
+                ]
+            except Exception as e:
+                logger.error("Failed to load the window's collected articles: %s", e)
 
         raw_page = deps.html_writer is not None and bool(collected)
         if raw_page and deps.publish_site is None:
@@ -795,11 +805,13 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
                 # No local archive: the pages are built in memory and the site's
                 # file list comes from D1. Nothing here touches the filesystem.
                 try:
-                    published = deps.publish_site(
-                        _render_site(
-                            deps, content, collected, raw_page=raw_page, degraded=degraded
-                        ),
-                        slug,
+                    pages = _render_site(
+                        deps, content, collected, raw_page=raw_page, degraded=degraded
+                    )
+                    published = (
+                        _publish_verified(deps, pages, slug)
+                        if rerun
+                        else deps.publish_site(pages, slug)
                     )
                     report.html_path = Path(filename)  # published, not written
                 except Exception as e:
@@ -833,7 +845,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
                 else:
                     publish_failed = True
 
-    if not options.dry_run:
+    if not options.dry_run and not rerun:
         if not notify.discord_webhook_url:
             # A run that notifies nobody looks exactly like a run that notified
             # everybody, from the log. Say which one it was.
@@ -866,6 +878,8 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
             )
 
     summary["status"] = "publish_failed" if publish_failed else "ok"
+    if rerun and publish_failed:
+        report.status = "publish_failed"
     summary["digest_url"] = digest_url
 
     return report
