@@ -624,6 +624,8 @@ EXPECTED_IDS = {
     "areas-assign-two-proposals",
     "areas-assign-order",
     "areas-assign-partial",
+    "areas-propose-notice",
+    "areas-propose-no-source",
     "areas-assign-unconfirmed",
     "areas-tap-375",
     "areas-threshold-saves",

@@ -1030,6 +1030,7 @@ function renderAreas() {
     : areasLoaded ? "<li>No closed areas.</li>" : "";
   $("threshold-hint").hidden = birthThreshold !== null;
   $("save-order").disabled = !areasWritable || !orderDirty();
+  $("propose-areas").disabled = !areasWritable || !sources.length;
   renderAssign();
   updateAreasDot();
   if (openArea !== null) openAreaEditor(openArea);
@@ -1237,12 +1238,11 @@ $("propose-areas").addEventListener("click", async () => {
       proposalSources[key] = [...new Set([...(proposalSources[key] ?? []), ...p.sources])];
     }
     await loadAreas();
-    show("ok", data.proposals.length
-      ? `${data.created} new areas proposed. Check each one's sources, then Confirm.`
-      : "The model proposed nothing new.", "areas-notice");
+    show("ok", data.created ? `${plural(data.created, "new proposal")} under Proposed.`
+      : "No new proposals.", "areas-notice");
   } catch (err) {
     show("err", err.message, "areas-notice");
-    button.disabled = !areasWritable;
+    button.disabled = !areasWritable || !sources.length;
   } finally {
     button.textContent = label;
   }
@@ -1355,7 +1355,6 @@ const loadAreas = () =>
         : [...localOrder.filter((id) => activeIds.includes(id)),
            ...activeIds.filter((id) => !localOrder.includes(id))];
       birthThreshold = d.birth_threshold;
-      $("propose-areas").disabled = !d.writable;
       if (!d.writable) show("err", NO_AREA_TABLE, "areas-notice");
       renderAreas();
       renderThreshold();

@@ -321,10 +321,6 @@
             <h2 class="heading">Areas</h2>
             <p class="small">The areas the model files each article under, and the proposals waiting for you.</p>
           </div>
-          <div class="toolbar">
-            <div class="notice" id="areas-notice" role="status" hidden></div>
-            <button class="btn primary" type="button" id="propose-areas" disabled>Propose areas from my sources</button>
-          </div>
           <h3 class="label">Areas</h3>
           <div class="table-wrap">
             <table class="src">
@@ -343,7 +339,13 @@
               <tbody id="proposed-body"></tbody>
             </table>
           </div>
-          <h3 class="label">Sources</h3>
+          <div class="toolbar">
+            <h3 class="label">Sources</h3>
+            <div class="actions-line">
+              <div class="notice" id="areas-notice" role="status" hidden></div>
+              <button class="btn primary" type="button" id="propose-areas" disabled>Propose areas from my sources</button>
+            </div>
+          </div>
           <div class="table-wrap">
             <table class="src assign">
               <thead><tr><th class="label">Source</th><th class="label">Area</th></tr></thead>

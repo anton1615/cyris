@@ -4434,8 +4434,8 @@ CHECKS += [
         preload=answer_post(
             "/api/areas/propose",
             """Promise.resolve(new Response(JSON.stringify({ok: false,
-              error: "The model call failed (TimeoutError)."}),
-              {status: 502, headers: {"Content-Type": "application/json"}}))""",
+              error: "No LLM is configured, so no areas are proposed."}),
+              {status: 409, headers: {"Content-Type": "application/json"}}))""",
         ),
         act="""
             await areasListed();
@@ -4446,8 +4446,10 @@ CHECKS += [
         script="""
             const notice = $("#areas-notice");
             expect(notice.classList.contains("err"), `notice: ${notice.className}`);
-            expect(notice.textContent === "The model call failed (TimeoutError).",
+            expect(notice.textContent === "No LLM is configured, so no areas are proposed.",
                    `notice: ${notice.textContent}`);
+            expect($("#propose-areas").textContent === "Propose areas from my sources",
+                   `label: ${$("#propose-areas").textContent}`);
             expect(!$("#propose-areas").disabled, "Propose is still disabled");
         """,
         sabotage="""$("#propose-areas").disabled = true;""",
@@ -4482,15 +4484,66 @@ CHECKS += [
         act="""
             await areasListed();
             $("#propose-areas").click();
-            await waitFor(() => $("#areas-notice").textContent.includes("nothing new"),
+            await waitFor(() => $("#areas-notice").textContent === "No new proposals.",
                           "the notice");
         """,
         script="""
-            expect($("#areas-notice").textContent === "The model proposed nothing new.",
+            expect($("#areas-notice").textContent === "No new proposals.",
                    `notice: ${$("#areas-notice").textContent}`);
             expect(!$(".sources-check"), "a checklist appeared for no proposal");
         """,
         sabotage="""$("#areas-notice").textContent = "0 new areas proposed.";""",
+    ),
+    Check(
+        id="areas-propose-notice",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload="""
+const realFetch = window.fetch;
+let answers = 0;
+window.fetch = (input, init) => {
+  if (!String(input).endsWith("/api/areas/propose") || !init || init.method !== "POST") {
+    return realFetch(input, init);
+  }
+  answers += 1;
+  const created = answers === 1 ? 1 : 0;
+  const proposals = answers === 1 ? [{id: 6, name: "Z", sources: ["Hacker News"]}] : [];
+  return Promise.resolve(new Response(JSON.stringify({ok: true, proposals, created}),
+    {headers: {"Content-Type": "application/json"}}));
+};
+""",
+        act="""
+            await areasListed();
+            $("#propose-areas").click();
+            await waitFor(() => $("#areas-notice").textContent === "1 new proposal under Proposed.",
+                          "the first notice");
+            $("#propose-areas").click();
+            await waitFor(() => $("#areas-notice").textContent === "No new proposals.",
+                          "the second notice");
+        """,
+        script="""
+            expect(!$("#propose-areas").disabled, "Propose is disabled after the answer");
+            expect(!$("#areas-notice").classList.contains("err"), "the notice is an error");
+        """,
+        sabotage="""$("#propose-areas").disabled = true;""",
+    ),
+    Check(
+        id="areas-propose-no-source",
+        fixture="writable-areas",
+        path="/settings#areas",
+        preload=answer_get(
+            "/api/sources",
+            """realFetch(input, init).then((r) => r.json()).then((d) => new Response(JSON.stringify(
+      {...d, sources: []}), {headers: {"Content-Type": "application/json"}}))""",
+        ),
+        act="""
+            await areasListed();
+            await waitFor(() => !$("#src-body [data-loading]"), "the sources");
+        """,
+        script="""
+            expect($("#propose-areas").disabled, "Propose is enabled with no source");
+        """,
+        sabotage="""$("#propose-areas").disabled = false;""",
     ),
     Check(
         id="areas-propose-busy",
@@ -4505,6 +4558,8 @@ CHECKS += [
         script="""
             expect($("#propose-areas").disabled, "Propose is enabled while the model answers");
             expect($("#propose-areas").textContent === "Proposing…", "the label did not change");
+            const busy = $("#areas-notice").getAttribute("aria-busy");
+            expect(busy === "true", `the notice is not busy: ${busy}`);
         """,
         sabotage="""$("#propose-areas").textContent = "Propose areas from my sources";""",
     ),
