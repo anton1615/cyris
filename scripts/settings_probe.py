@@ -673,6 +673,17 @@ window.fetch = (input, init) => {{
 """
 
 
+def delay_get(path: str, ms: int) -> str:
+    """A preload under which the page's GET of `path` answers `ms` late, as the server would."""
+    return f"""
+const realFetch = window.fetch;
+window.fetch = (input, init) =>
+  String(input).endsWith({json.dumps(path)}) && !(init && init.method)
+    ? new Promise((resolve) => setTimeout(resolve, {ms})).then(() => realFetch(input, init))
+    : realFetch(input, init);
+"""
+
+
 def reject_get(path: str) -> str:
     """A preload under which the page's GET of `path` fails as a network error would."""
     return f"""
@@ -3828,6 +3839,48 @@ CHECKS += [
             expect(!$("#save-assign").disabled, "Save assignments is disabled after a pick");
         """,
         sabotage="""$('select[data-source="<b>x</b>"] option[value="6"]').remove();""",
+    ),
+    Check(
+        id="areas-sources-both-reads",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=delay_get("/api/sources", 400),
+        act="""
+            await areasListed();
+            ctx.loadingWhileWaiting = !!$("#assign-body [data-loading]")
+              && $$("#assign-body select").length === 0;
+            await waitFor(() => $$("#assign-body select").length, "the source selects");
+        """,
+        script="""
+            expect(ctx.loadingWhileWaiting, "no loading row while the sources were out");
+            expect($('select[data-source="曼報"]').value === "1",
+                   `曼報: ${$('select[data-source="曼報"]').value}`);
+            expect($('select[data-source="<b>x</b>"]').value === "6",
+                   `<b>x</b>: ${$('select[data-source="<b>x</b>"]').value}`);
+            expect($('select[data-source="Simon Willison"]').value === "",
+                   "Simon Willison is not None");
+        """,
+        sabotage="""$('select[data-source="曼報"]').value = "";""",
+    ),
+    Check(
+        id="areas-areas-both-reads",
+        fixture="writable-areas-polish",
+        path="/settings#areas",
+        preload=delay_get("/api/areas", 400),
+        act="""
+            await waitFor(() => $("#assign-body tr"), "the sources part");
+            ctx.loadingWhileWaiting = !!$("#assign-body [data-loading]")
+              && $$("#assign-body select").length === 0;
+            await waitFor(() => $$("#assign-body select").length, "the source selects");
+        """,
+        script="""
+            expect(ctx.loadingWhileWaiting, "no loading row while the areas were out");
+            expect($('select[data-source="曼報"]').value === "1",
+                   `曼報: ${$('select[data-source="曼報"]').value}`);
+            expect($('select[data-source="<b>x</b>"]').value === "6",
+                   `<b>x</b>: ${$('select[data-source="<b>x</b>"]').value}`);
+        """,
+        sabotage="""$('select[data-source="曼報"]').value = "";""",
     ),
     Check(
         id="areas-tap-375",
