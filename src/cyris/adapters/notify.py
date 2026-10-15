@@ -181,7 +181,9 @@ def build_discord_embeds(
         if text:
             embeds.append(
                 {
-                    "title": section_label(section) or UNNAMED_SECTION_TITLE,
+                    "title": UNNAMED_SECTION_TITLE
+                    if section.role == "unnamed"
+                    else section_label(section),
                     "description": text,
                     "color": 0x5865F2,
                 }

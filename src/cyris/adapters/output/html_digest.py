@@ -20,7 +20,7 @@ FAVICON = Path(__file__).parent / "favicon.svg"
 
 
 # The marker the surfaces draw above a section no active area claims. The layout gives only
-# the role; the words are the reader's, so they live here beside the other spec labels.
+# the role, so the words stay out of domain/ (docs/architecture.md §5, section labels).
 UNPLACED_SECTION_LABEL = "Other"
 
 

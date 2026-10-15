@@ -293,7 +293,7 @@ is clipped on a phone instead of scrolling the whole page sideways.
 The body is the Top story, then Tracking, then one section per active area in /settings order, cards above
 rows (`layout_by_area` places every entry). With no areas, one unnamed section holds
 them all. Unclaimed entries close the body as "Other". Empty sections are left out, and Discord follows the
-same order. Each section is one `<section class="section">`, and its name is printed once, only by the opening
+same order, titling the unnamed section "Digest". Each section is one `<section class="section">`, and its name is printed once, only by the opening
 section marker (§4), with no number and no repeated large section title. The section marker is an `h2`; Top
 story is the exception and uses a `div`, because the lead card's title is itself that section's `h2`.
 
