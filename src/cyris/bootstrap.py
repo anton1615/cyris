@@ -290,6 +290,9 @@ class Deps:
     # Set instead of `publish` when the site is published from the D1 manifest:
     # takes {path: bytes} for this run's pages. Nothing touches the filesystem.
     publish_site: Callable[[dict[str, bytes], str], bool] | None = None
+    # Takes (path, expected bytes) and says whether the live page serves them; bound to
+    # the Pages project beside `publish_site`. None without the site publisher.
+    page_serves: Callable[[str, bytes], bool] | None = None
     site_filenames: Callable[[], list[str]] = field(default_factory=lambda: list)
     send_discord: Callable[..., Any] = send_discord
     on_progress: Callable[[str], None] = field(default=lambda _msg: None)
@@ -426,12 +429,14 @@ def build_deps(
     html_writer = None
     publish = None
     publish_site = None
+    page_serves = None
     site_filenames: Callable[[], list[str]] = list
     if cfg.app.html_output.enabled:
         from cyris.adapters.output.html_digest import HtmlDigestWriter
 
         html_writer = HtmlDigestWriter(Path(cfg.app.html_output.output_dir))
         if cfg.app.promote.publish_enabled:
+            from cyris.adapters.output.publish import page_serves as _serves
             from cyris.adapters.output.publish import publish_html_digest
             from cyris.adapters.output.publish import publish_site as _site
 
@@ -448,6 +453,7 @@ def build_deps(
                     pages_project=cfg.app.promote.pages_project,
                     receipt_store=D1PagesDeployReceipt(d1),
                 )
+                page_serves = partial(_serves, pages_project=cfg.app.promote.pages_project)
                 site_filenames = lambda: [p.lstrip("/") for p in manifest.load()]  # noqa: E731
             else:
                 publish = partial(
@@ -466,6 +472,7 @@ def build_deps(
         html_writer=html_writer,
         publish=publish,
         publish_site=publish_site,
+        page_serves=page_serves,
         site_filenames=site_filenames,
         sync_promotions=sync,
         log_usage=log_usage,

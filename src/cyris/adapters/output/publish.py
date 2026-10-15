@@ -390,6 +390,35 @@ def _await_verdict(
     return deployment
 
 
+def page_serves(pages_project: str, path: str, expected: bytes) -> bool:
+    """True when the live page at `path` serves exactly `expected`, within the poll budget.
+
+    The whole body is compared, not a title: an older render of the same issue carries
+    the same date and would pass `_page_is_live`. Pages serves the clean URL, so the
+    `.html` suffix is dropped before the request.
+    """
+    clean = path.removesuffix(".html").removesuffix("/index")
+    url = f"https://{pages_project}.pages.dev{clean or '/'}"
+    for poll in range(1, VERIFY_POLLS + 1):
+        if poll > 1:
+            time.sleep(VERIFY_INTERVAL_SECONDS)
+        try:
+            resp = httpx.get(url, timeout=VERIFY_TIMEOUT_SECONDS, follow_redirects=True)
+        except httpx.HTTPError as e:
+            logger.warning("Pages verify request failed (poll %d): %s", poll, e)
+            continue
+        if resp.status_code == 200 and resp.content == expected:
+            return True
+        logger.warning(
+            "Pages verify: %s served %d without the rendered page (poll %d)",
+            url,
+            resp.status_code,
+            poll,
+        )
+    logger.error("Pages verify: %s does not serve the rendered page", url)
+    return False
+
+
 def _page_is_live(pages_project: str, slug: str, deadline: _Deadline) -> bool:
     """Fetch the deployed page and assert it is the digest, not the 404 fallback.
 

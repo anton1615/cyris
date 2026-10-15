@@ -191,6 +191,24 @@ def _republish_missing(deps: "Deps", summary: dict, *, chooses_no_llm: bool) -> 
         summary["republish_failed"] = slugs
 
 
+def _publish_verified(deps: "Deps", pages: dict[str, bytes], slug: str) -> bool:
+    """True only when the site took `pages` and the live page serves the bytes just rendered.
+
+    Any failure, a missing publisher or page check included, is logged and reads as False.
+    """
+    path = f"/{slug}.html"
+    try:
+        if deps.publish_site is None or deps.page_serves is None:
+            logger.error("Publish: the site publisher or its page check is not wired")
+            return False
+        if not deps.publish_site(pages, slug):
+            return False
+        return deps.page_serves(path, pages[path])
+    except Exception as e:
+        logger.error("Publish verification failed for %s: %s", slug, e)
+        return False
+
+
 def rerender_digest(deps: "Deps", date: str, period: str) -> RunReport:
     """A stored issue re-rendered with today's templates; no LLM call, no write, no send."""
     if deps.digest_store is None or deps.html_writer is None:
