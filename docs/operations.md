@@ -194,6 +194,13 @@ D1 `blind_labels` (`docs/architecture.md` §4).
 
 - **Rotating `CYRIS_UI_TOKEN`** ends every session at once; that is how a session is
   revoked. Set the new value with `wrangler secret put` and log in again.
+- **Changing a secret the container reads** reaches it only when an instance starts: the app
+  Worker hands secrets over at start, and drops an empty one. A warm `ui` instance keeps the old
+  environment until it sleeps, so stay off `/settings` until `bunx wrangler containers instances
+  <application id> --env-file /dev/null` shows `ui` inactive (about 11 minutes after a secret
+  change on 2026-10-16). `wrangler secret put` with no terminal stores an empty value and still
+  reports success, so pipe the value in: `printf '%s' "$value" | bunx wrangler secret put <NAME>
+  --env-file /dev/null`.
 - **Logs** are in Workers Logs for 7 days (`bunx wrangler tail cyris-app --env-file
   /dev/null` for live output). The permanent record of runs and spend is D1:
   `digest_runs` and `usage_log`.
