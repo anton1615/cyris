@@ -613,8 +613,8 @@ Since then the app Worker also forwards `CLOUDFLARE_AI_TOKEN`, the `workers_ai` 
 Workers AI token, which falls back to `CLOUDFLARE_EMBEDDING_API_TOKEN` when blank, and
 `CLOUDFLARE_AIG_TOKEN`, the `ai_gateway` provider's AI Gateway Run token with no fallback. A
 deployment on `ai_gateway` can leave the three LLM API keys blank.
-The Clef vote order (`digest.preference_source = "clef"`) authenticates with it too, else with
-`CLOUDFLARE_EMBEDDING_API_TOKEN`.
+The Clef vote order (`digest.preference_source = "clef"`) authenticates with
+`CLOUDFLARE_AI_TOKEN` too, else with `CLOUDFLARE_EMBEDDING_API_TOKEN`.
 `CYRIS_UI_TOKEN`, the `/settings` login secret, is checked by the Worker and never forwarded. The
 authoritative lists are `SECRETS` in `workers/app/src/index.js` and `.env.example`, which
 `tests/test_deploy_inputs.py` holds in step.

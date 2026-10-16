@@ -262,7 +262,7 @@ async def probe_llm(llm_cfg) -> Check:
             "gateway": (
                 "Store this model's provider key under Provider Keys in the gateway named "
                 f"default (alias default), and check that {llm_cfg.api_key_env_var} carries "
-                "Workers AI Read. Then save again."
+                "AI Gateway Run. Then save again."
             ),
             "model": (
                 "Check the model name against Google's model list, written google/<model>. "

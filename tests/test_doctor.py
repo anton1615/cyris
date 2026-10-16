@@ -1218,7 +1218,7 @@ GATEWAY_RUN_URL = (
             401,
             {"success": False, "error": [{"code": 2009, "message": "Unauthorized"}]},
             "AI Gateway refused the request",
-            "Provider Keys",
+            ("Provider Keys", "AI Gateway Run"),
         ),
         (
             404,
@@ -1230,7 +1230,7 @@ GATEWAY_RUN_URL = (
                 }
             },
             "AI Gateway refused the model",
-            "model name",
+            ("model name",),
         ),
     ],
 )
@@ -1250,7 +1250,7 @@ async def test_an_ai_gateway_probe_names_which_side_refused(
     assert check.status == "fail"
     assert names in check.detail
     assert f"code={error['code']}" in check.detail and error["message"] in check.detail
-    assert fix in check.fix
+    assert all(part in check.fix for part in fix)
 
 
 async def test_ai_gateway_without_an_account_id_fails(tmp_path: Path, monkeypatch) -> None:
