@@ -197,6 +197,26 @@ up, 64 down) and 2 skipped. Seeded with every human vote outside the sample (167
 * The numbers were computed with the functions `cyris labels report` uses
   (`src/cyris/diagnostics/blind_labels.py`) on the same seeds; at 59 labels the two agreed.
 
+A tracked topic's threshold is the same kind of number with a different seed: one human-written
+description instead of voted titles. The first topic, `meta` ("meta's new model or AI-related
+product"), was read on 2026-10-16 with `cyris topic-sim --hours 168` over 1,485 titles,
+`gemini-embedding-001`. It had been saved at 0.30, which every title clears.
+
+| rank | cosine | title, abridged | the reader's verdict |
+|---|---|---|---|
+| 1 | 0.783 | Meta launches an open-weight AI model that runs on Macs | hit |
+| 2 | 0.763 | Meta releases its first frontier model, Muse Wonder | hit |
+| 3 | 0.737 | Meta推AI模型Muse Wonder | hit |
+| 4 | 0.665 | Anthropic is letting METR researchers look under the hood | miss |
+| 6 | 0.653 | 力旺資安IP打進Meta AI晶片 | out of scope |
+| 7 | 0.630 | Facebook is giving users more control over their algorithm | out of scope |
+
+* The reader set 0.70: precision 3 of 3, and nothing they counted as the topic falls below it.
+* Ranks 4 to 80 are AI news from other companies or Meta news that is not a model or AI product,
+  so the gap of +0.072 between rank 3 and rank 4 is the topic's edge, not a gap in the corpus.
+* 0.70 belongs to this description on this model. A broader description sits on a different
+  scale, which is why each topic stores its own threshold beside its model.
+
 ## More Information
 
 The section *A fixed threshold is the wrong shape* was added on 2026-10-08 from
