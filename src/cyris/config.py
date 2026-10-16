@@ -145,8 +145,8 @@ class LLMProviderConfig(BaseModel):
             "gemini": "GEMINI_API_KEY",
             "openai": "OPENAI_API_KEY",
             "workers_ai": "CLOUDFLARE_AI_TOKEN",
-            # `/ai/run` needs the same Workers AI -> Read, third-party models included.
-            "ai_gateway": "CLOUDFLARE_AI_TOKEN",
+            # The gateway's own Run permission, not Workers AI: the embedding token is 401 there.
+            "ai_gateway": "CLOUDFLARE_AIG_TOKEN",
             "none": "",
         }.get(self.provider, "ANTHROPIC_API_KEY")
 
@@ -157,7 +157,7 @@ class LLMProviderConfig(BaseModel):
         if not self.api_key:
             self.api_key = os.environ.get(self.api_key_env_var, "")
         if self.provider in ("workers_ai", "ai_gateway"):
-            if not self.api_key:
+            if not self.api_key and self.provider == "workers_ai":
                 # The Workers AI token `cyris embed-compare` already uses: the same
                 # "Workers AI -> Read" covers text models, so an existing setup needs
                 # nothing new. Deliberately never CLOUDFLARE_API_TOKEN — that one

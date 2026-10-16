@@ -143,7 +143,7 @@ def _check_llm(cfg: Config) -> Check:
         return Check("llm provider", "ok", "none — digests list plain excerpts, by choice")
     if not llm.api_key:
         hint = f"Put {llm.api_key_env_var} in .env."
-        if llm.provider in ("workers_ai", "ai_gateway"):
+        if llm.provider == "workers_ai":
             hint += " CLOUDFLARE_EMBEDDING_API_TOKEN also works: the same Workers AI "
             hint += "permission covers text models."
         where = "on /settings" if cfg.app.store.is_d1 else "in [llm_provider]"
@@ -262,11 +262,11 @@ async def probe_llm(llm_cfg) -> Check:
             "gateway": (
                 "Store this model's provider key under Provider Keys in the gateway named "
                 f"default (alias default), and check that {llm_cfg.api_key_env_var} carries "
-                "Workers AI Read. Then save again."
+                "AI Gateway Run. Then save again."
             ),
             "model": (
-                "Check the model name against Cloudflare's model catalog "
-                "(developers.cloudflare.com/ai/models), as author/model. Then save again."
+                "Check the model name against Google's model list, written google/<model>. "
+                "Then save again."
             ),
         }.get(e.side, refused)
         return Check(

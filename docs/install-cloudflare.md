@@ -110,7 +110,7 @@ Optional names, by feature. Add them to the same file now or later:
 
 | Feature | Names |
 |---|---|
-| LLM provider | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `CLOUDFLARE_AI_TOKEN` (Workers AI → Read; blank falls back to `CLOUDFLARE_EMBEDDING_API_TOKEN`) |
+| LLM provider | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `CLOUDFLARE_AI_TOKEN` (Workers AI → Read; blank falls back to `CLOUDFLARE_EMBEDDING_API_TOKEN`), or `CLOUDFLARE_AIG_TOKEN` (AI Gateway → Run, for `ai_gateway`; no fallback) |
 | Vote similarity | `CLOUDFLARE_EMBEDDING_API_TOKEN` (Workers AI → Read) for `bge-m3`, or `GEMINI_API_KEY` |
 | Discord links point at this Worker, where votes work | `CYRIS_PROMOTE_CUSTOM_DOMAIN`, a bare hostname: `cyris-app.<subdomain>.workers.dev` on a domainless deploy, or your own hostname |
 | The archive lives somewhere other than `<project>.pages.dev` | `DIGEST_ORIGIN` |

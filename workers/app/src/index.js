@@ -25,6 +25,7 @@ const SECRETS = {
   GEMINI_API_KEY: env.GEMINI_API_KEY,
   OPENAI_API_KEY: env.OPENAI_API_KEY,
   CLOUDFLARE_AI_TOKEN: env.CLOUDFLARE_AI_TOKEN,
+  CLOUDFLARE_AIG_TOKEN: env.CLOUDFLARE_AIG_TOKEN,
 };
 
 // Grade-B deployment identity. The deployer sets these as Worker secrets or
