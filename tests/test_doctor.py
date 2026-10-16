@@ -1205,46 +1205,56 @@ async def test_a_refused_llm_says_what_to_check_next(monkeypatch) -> None:
     assert "model name" in check.fix and "ANTHROPIC_API_KEY" in check.fix
 
 
-GATEWAY_RUN_URL = "https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run"
+GATEWAY_RUN_URL = (
+    "https://gateway.ai.cloudflare.com/v1/acct-1/default/google-ai-studio"
+    "/v1beta/models/gemini-3-pro:generateContent"
+)
 
 
 @pytest.mark.parametrize(
-    ("status", "code", "message", "names", "fix"),
+    ("status", "body", "names", "fix"),
     [
         (
-            402,
-            2021,
-            "Insufficient balance; add money to your gateway or use BYOK",
+            401,
+            {"success": False, "error": [{"code": 2009, "message": "Unauthorized"}]},
             "AI Gateway refused the request",
             "Provider Keys",
         ),
-        (404, 7003, "Model not found", "AI Gateway refused the model", "model name"),
+        (
+            404,
+            {
+                "error": {
+                    "code": 404,
+                    "message": "models/gemini-3-pro is not found",
+                    "status": "NOT_FOUND",
+                }
+            },
+            "AI Gateway refused the model",
+            "model name",
+        ),
     ],
 )
 async def test_an_ai_gateway_probe_names_which_side_refused(
-    backoff_sleeps, status, code, message, names, fix
+    backoff_sleeps, status, body, names, fix
 ) -> None:
     cfg = LLMProviderConfig(
         provider="ai_gateway", model="google/gemini-3-pro", api_key="cf", account_id="acct-1"
     )
     async with respx.mock:
-        route = respx.post(GATEWAY_RUN_URL).mock(
-            return_value=httpx.Response(
-                status, json={"success": False, "errors": [{"code": code, "message": message}]}
-            )
-        )
+        route = respx.post(GATEWAY_RUN_URL).mock(return_value=httpx.Response(status, json=body))
         check = await doctor.probe_llm(cfg)
 
+    error = body["error"][0] if isinstance(body["error"], list) else body["error"]
     assert route.call_count == 1
-    assert route.calls[0].request.headers["authorization"] == "Bearer cf"
+    assert route.calls[0].request.headers["cf-aig-authorization"] == "Bearer cf"
     assert check.status == "fail"
     assert names in check.detail
-    assert f"code={code}" in check.detail and message in check.detail
+    assert f"code={error['code']}" in check.detail and error["message"] in check.detail
     assert fix in check.fix
 
 
 async def test_ai_gateway_without_an_account_id_fails(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("CLOUDFLARE_AI_TOKEN", "ai-token")
+    monkeypatch.setenv("CLOUDFLARE_AIG_TOKEN", "aig-token")
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     cfg = _config(tmp_path, llm_provider={"provider": "ai_gateway"})
 
@@ -1252,6 +1262,21 @@ async def test_ai_gateway_without_an_account_id_fails(tmp_path: Path, monkeypatc
 
     assert check.status == "fail"
     assert "CLOUDFLARE_ACCOUNT_ID" in check.fix
+
+
+async def test_ai_gateway_without_its_token_names_it_and_ignores_the_embedding_token(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("CLOUDFLARE_AIG_TOKEN", raising=False)
+    monkeypatch.setenv("CLOUDFLARE_EMBEDDING_API_TOKEN", "embed-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct-1")
+    cfg = _config(tmp_path, llm_provider={"provider": "ai_gateway"})
+
+    check = _by_name(await doctor.run_checks(cfg), "llm provider")
+
+    assert check.status == "fail"
+    assert "CLOUDFLARE_AIG_TOKEN" in check.detail
+    assert "CLOUDFLARE_EMBEDDING_API_TOKEN" not in check.fix
 
 
 async def test_an_llm_with_no_key_says_which_variable_to_set(monkeypatch) -> None:

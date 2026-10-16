@@ -1,4 +1,4 @@
-"""Tests for the AI Gateway adapter: one `POST /ai/run` envelope, BYOK keys held by the gateway.
+"""Tests for the AI Gateway adapter: one native google-ai-studio call, BYOK held by the gateway.
 
 Every response body here is copied from Cloudflare's docs or from the ticket's measurement,
 never invented; the source sits beside each one.
@@ -17,9 +17,12 @@ pytestmark = pytest.mark.unit
 
 ACCOUNT = "acct-123"
 MODEL = "google/gemini-3.8-flash"
-RUN_URL = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/ai/run"
+RUN_URL = (
+    f"https://gateway.ai.cloudflare.com/v1/{ACCOUNT}/default/google-ai-studio"
+    "/v1beta/models/gemini-3.8-flash:generateContent"
+)
 
-# The `/ai/run` response for `google/gemini-3-flash` on the model catalog page,
+# A Gemini generateContent response as the model catalog page shows it,
 # https://developers.cloudflare.com/ai/models/google/gemini-3-flash/ — text shortened,
 # `thoughtSignature` dropped, every usage number kept as published.
 CATALOG_GEMINI_RESPONSE = {
@@ -49,10 +52,27 @@ def _client(model: str = MODEL) -> AIGatewayClient:
     return AIGatewayClient(api_token="test-cf-token", account_id=ACCOUNT, model=model)
 
 
-def _cloudflare_error(status: int, code: int, message: str) -> httpx.Response:
-    """Cloudflare's v4 error body, as the AI Gateway docs show it for their own refusals."""
+def _gateway_error(status: int, code: int, message: str) -> httpx.Response:
+    """The gateway's own refusal body, measured 2026-10-16 for a token without Run."""
     return httpx.Response(
-        status, json={"success": False, "errors": [{"code": code, "message": message}]}
+        status,
+        json={
+            "success": False,
+            "result": [],
+            "messages": [],
+            "error": [{"code": code, "message": message}],
+            "name": "AiGatewayError",
+            "httpCode": status,
+            "internalCode": code,
+            "message": message,
+        },
+    )
+
+
+def _google_error(status: int, code: int, message: str, status_name: str) -> httpx.Response:
+    """Google's refusal body passed through, measured 2026-10-16 for an unknown model."""
+    return httpx.Response(
+        status, json={"error": {"code": code, "message": message, "status": status_name}}
     )
 
 
@@ -71,8 +91,8 @@ async def test_the_catalog_response_yields_its_text_and_token_usage():
     assert response.neurons is None
 
 
-async def test_the_request_is_the_documented_envelope_and_nothing_else():
-    """No provider key and no gateway id: BYOK supplies the one, `default` is the other."""
+async def test_the_request_is_gemini_native_and_carries_only_the_gateway_token():
+    """No provider key: BYOK supplies it, and a header for one would bypass the stored key."""
     async with respx.mock:
         route = respx.post(RUN_URL).mock(
             return_value=httpx.Response(200, json=CATALOG_GEMINI_RESPONSE)
@@ -82,20 +102,18 @@ async def test_the_request_is_the_documented_envelope_and_nothing_else():
     assert route.call_count == 1
     request = route.calls[0].request
     assert str(request.url) == RUN_URL
-    assert request.headers["authorization"] == "Bearer test-cf-token"
+    assert request.headers["cf-aig-authorization"] == "Bearer test-cf-token"
     assert request.headers["content-type"] == "application/json"
-    assert not [name for name in request.headers if name.lower().startswith("cf-aig-")]
+    assert "authorization" not in request.headers
     assert "x-goog-api-key" not in request.headers
+    assert "x-api-key" not in request.headers
     assert json.loads(request.content) == {
-        "model": "google/gemini-3.8-flash",
-        "input": {
-            "contents": [{"role": "user", "parts": [{"text": "Summarise."}]}],
-            "systemInstruction": {"parts": [{"text": "Be brief."}]},
-            "generationConfig": {
-                "maxOutputTokens": 65536,
-                "responseMimeType": "application/json",
-                "temperature": 0.5,
-            },
+        "contents": [{"role": "user", "parts": [{"text": "Summarise."}]}],
+        "systemInstruction": {"parts": [{"text": "Be brief."}]},
+        "generationConfig": {
+            "maxOutputTokens": 65536,
+            "responseMimeType": "application/json",
+            "temperature": 0.5,
         },
     }
 
@@ -108,28 +126,10 @@ async def test_without_a_system_prompt_or_temperature_neither_is_sent():
         await _client().complete("Hi.", max_tokens=128)
 
     assert route.call_count == 1
-    assert json.loads(route.calls[0].request.content)["input"] == {
+    assert json.loads(route.calls[0].request.content) == {
         "contents": [{"role": "user", "parts": [{"text": "Hi."}]}],
         "generationConfig": {"maxOutputTokens": 128, "responseMimeType": "application/json"},
     }
-
-
-async def test_a_response_inside_cloudflares_result_wrapper_reads_the_same():
-    """The docs show the catalog body bare, and `/ai/run` for a `@cf/` model wrapped.
-
-    Which one a third-party model gets over REST is not stated, so both must parse.
-    """
-    wrapped = {"result": CATALOG_GEMINI_RESPONSE, "success": True, "errors": [], "messages": []}
-    async with respx.mock:
-        route = respx.post(RUN_URL).mock(return_value=httpx.Response(200, json=wrapped))
-        response = await _client().complete("Hi.")
-
-    assert route.call_count == 1
-    assert (response.text, response.input_tokens, response.output_tokens) == (
-        '{"ok": true}',
-        8,
-        1099,
-    )
 
 
 async def test_usage_reaches_the_run_total():
@@ -146,37 +146,42 @@ async def test_usage_reaches_the_run_total():
 
 
 @pytest.mark.parametrize(
-    ("status", "code", "message", "side"),
+    ("refusal", "side"),
     [
-        # Measured 2026-09-21 (ticket ai-gateway-provider-byok): a google model with no
-        # key stored in the gateway, whatever provider header the request carried.
-        (402, 2021, "Insufficient balance; add money to your gateway or use BYOK", "gateway"),
-        # https://developers.cloudflare.com/ai-gateway/usage/rest-api/#authentication
-        (401, 10000, "Authentication error", "gateway"),
-        # Measured 2026-09-21: the catalog is partial, and Cloudflare retires versions.
-        (404, 7003, "Model not found", "model"),
-        (410, 7010, "Model is deprecated, use anthropic/claude-sonnet-4.6", "model"),
+        (_gateway_error(401, 2009, "Unauthorized"), "gateway"),
+        (
+            _google_error(
+                404,
+                404,
+                "models/gemini-3-pro is not found for API version v1beta, or is not "
+                "supported for generateContent.",
+                "NOT_FOUND",
+            ),
+            "model",
+        ),
+        (_google_error(400, 400, "API key not valid.", "INVALID_ARGUMENT"), "unknown"),
     ],
 )
 async def test_a_refusal_names_which_side_refused_and_is_never_retried(
-    backoff_sleeps, status, code, message, side
+    backoff_sleeps, refusal, side
 ):
     async with respx.mock:
-        route = respx.post(RUN_URL).mock(return_value=_cloudflare_error(status, code, message))
+        route = respx.post(RUN_URL).mock(return_value=refusal)
         with pytest.raises(AIGatewayError) as raised:
             await _client().complete("Hi.")
 
     assert route.call_count == 1
     assert backoff_sleeps == []
     error = raised.value
-    assert (error.status, error.code, error.side) == (status, code, side)
-    assert error.message == message
-    assert message in str(error)
-    assert ("AI Gateway refused" if side == "gateway" else "refused the model") in str(error)
+    body = refusal.json()["error"]
+    body = body[0] if isinstance(body, list) else body
+    assert (error.status, error.code, error.side) == (refusal.status_code, body["code"], side)
+    assert error.message == body["message"]
+    assert body["message"] in str(error)
     assert MODEL in str(error)
 
 
-async def test_a_refusal_with_no_cloudflare_error_body_keeps_what_the_body_said(backoff_sleeps):
+async def test_a_refusal_with_no_json_error_body_keeps_what_the_body_said(backoff_sleeps):
     async with respx.mock:
         route = respx.post(RUN_URL).mock(return_value=httpx.Response(400, text="bad input shape"))
         with pytest.raises(AIGatewayError) as raised:
@@ -214,7 +219,7 @@ async def test_a_reply_with_no_candidates_says_why():
 
 
 async def test_an_author_this_adapter_cannot_parse_is_refused_before_any_request():
-    """Only the google body is documented end to end under `/ai/run`.
+    """Only the google body is parsed end to end.
 
     Guessing another author's usage field would report zero tokens, which reads as a
     measured run that cost nothing.

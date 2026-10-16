@@ -405,22 +405,25 @@ class TestLLMProvider:
         monkeypatch.setenv("CLOUDFLARE_EMBEDDING_API_TOKEN", "embed-token")
         assert LLMProviderConfig(provider="workers_ai", model="").api_key == "embed-token"
 
-    def test_ai_gateway_reads_the_workers_ai_token_and_account(self, monkeypatch):
-        """`/ai/run` needs Workers AI -> Read, the permission CLOUDFLARE_AI_TOKEN carries."""
+    def test_ai_gateway_reads_its_own_token_and_account(self, monkeypatch):
+        """The gateway's Run permission is not Workers AI -> Read, so CLOUDFLARE_AI_TOKEN is out."""
         from cyris.config import LLMProviderConfig
 
         monkeypatch.setenv("CLOUDFLARE_AI_TOKEN", "ai-token")
+        monkeypatch.setenv("CLOUDFLARE_AIG_TOKEN", "aig-token")
         monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct-1")
         config = LLMProviderConfig(provider="ai_gateway", model="")
-        assert config.api_key_env_var == "CLOUDFLARE_AI_TOKEN"
-        assert (config.api_key, config.account_id) == ("ai-token", "acct-1")
+        assert config.api_key_env_var == "CLOUDFLARE_AIG_TOKEN"
+        assert (config.api_key, config.account_id) == ("aig-token", "acct-1")
 
-    def test_ai_gateway_falls_back_to_the_embedding_token(self, monkeypatch):
+    def test_ai_gateway_never_falls_back_to_another_cloudflare_token(self, monkeypatch):
+        """The gateway answers 401 code 2009 to a Workers AI token."""
         from cyris.config import LLMProviderConfig
 
-        monkeypatch.delenv("CLOUDFLARE_AI_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_AIG_TOKEN", raising=False)
+        monkeypatch.setenv("CLOUDFLARE_AI_TOKEN", "ai-token")
         monkeypatch.setenv("CLOUDFLARE_EMBEDDING_API_TOKEN", "embed-token")
-        assert LLMProviderConfig(provider="ai_gateway", model="").api_key == "embed-token"
+        assert LLMProviderConfig(provider="ai_gateway", model="").api_key == ""
 
     def test_ai_gateway_needs_no_provider_key(self, monkeypatch):
         """The provider's key lives in the gateway (BYOK); the three LLM keys can go."""
@@ -428,9 +431,9 @@ class TestLLMProvider:
 
         for name in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"):
             monkeypatch.delenv(name, raising=False)
-        monkeypatch.setenv("CLOUDFLARE_AI_TOKEN", "ai-token")
+        monkeypatch.setenv("CLOUDFLARE_AIG_TOKEN", "aig-token")
         monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct-1")
-        assert LLMProviderConfig(provider="ai_gateway", model="").api_key == "ai-token"
+        assert LLMProviderConfig(provider="ai_gateway", model="").api_key == "aig-token"
 
     def test_workers_ai_never_uses_the_d1_pages_token(self, monkeypatch):
         """CLOUDFLARE_API_TOKEN carries D1 and Pages; using it here would 403 confusingly."""

@@ -64,7 +64,7 @@ def test_workers_ai_with_a_token_but_no_account_says_which_one(monkeypatch):
 
 
 def test_ai_gateway_with_a_token_but_no_account_says_which_one(monkeypatch):
-    monkeypatch.setenv("CLOUDFLARE_AI_TOKEN", "t")
+    monkeypatch.setenv("CLOUDFLARE_AIG_TOKEN", "t")
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
 
     with pytest.raises(typer.BadParameter, match="CLOUDFLARE_ACCOUNT_ID is empty"):

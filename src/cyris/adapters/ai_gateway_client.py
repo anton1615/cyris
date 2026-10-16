@@ -1,21 +1,22 @@
 """Cloudflare AI Gateway adapter satisfying the LLMClient protocol.
 
-One `POST /accounts/{id}/ai/run` with Cloudflare's envelope, `{"model": "author/model",
-"input": {...}}` (https://developers.cloudflare.com/ai-gateway/usage/rest-api/). The
-provider's key is not in the request: it is stored in the gateway (BYOK), and on this
-path that is mandatory — measured 2026-09-21, an embedded provider key, under every
-header tried, was refused with HTTP 402 code 2021 like no key at all. What the gateway
-gives back is a log of every request and response body, kept outside cyris.
+One `POST gateway.ai.cloudflare.com/v1/{account}/default/google-ai-studio/v1beta/models/
+{model}:generateContent`, Gemini's own endpoint behind the gateway
+(https://developers.cloudflare.com/ai-gateway/usage/providers/google-ai-studio/). The
+body and the response are `GeminiClient`'s. The provider's key is not in the request: it
+is stored in the gateway (BYOK) and the request carries only `cf-aig-authorization`. A
+provider-key header would be forwarded to Google and the stored key skipped.
 
-No gateway id is sent. Without `cf-aig-gateway-id` the request goes to the gateway named
-`default` (https://developers.cloudflare.com/ai-gateway/configuration/manage-gateway/),
-so the provider keys belong there.
+The REST route `/accounts/{id}/ai/run` was dropped: measured 2026-10-16, it answered
+HTTP 402 code 2021 with a BYOK key stored, because it bills Unified Billing credit and
+never reads BYOK. What the gateway gives back is a log of every request and response
+body, kept outside cyris.
 
-Only `google/*` is spoken. Its `input` is Gemini's own generateContent body and its
-response carries Gemini's `usageMetadata`, both shown under `/ai/run` on the model
-catalog page (https://developers.cloudflare.com/ai/models/google/gemini-3-flash/). The
-catalog shows Anthropic and OpenAI models only through their own-format endpoints, and a
-guessed usage field would report zero tokens, which reads as a measurement.
+No gateway id is configurable: the path names the gateway `default`, so the provider
+key belongs there.
+
+Only `google/*` is spoken, since `usageMetadata` is Gemini's. A guessed usage field for
+another author would report zero tokens, which reads as a measurement.
 """
 
 import asyncio
@@ -24,24 +25,25 @@ import httpx
 
 from cyris.service_layer.ports import LLMResponse
 
-_API_ROOT = "https://api.cloudflare.com/client/v4/accounts"
+_GATEWAY_ROOT = "https://gateway.ai.cloudflare.com/v1"
 _RETRYABLE_STATUS = (429, 500, 502, 503)
 _SUPPORTED_AUTHORS = ("google",)
 # Gemini 3.x flash's documented output limit, as in GeminiClient: thinking tokens
 # count against maxOutputTokens, so anything lower risks truncated JSON.
 _MAX_OUTPUT_TOKENS = 65536
 
-# Which side refused, by Cloudflare's error code. 2021 and the 7xxx codes are the
-# ticket's 2026-09-21 measurements; 10000 is the REST page's token without Workers AI.
-_GATEWAY_CODES = {2021, 10000}
-_MODEL_CODES = {7003, 7010}
+# The gateway's own refusal is a list in `error`; 2009 is the 2026-10-16 measurement of
+# a token without AI Gateway -> Run. Google's refusal is a dict whose `status` names the
+# cause, and NOT_FOUND is how it says the model is not there.
+_GATEWAY_CODES = {2009}
+_MODEL_STATUSES = {"NOT_FOUND"}
 
 
 class AIGatewayError(RuntimeError):
     """A refusal, with the side that refused it.
 
     `side` is "gateway" when the account, token or BYOK setup is the fix, "model" when
-    the model name is, and "unknown" when the body named no code this adapter knows.
+    the model name is, and "unknown" when the body matched neither shape this adapter knows.
     """
 
     def __init__(
@@ -60,10 +62,9 @@ class AIGatewayError(RuntimeError):
 
 
 class AIGatewayClient:
-    """Run a model through AI Gateway's REST API.
+    """Run a model through AI Gateway's Google AI Studio endpoint.
 
-    Needs a token carrying Workers AI -> Read: the REST page says every
-    `/accounts/{id}/ai/*` call needs that permission, third-party models included.
+    Needs a token carrying Account -> AI Gateway -> Run; a Workers AI token is 401 here.
     """
 
     def __init__(
@@ -76,9 +77,12 @@ class AIGatewayClient:
     ) -> None:
         self.model = model
         self._max_retries = max_retries
-        self._url = f"{_API_ROOT}/{account_id}/ai/run"
+        self._url = (
+            f"{_GATEWAY_ROOT}/{account_id}/default/google-ai-studio/v1beta/models/"
+            f"{model.partition('/')[2]}:generateContent"
+        )
         self._client = httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {api_token}"},
+            headers={"cf-aig-authorization": f"Bearer {api_token}"},
             timeout=timeout,
         )
 
@@ -105,11 +109,10 @@ class AIGatewayClient:
         }
         if temperature is not None:
             generation_config["temperature"] = temperature
-        model_input: dict = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
+        body: dict = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
         if system is not None:
-            model_input["systemInstruction"] = {"parts": [{"text": system}]}
-        model_input["generationConfig"] = generation_config
-        body = {"model": self.model, "input": model_input}
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+        body["generationConfig"] = generation_config
 
         for attempt in range(self._max_retries + 1):
             response = await self._client.post(self._url, json=body)
@@ -121,12 +124,6 @@ class AIGatewayClient:
             raise self._refusal(response)
 
         data = response.json()
-        # The catalog shows the body bare; `/ai/run` for a `@cf/` model wraps it in
-        # Cloudflare's `{success, result}`. Which a third-party model gets over REST
-        # is not stated, so either is read.
-        if "success" in data and isinstance(data.get("result"), dict):
-            data = data["result"]
-
         if not data.get("candidates"):
             block_reason = (data.get("promptFeedback") or {}).get("blockReason", "unknown")
             raise RuntimeError(f"{self.model} returned no candidates (blockReason {block_reason})")
@@ -148,20 +145,21 @@ class AIGatewayClient:
 
     def _refusal(self, response: httpx.Response) -> AIGatewayError:
         """The body's own code and words; raise_for_status() would keep only the status."""
-        code, message = None, response.text[:300]
+        code, message, side = None, response.text[:300], "unknown"
         try:
-            errors = response.json().get("errors")
+            error = response.json().get("error")
         except (ValueError, AttributeError):
-            errors = None
-        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
-            code = errors[0].get("code")
-            message = str(errors[0].get("message", errors[0]))
-        if code in _GATEWAY_CODES:
-            side = "gateway"
-        elif code in _MODEL_CODES:
-            side = "model"
-        else:
-            side = "unknown"
+            error = None
+        if isinstance(error, list) and error and isinstance(error[0], dict):
+            code = error[0].get("code")
+            message = str(error[0].get("message", error[0]))
+            if code in _GATEWAY_CODES:
+                side = "gateway"
+        elif isinstance(error, dict):
+            code = error.get("code")
+            message = str(error.get("message", error))
+            if error.get("status") in _MODEL_STATUSES:
+                side = "model"
         return AIGatewayError(
             model=self.model, status=response.status_code, code=code, message=message, side=side
         )

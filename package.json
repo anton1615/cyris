@@ -71,7 +71,10 @@
         "description": "Optional. A `Workers AI:Read` token for `@cf/baai/bge-m3` vote-similarity filtering. Not the same token as `CLOUDFLARE_API_TOKEN`."
       },
       "CLOUDFLARE_AI_TOKEN": {
-        "description": "Optional. A `Workers AI:Read` token for the `workers_ai` and `ai_gateway` LLM providers and the Clef vote order. Blank falls back to `CLOUDFLARE_EMBEDDING_API_TOKEN`, which the same permission already covers."
+        "description": "Optional. A `Workers AI:Read` token for the `workers_ai` LLM provider and the Clef vote order. Blank falls back to `CLOUDFLARE_EMBEDDING_API_TOKEN`, which the same permission already covers."
+      },
+      "CLOUDFLARE_AIG_TOKEN": {
+        "description": "Optional. An `Account > AI Gateway > Run` token for the `ai_gateway` LLM provider, sent as `cf-aig-authorization`. It has no fallback: the Workers AI tokens are refused by the gateway."
       }
     }
   }
