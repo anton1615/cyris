@@ -17,8 +17,9 @@ poll) and the publish hours.
 restore clears those tables in the trial's D1 and its pending votes, as
 `reset_trial.py` does, then writes the seed's rows, in one file import, which
 D1 runs atomically (https://blog.cloudflare.com/building-d1-a-global-database). It
-keeps every `settings` row, `usage_log` and `pages_*`: production's settings hold
-its notification targets, and its Pages rows name another Pages project. The
+keeps every `settings` row, `usage_log`, `schema_migrations` and `pages_*`:
+production's settings hold its notification targets, and its Pages rows name
+another Pages project. The
 trial's next run publishes every seeded issue its Pages project lacks.
 
 Without --yes, restore is a dry run: it prints each table's rows now and in the
@@ -239,7 +240,10 @@ def restore(
     votes = trial.votes()
     say(f"KV {trial.kv_binding} ({trial.promote_config}): {len(votes)} pending votes to delete")
     say(f"{split} rows run past D1's statement limit; each is sent as an INSERT and UPDATEs.")
-    say("Kept: every settings row, usage_log, pages_manifest, pages_deploy_receipt.")
+    say(
+        "Kept: every settings row, usage_log, schema_migrations, pages_manifest, "
+        "pages_deploy_receipt."
+    )
     if not write:
         say("Dry run: nothing was written. Run again with --yes to write.")
         return 0

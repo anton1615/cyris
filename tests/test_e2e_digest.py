@@ -326,6 +326,7 @@ EXPECTED_ROUTES = {
 # publish_site and the run record.
 EXPECTED_D1 = [
     "schema",
+    "SELECT schema_migrations",
     "SELECT settings",
     "SELECT sources",
     # An empty table: the run tracks no topic, so it embeds nothing.
