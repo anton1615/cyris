@@ -303,9 +303,9 @@ CREATE TABLE IF NOT EXISTS suppressions (
 );
 CREATE INDEX IF NOT EXISTS idx_suppressions_until ON suppressions(until);
 
--- Which versioned steps (adapters/store/migrations.py) this database has run.
--- One row per step id, written once; an id here that the code does not know is
--- left alone.
+-- Which versioned steps (adapters/store/migrations.py) this database has recorded.
+-- One row per step id, written once the step has run or its precondition shows it
+-- is not needed; an id here that the code does not know is left alone.
 CREATE TABLE IF NOT EXISTS schema_migrations (
   id         TEXT PRIMARY KEY,
   applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
