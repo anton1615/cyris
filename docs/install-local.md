@@ -66,7 +66,7 @@ The file's commented entries show each shape a source takes. For ready-made entr
 `src/cyris/onboarding_feeds.json` lists the publishers' own feeds the onboarding wizard
 offers; each entry there is already a source in this shape but for `topics`, the list's own
 grouping, which a source does not have (leave it out), and YAML reads a JSON object as written,
-so a copied entry goes in as `- {"name": …, "url": …}`. Each source takes a tier; see [How sources are processed](sources.md).
+so a copied entry goes in as `- {"name": …, "url": …}`. Each source takes a lane; see [How sources are processed](sources.md).
 Email-only newsletters (`type: newsletter`) are inert locally. Until `sources.yaml` lists
 a source, `cyris doctor` warns that it is waiting for onboarding and every run ends
 having fetched nothing.
