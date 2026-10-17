@@ -236,9 +236,10 @@ def test_the_dry_run_prints_every_table_count_before_anything(reset) -> None:
 
     _, out = _main(reset, wrangler)
 
-    counts = dict(re.fullmatch(r"  (\w+)\s+(\d+)", line).groups() for line in out[1:17])
+    n = len(reset.CLEARED)
+    counts = dict(re.fullmatch(r"  (\w+)\s+(\d+)", line).groups() for line in out[1 : 1 + n])
     assert counts == {t: "2" if t in ("sources", "areas") else "1" for t in reset.CLEARED}
-    assert "KV PROMOTIONS" in out[25] and "2 pending votes" in out[25]
+    assert "KV PROMOTIONS" in out[n + 9] and "2 pending votes" in out[n + 9]
 
 
 def test_a_table_the_database_lacks_is_reported_and_not_sent(reset) -> None:

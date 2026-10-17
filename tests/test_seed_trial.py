@@ -104,6 +104,19 @@ def test_save_exports_only_the_cleared_tables_from_production(seed, seeds: Path)
     assert export[4] == "cyris-rss"
 
 
+def test_save_skips_a_cleared_table_production_lacks(seed, seeds: Path) -> None:
+    production = SeedWrangler()
+    production.db.execute("DROP TABLE suppressions")
+
+    code, out = _main(seed, production, seeds, "save", "--name", "base")
+
+    assert code == 0, out
+    (export,) = [c for c in production.calls if c[2:4] == ["d1", "export"]]
+    exported = [export[i + 1] for i, a in enumerate(export) if a == "--table"]
+    assert exported == [t for t in seed.CLEARED if t != "suppressions"]
+    assert re.fullmatch(r"  suppressions\s+absent", out[1 + seed.CLEARED.index("suppressions")])
+
+
 def test_save_names_the_seed_after_productions_commit(seed, seeds: Path) -> None:
     _saved(seed, seeds)
 
@@ -200,7 +213,8 @@ def test_the_dry_run_writes_nothing_and_prints_rows_now_and_in_the_seed(seed, se
     assert code == 0
     assert trial.writes() == [] and [c for c in trial.calls if "--file" in c] == []
     assert {t: trial.count(t) for t in seed.CLEARED} == before
-    shown = dict(re.fullmatch(r"  (\w+)\s+(\S+ -> \d+)", line).groups() for line in out[1:17])
+    n = len(seed.CLEARED)
+    shown = dict(re.fullmatch(r"  (\w+)\s+(\S+ -> \d+)", line).groups() for line in out[1 : 1 + n])
     assert shown["sources"] == "1 -> 2"
     assert shown["areas"] == "2 -> 2"
     assert out[-1].startswith("Dry run: nothing was written")
