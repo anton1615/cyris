@@ -18,7 +18,12 @@ ACCT = "0123456789abcdef0123456789abcdef"
 DIGEST = "sha256:" + "a" * 64
 KV = "fedcba9876543210fedcba9876543210"
 D1 = "11111111-2222-4333-8444-555555555555"
-TEMPLATES = ["wrangler.toml", "workers/promote/wrangler.toml", "workers/rss/wrangler.toml"]
+TEMPLATES = [
+    "wrangler.toml",
+    "workers/promote/wrangler.toml",
+    "workers/rss/wrangler.toml",
+    "workers/newsletter/wrangler.toml",
+]
 
 
 def make_tree(tmp_path: Path, *scripts: str) -> Path:
