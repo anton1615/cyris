@@ -1537,3 +1537,20 @@ def test_a_creation_that_fails_does_not_deploy(monkeypatch):
 
     assert ok is False
     assert deployed == []
+
+
+def test_a_leftover_interest_page_leaves_the_deploy_and_the_saved_manifest(monkeypatch, manifest):
+    live = ["/A.html", "/B.html"]
+    deployed = []
+    _publish_env(monkeypatch, live_paths=live, deployed=deployed)
+    manifest.save({**{p: "h" for p in live}, "/index.html": "i", "/interest.html": "m"})
+
+    ok = publish_mod.publish_site(
+        {"/new.html": b"x", "interest.html": b"y"}, "slug", manifest, "proj", _Receipt()
+    )
+
+    assert ok is True
+    new_files, kept = deployed[0]
+    assert set(new_files) == {"/new.html"}
+    assert set(kept) == {"/A.html", "/B.html", "/index.html"}
+    assert "/interest.html" not in manifest.load()

@@ -948,7 +948,7 @@ def triage_ui(
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Debug logging")] = False,
 ) -> None:
     """Start the settings web UI: LLM provider, digest hours, notifications, sources, topics;
-    and /labels, the blind-label page."""
+    /labels, the blind-label page; and /interest, the interest map."""
     _setup_logging(verbose)
 
     from cyris.adapters.store.areas import D1AreaStore
@@ -956,6 +956,7 @@ def triage_ui(
     from cyris.adapters.store.d1_store import D1ArticleStore
     from cyris.adapters.store.digests import D1DigestStore
     from cyris.adapters.store.feed_health import D1FeedHealth
+    from cyris.adapters.store.interest import D1InterestReader
     from cyris.adapters.store.runs import D1RunLog
     from cyris.adapters.store.source_store import D1SourceStore
     from cyris.adapters.store.source_titles import D1SourceTitles
@@ -997,10 +998,12 @@ def triage_ui(
             feed_checker=build_feed_checker() if d1 else None,
             digest_store=D1DigestStore(d1) if d1 else None,
             run_log=D1RunLog(d1, "") if d1 else None,
+            interest_reader=D1InterestReader(d1).read if d1 else None,
         )
         await server.start()
         typer.echo(f"Settings:  http://{host}:{port}/settings")
         typer.echo(f"Labels:    http://{host}:{port}/labels")
+        typer.echo(f"Interest:  http://{host}:{port}/interest")
         typer.echo("Press Ctrl+C to stop")
 
         # In the Container this process is PID 1, and Linux drops signals that
