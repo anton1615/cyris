@@ -18,14 +18,14 @@
 # email-only newsletter. Uncomment and edit them, or write your own.
 
 defaults:
-  tier: filter
+  lane: skim
   language: auto  # auto-detect, or force: zh, en, ja
 
 sources: []
   # A feed, at a tier other than the default, with tags of your own.
   # - name: "The Verge"
   #   url: "https://www.theverge.com/rss/index.xml"
-  #   tier: summarize
+  #   lane: read
   #   tags: [tech]
 
   # A feed in a language auto-detection might miss. A `news` tag routes the source's
@@ -50,5 +50,5 @@ sources: []
   #   type: newsletter
   #   email_match: "from:newsletter@example.com"
   #   homepage: "https://newsletter.example.com"
-  #   tier: summarize
+  #   lane: read
   #   tags: [newsletter]

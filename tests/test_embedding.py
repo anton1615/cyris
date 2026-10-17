@@ -276,7 +276,7 @@ def _vote_sim_world(tmp_path: Path, monkeypatch) -> Path:
     from fakes import settings_toml
 
     from cyris.adapters.store import ArticleStore
-    from cyris.domain.models import Article, Tier
+    from cyris.domain.models import Article, Lane
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("cyris.bootstrap.build_embedder", lambda cfg: _WindowEmbedder())
@@ -295,7 +295,7 @@ def _vote_sim_world(tmp_path: Path, monkeypatch) -> Path:
             content="c",
             published_at=now - timedelta(hours=1),
             source_name="Src",
-            source_tier=Tier.SUMMARIZE,
+            source_lane=Lane.READ,
         )
         for i, title in enumerate(titles)
     ]

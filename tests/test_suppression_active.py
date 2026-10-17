@@ -62,8 +62,8 @@ def test_a_stored_hold_comes_back_as_it_was_written() -> None:
 def test_a_hold_on_an_article_a_human_has_since_decided_is_not_returned() -> None:
     db = SqliteD1()
     db.query(
-        "INSERT INTO stored_articles (url, title, published_at, source_name, source_tier, "
-        "first_seen_at, state, triaged_at) VALUES (?, ?, ?, 'Source', 'filter', ?, ?, ?)",
+        "INSERT INTO stored_articles (url, title, published_at, source_name, source_lane, "
+        "first_seen_at, state, triaged_at) VALUES (?, ?, ?, 'Source', 'skim', ?, ?, ?)",
         ["c1", "c1", NOW, NOW, "accepted", NOW],
     )
     store = D1Suppressions(db, MODEL)

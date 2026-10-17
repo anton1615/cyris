@@ -15,8 +15,8 @@ EARLIER = "2026-10-10T08:00:00+00:00"
 
 def _article(db: SqliteD1, url: str, state: str, triaged: bool, tags: list[str]) -> None:
     db.query(
-        "INSERT INTO stored_articles (url, title, published_at, source_name, source_tier, "
-        "first_seen_at, state, triaged_at) VALUES (?, ?, ?, 'Source', 'filter', ?, ?, ?)",
+        "INSERT INTO stored_articles (url, title, published_at, source_name, source_lane, "
+        "first_seen_at, state, triaged_at) VALUES (?, ?, ?, 'Source', 'skim', ?, ?, ?)",
         [url, url, NOW, NOW, state, NOW if triaged else None],
     )
     for tag in tags:

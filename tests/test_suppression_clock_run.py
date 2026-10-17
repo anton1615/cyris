@@ -17,7 +17,7 @@ import cyris.utils.timezone as timezone_module
 from cyris.adapters.store.d1 import D1Error
 from cyris.adapters.store.d1_store import D1ArticleStore
 from cyris.adapters.store.suppressions import D1Suppressions
-from cyris.domain.models import Article, ArticleState, Tier
+from cyris.domain.models import Article, ArticleState, Lane
 from cyris.domain.similarity import normalize
 from cyris.service_layer.run_digest import RunOptions, run_digest
 
@@ -41,7 +41,7 @@ def _fixed_clock(monkeypatch, when: datetime, *also) -> None:
         monkeypatch.setattr(module, "datetime", Fixed)
 
 
-def _article(article_id: int, title: str, url: str, when: datetime, tier=Tier.SUMMARIZE) -> Article:
+def _article(article_id: int, title: str, url: str, when: datetime, lane=Lane.READ) -> Article:
     return Article(
         id=article_id,
         title=title,
@@ -49,7 +49,7 @@ def _article(article_id: int, title: str, url: str, when: datetime, tier=Tier.SU
         content="Some text.",
         published_at=when - timedelta(hours=1),
         source_name="NotifySource",
-        source_tier=tier,
+        source_lane=lane,
         source_tags=["tech"],
     )
 
@@ -88,14 +88,14 @@ def _world(
     fail: bool = False,
     suppressions=None,
     store=None,
-    tier=Tier.SUMMARIZE,
+    lane=Lane.READ,
     extra=(),
 ):
     """Two votes, and candidates A (titled 'Outlier') plus nine others, judged at `when`."""
     candidates = (
-        [_article(1, "Outlier", A, when, tier)]
+        [_article(1, "Outlier", A, when, lane)]
         + [
-            _article(10 + i, f"Tech {i}", f"https://example.com/t{i}", when, tier)
+            _article(10 + i, f"Tech {i}", f"https://example.com/t{i}", when, lane)
             for i in range(len(SPREAD))
         ]
         + list(extra)

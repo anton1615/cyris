@@ -7,7 +7,7 @@ from fakes import CountingD1, SqliteD1
 
 from cyris.adapters.store.d1_store import D1ArticleStore
 from cyris.adapters.store.suppressions import D1Suppressions
-from cyris.domain.models import Article, Tier
+from cyris.domain.models import Article, Lane
 from cyris.domain.suppression import Suppression, suppression_until
 
 pytestmark = pytest.mark.unit
@@ -28,7 +28,7 @@ def _article(url: str) -> Article:
         url=url,
         published_at=datetime(2026, 10, 17, tzinfo=UTC),
         source_name="s",
-        source_tier=Tier.FILTER,
+        source_lane=Lane.SKIM,
     )
 
 

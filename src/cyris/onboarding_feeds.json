@@ -12,7 +12,7 @@
     {
       "name": "中央社即時新聞 政治新聞",
       "url": "https://feeds.feedburner.com/rsscna/politics",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["taiwan"]
@@ -20,7 +20,7 @@
     {
       "name": "中央社即時新聞 科技新聞",
       "url": "https://feeds.feedburner.com/rsscna/technology",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["tech", "taiwan"]
@@ -28,7 +28,7 @@
     {
       "name": "報導者",
       "url": "https://www.twreporter.org/a/rss2.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["investigative"],
       "language": "zh",
       "topics": ["taiwan", "ideas"]
@@ -36,7 +36,7 @@
     {
       "name": "公視新聞網",
       "url": "https://news.pts.org.tw/xml/newsfeed.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["taiwan"]
@@ -44,7 +44,7 @@
     {
       "name": "自由時報",
       "url": "https://news.ltn.com.tw/rss/all.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["taiwan"]
@@ -52,7 +52,7 @@
     {
       "name": "關鍵評論網",
       "url": "https://feeds.feedburner.com/TheNewsLens",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["taiwan", "ideas"]
@@ -60,7 +60,7 @@
     {
       "name": "iThome",
       "url": "https://www.ithome.com.tw/rss",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech"],
       "language": "zh",
       "topics": ["tech"]
@@ -68,7 +68,7 @@
     {
       "name": "科技新報",
       "url": "https://technews.tw/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech"],
       "language": "zh",
       "topics": ["tech"]
@@ -76,7 +76,7 @@
     {
       "name": "INSIDE",
       "url": "https://feeds.feedburner.com/inside-blog-taiwan",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech", "startup"],
       "language": "zh",
       "topics": ["tech", "business"]
@@ -84,7 +84,7 @@
     {
       "name": "BBC中文網 繁體",
       "url": "https://www.bbc.com/zhongwen/trad/index.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["world"]
@@ -92,7 +92,7 @@
     {
       "name": "紐約時報中文網 繁體",
       "url": "https://cn.nytimes.com/rss/zh-hant/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["world"]
@@ -100,7 +100,7 @@
     {
       "name": "RFI 法國國際廣播電台 繁體",
       "url": "https://www.rfi.fr/tw/rss",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["world"]
@@ -108,7 +108,7 @@
     {
       "name": "明報新聞網",
       "url": "https://news.mingpao.com/rss/ins/s00001.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["world"]
@@ -116,7 +116,7 @@
     {
       "name": "RTHK 香港電台",
       "url": "https://rthk9.rthk.hk/rthk/news/rss/c_expressnews_clocal.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["world"]
@@ -124,7 +124,7 @@
     {
       "name": "經濟日報",
       "url": "https://money.udn.com/rssfeed/news/1001/5591",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "zh",
       "topics": ["business", "taiwan"]
@@ -132,7 +132,7 @@
     {
       "name": "換日線",
       "url": "https://crossing.cw.com.tw/rss",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "zh",
       "topics": ["ideas", "world"]
@@ -140,7 +140,7 @@
     {
       "name": "電腦王阿達",
       "url": "https://www.kocpc.com.tw/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech"],
       "language": "zh",
       "topics": ["tech"]
@@ -148,7 +148,7 @@
     {
       "name": "BBC News",
       "url": "https://feeds.bbci.co.uk/news/rss.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "en",
       "topics": ["world"]
@@ -156,7 +156,7 @@
     {
       "name": "The New York Times",
       "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "en",
       "topics": ["world"]
@@ -164,7 +164,7 @@
     {
       "name": "The Guardian",
       "url": "https://www.theguardian.com/world/rss",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "en",
       "topics": ["world"]
@@ -172,7 +172,7 @@
     {
       "name": "NPR",
       "url": "https://feeds.npr.org/1001/rss.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "en",
       "topics": ["world"]
@@ -180,7 +180,7 @@
     {
       "name": "The Verge",
       "url": "https://www.theverge.com/rss/index.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech"],
       "language": "en",
       "topics": ["tech"]
@@ -188,7 +188,7 @@
     {
       "name": "Ars Technica",
       "url": "https://feeds.arstechnica.com/arstechnica/index",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech"],
       "language": "en",
       "topics": ["tech"]
@@ -196,7 +196,7 @@
     {
       "name": "The Economist",
       "url": "https://www.economist.com/the-world-this-week/rss.xml",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["world", "business"]
@@ -204,7 +204,7 @@
     {
       "name": "Financial Times",
       "url": "https://www.ft.com/rss/home",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "en",
       "topics": ["business", "world"]
@@ -212,7 +212,7 @@
     {
       "name": "Bloomberg",
       "url": "https://feeds.bloomberg.com/markets/news.rss",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "en",
       "topics": ["business"]
@@ -220,7 +220,7 @@
     {
       "name": "Hacker News",
       "url": "https://hnrss.org/frontpage",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech"],
       "language": "en",
       "topics": ["tech"]
@@ -228,7 +228,7 @@
     {
       "name": "數位時代",
       "url": "https://rss.bnextmedia.com.tw/feed/bnext",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech", "startup"],
       "language": "zh",
       "topics": ["tech", "business"]
@@ -236,7 +236,7 @@
     {
       "name": "Gea-Suan Lin's BLOG",
       "url": "https://blog.gslin.org/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech", "opinion"],
       "language": "zh",
       "topics": ["tech"]
@@ -244,7 +244,7 @@
     {
       "name": "Simon Willison's Weblog",
       "url": "https://simonwillison.net/atom/everything/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech", "opinion"],
       "language": "en",
       "topics": ["tech"]
@@ -252,7 +252,7 @@
     {
       "name": "Daring Fireball",
       "url": "https://daringfireball.net/feeds/main",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech", "opinion"],
       "language": "en",
       "topics": ["tech"]
@@ -260,7 +260,7 @@
     {
       "name": "Stratechery",
       "url": "https://stratechery.com/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech", "opinion"],
       "language": "en",
       "topics": ["tech", "business"]
@@ -268,7 +268,7 @@
     {
       "name": "ChinaTalk",
       "url": "https://www.chinatalk.media/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["world", "tech"]
@@ -276,7 +276,7 @@
     {
       "name": "市場先生",
       "url": "https://rich01.com/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "zh",
       "topics": ["business"]
@@ -284,7 +284,7 @@
     {
       "name": "股感 StockFeel",
       "url": "https://www.stockfeel.com.tw/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "zh",
       "topics": ["business"]
@@ -292,7 +292,7 @@
     {
       "name": "Marginal Revolution",
       "url": "https://marginalrevolution.com/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis", "opinion"],
       "language": "en",
       "topics": ["business"]
@@ -300,7 +300,7 @@
     {
       "name": "Noahpinion",
       "url": "https://www.noahpinion.blog/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis", "opinion"],
       "language": "en",
       "topics": ["business", "world"]
@@ -308,7 +308,7 @@
     {
       "name": "Paul Krugman",
       "url": "https://paulkrugman.substack.com/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis", "opinion"],
       "language": "en",
       "topics": ["business"]
@@ -316,7 +316,7 @@
     {
       "name": "端傳媒",
       "url": "https://theinitium.com/rss/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "zh",
       "topics": ["world", "taiwan"]
@@ -324,7 +324,7 @@
     {
       "name": "Global Taiwan Institute",
       "url": "https://globaltaiwan.org/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["taiwan", "world"]
@@ -332,7 +332,7 @@
     {
       "name": "台灣事實查核中心",
       "url": "https://tfc-taiwan.org.tw/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["investigative"],
       "language": "zh",
       "topics": ["taiwan"]
@@ -340,7 +340,7 @@
     {
       "name": "Focus Taiwan (CNA English)",
       "url": "https://feeds.feedburner.com/rsscna/engnews",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["news"],
       "language": "en",
       "topics": ["taiwan"]
@@ -348,7 +348,7 @@
     {
       "name": "Taiwan Insight",
       "url": "https://taiwaninsight.org/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["taiwan"]
@@ -356,7 +356,7 @@
     {
       "name": "泛科學 PanSci",
       "url": "https://pansci.asia/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "zh",
       "topics": ["science"]
@@ -364,7 +364,7 @@
     {
       "name": "CASE 報科學",
       "url": "https://case.ntu.edu.tw/blog/?feed=rss2",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "zh",
       "topics": ["science"]
@@ -372,7 +372,7 @@
     {
       "name": "Quanta Magazine",
       "url": "https://www.quantamagazine.org/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["science"]
@@ -380,7 +380,7 @@
     {
       "name": "Nautilus",
       "url": "https://nautil.us/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["science", "ideas"]
@@ -388,7 +388,7 @@
     {
       "name": "Aeon",
       "url": "https://aeon.co/feed.rss",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "en",
       "topics": ["ideas", "science"]
@@ -396,7 +396,7 @@
     {
       "name": "Readmoo 閱讀最前線",
       "url": "https://news.readmoo.com/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "zh",
       "topics": ["ideas"]
@@ -404,7 +404,7 @@
     {
       "name": "OKAPI 閱讀生活誌",
       "url": "https://okapi.books.com.tw/rss",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "zh",
       "topics": ["ideas"]
@@ -412,7 +412,7 @@
     {
       "name": "The Marginalian",
       "url": "https://www.themarginalian.org/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "en",
       "topics": ["ideas"]
@@ -420,7 +420,7 @@
     {
       "name": "The Atlantic Ideas",
       "url": "https://www.theatlantic.com/feed/channel/ideas/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "en",
       "topics": ["ideas"]
@@ -428,7 +428,7 @@
     {
       "name": "Dezeen",
       "url": "https://www.dezeen.com/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["ideas"]
@@ -436,7 +436,7 @@
     {
       "name": "Lenny's Newsletter",
       "url": "https://www.lennysnewsletter.com/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["tech", "opinion"],
       "language": "en",
       "topics": ["business", "tech"]
@@ -444,7 +444,7 @@
     {
       "name": "Not Boring",
       "url": "https://www.notboring.co/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["startup", "opinion"],
       "language": "en",
       "topics": ["business", "tech"]
@@ -452,7 +452,7 @@
     {
       "name": "Slow Boring",
       "url": "https://www.slowboring.com/feed",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "en",
       "topics": ["world"]
@@ -460,7 +460,7 @@
     {
       "name": "The Diplomat",
       "url": "https://thediplomat.com/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["world"]
@@ -468,7 +468,7 @@
     {
       "name": "Foreign Policy",
       "url": "https://foreignpolicy.com/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["world"]
@@ -476,7 +476,7 @@
     {
       "name": "Kottke",
       "url": "https://feeds.kottke.org/main",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "en",
       "topics": ["ideas"]
@@ -484,7 +484,7 @@
     {
       "name": "Literary Hub",
       "url": "https://lithub.com/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["opinion"],
       "language": "en",
       "topics": ["ideas"]
@@ -492,7 +492,7 @@
     {
       "name": "Terence Tao",
       "url": "https://terrytao.wordpress.com/feed/",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["science"]
@@ -500,7 +500,7 @@
     {
       "name": "The Conversation",
       "url": "https://theconversation.com/global/articles.atom",
-      "tier": "filter",
+      "lane": "skim",
       "tags": ["analysis"],
       "language": "en",
       "topics": ["science", "world"]

@@ -12,7 +12,7 @@ from test_run_digest import FakeSource, make_deps
 
 from cyris.adapters.store.d1 import D1Error
 from cyris.adapters.store.interest import D1InterestReader
-from cyris.domain.models import Article, Tier
+from cyris.domain.models import Article, Lane
 from cyris.entrypoints.triage_server import TriageServer
 from cyris.service_layer.run_digest import RunOptions, run_digest
 
@@ -29,8 +29,8 @@ def _seeded_db() -> SqliteD1:
         ("https://example.test/rej", "rejected", ["y"]),
     ]:
         db.query(
-            "INSERT INTO stored_articles (url, title, published_at, source_name, source_tier, "
-            "first_seen_at, state, triaged_at) VALUES (?, ?, ?, 'Source', 'filter', ?, ?, ?)",
+            "INSERT INTO stored_articles (url, title, published_at, source_name, source_lane, "
+            "first_seen_at, state, triaged_at) VALUES (?, ?, ?, 'Source', 'skim', ?, ?, ?)",
             [url, "Secret title", at, at, state, at],
         )
         for tag in tags:
@@ -115,7 +115,7 @@ def _article() -> Article:
         content="Enterprises accelerate AI adoption.",
         published_at=datetime.now(UTC) - timedelta(hours=1),
         source_name="TechSource",
-        source_tier=Tier.SUMMARIZE,
+        source_lane=Lane.READ,
         source_tags=["tech"],
     )
 

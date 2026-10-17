@@ -60,7 +60,7 @@ from cyris.adapters.fetch.onboarding_cards import OnboardingArticles, draw_cards
 from cyris.adapters.fetch.rss_worker_source import POLL_CONCURRENCY, POLL_FEED_TIMEOUT_SECONDS
 from cyris.config import GRADE_D_KEYS
 from cyris.diagnostics.doctor import Check as DoctorCheck
-from cyris.domain.models import Article, ArticleState, SourceConfig, Tier
+from cyris.domain.models import Article, ArticleState, Lane, SourceConfig
 from cyris.entrypoints.triage_server import (
     TriageServer,
     load_onboarding_feeds,
@@ -246,7 +246,7 @@ OWN_HOME = "https://own.test/"
 OWN_FEED = "https://own.test/feed.xml"
 OWN_NAME = "Own Probe Notes"
 BARE_HOME = "https://bare.test/"
-# What Next posts for the own feed: its name and address, no tags, the tier left
+# What Next posts for the own feed: its name and address, no tags, the lane left
 # to the source's default.
 OWN_BODY = {"name": OWN_NAME, "url": OWN_FEED, "tags": []}
 # A listed feed outside ONE_TOPIC: pasting its address checks its row instead.
@@ -299,7 +299,7 @@ def feed_articles(name: str) -> list[Article]:
             content=f"<p>What story {n} is about.</p>",
             published_at=_NOW - timedelta(hours=6 * (n + 1)),
             source_name=name,
-            source_tier=Tier.FILTER,
+            source_lane=Lane.SKIM,
         )
         for n in range(ARTICLES_PER_FEED)
     ]
@@ -778,7 +778,7 @@ def _sources(*wanted: dict) -> Callable[[Fixture], str | None]:
     """A receipt: the table stored exactly these list entries, field for field, in order.
 
     Each stored row is read back in the entry's own fields but `topics`, which
-    is the list's and not a source's, so a tag or a tier the page changed shows,
+    is the list's and not a source's, so a tag or a lane the page changed shows,
     and with no area, which the list cannot know.
     """
     wanted = tuple(as_posted(entry) for entry in wanted)
@@ -817,7 +817,7 @@ def _posted(*entries: dict) -> Callable[[Fixture], str | None]:
 
 
 def _own_posted(fixture: Fixture) -> str | None:
-    """A receipt: Next posted the own feed alone, as `OWN_BODY`, stored at the default tier."""
+    """A receipt: Next posted the own feed alone, as `OWN_BODY`, stored in the default lane."""
     rows = [row.model_dump(mode="json") for row in fixture.sources.writes]
     wanted = SourceConfig.model_validate(OWN_BODY).model_dump(mode="json")
     if fixture.posted == [OWN_BODY] and rows == [wanted] and fixture.calls == []:
@@ -1716,7 +1716,7 @@ _CHECKS: list[Check] = [
         receipt=_sources(*PICKS),
     ),
     Check(
-        id="sources-step-stores-the-listed-tier",
+        id="sources-step-stores-the-listed-lane",
         fixture="empty",
         path=f"{PAGE}#sources",
         act=f"""
@@ -1727,7 +1727,7 @@ _CHECKS: list[Check] = [
             await onStep("votes");
         """,
         script="""await waitFor(settled, "the result notice");""",
-        sabotage_preload=rewrite_post("/api/sources", 'body.tier = "summarize";'),
+        sabotage_preload=rewrite_post("/api/sources", 'body.lane = "read";'),
         receipt=_sources(PICKS[0]),
     ),
     Check(

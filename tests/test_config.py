@@ -8,7 +8,7 @@ import pytest
 from fakes import TEST_SETTINGS, make_config, settings_toml
 
 from cyris.config import REQUIRED_KEYS, load_config
-from cyris.domain.models import Tier
+from cyris.domain.models import Lane
 
 pytestmark = pytest.mark.integration
 
@@ -59,10 +59,10 @@ class TestLoadConfig:
         cfg = load_config(config_path=tmp_path / "nope.toml", sources_path=sources)
 
         assert set(cfg.sources) == {"The Verge", "報導者", "Some Email Newsletter"}
-        assert cfg.sources["The Verge"].tier == Tier.SUMMARIZE
-        # a language override on a non-English feed, at the default tier
+        assert cfg.sources["The Verge"].lane == Lane.READ
+        # a language override on a non-English feed, in the default lane
         assert cfg.sources["報導者"].language == "zh"
-        assert cfg.sources["報導者"].tier == Tier.FILTER
+        assert cfg.sources["報導者"].lane == Lane.SKIM
         # email-only newsletter shape: no url, matched by From: header
         assert cfg.sources["Some Email Newsletter"].type == "newsletter"
         assert cfg.sources["Some Email Newsletter"].url is None
@@ -125,7 +125,7 @@ class TestLoadConfig:
         config_file = tmp_path / "cyris.toml"
         config_file.write_text('[general]\ntimezone = "UTC"\n')
         sources = tmp_path / "sources.yaml"
-        sources.write_text("sources:\n  - name: X\n    url: https://x/feed\n    tier: filter\n")
+        sources.write_text("sources:\n  - name: X\n    url: https://x/feed\n    lane: skim\n")
         cfg = load_config(config_path=config_file, sources_path=sources)
         assert set(cfg.sources) == {"X"}
 

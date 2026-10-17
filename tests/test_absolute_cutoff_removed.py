@@ -9,7 +9,7 @@ import pytest
 from fakes import settings_toml
 
 from cyris.config import load_config
-from cyris.domain.models import ArticleState, StoredArticle, Tier
+from cyris.domain.models import ArticleState, Lane, StoredArticle
 from cyris.service_layer.vote_similarity import judge_by_votes
 
 pytestmark = [pytest.mark.unit, pytest.mark.guard]
@@ -71,7 +71,7 @@ def _article(url: str, title: str, state: ArticleState = ArticleState.PENDING, v
         title=title,
         content="c",
         source_name="Src",
-        source_tier=Tier.FILTER,
+        source_lane=Lane.SKIM,
         published_at=datetime(2026, 10, 1, tzinfo=UTC),
         first_seen_at=datetime(2026, 10, 1, tzinfo=UTC),
         state=state,

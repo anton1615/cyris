@@ -433,7 +433,7 @@ function showOwn(kind, text) {
 }
 
 // A checked feed, as a row of the list: checked, since the reader asked for it,
-// and posted as a source with its name and address, no tags and the default tier.
+// and posted as a source with its name and address, no tags and the default lane.
 function ownRow({name, url}) {
   const entry = {name, url, tags: [], topics: []};
   const row = {entry, source: {name, url, tags: []}, ...checklistRow(name)};
@@ -500,7 +500,7 @@ $("o-own-url").addEventListener("keydown", (e) => {
 $("o-own-url").addEventListener("input", () => unmark(["o-own-url"]));
 
 // One POST /api/sources per picked feed, each body the entry as listed less its
-// topics, so the source stored is the list's own, tags and tier included; an own
+// topics, so the source stored is the list's own, tags and lane included; an own
 // feed's body is its name and address. A feed
 // already added is not sent again: Next after a partial failure retries only the
 // ones that failed. Every picked feed is on the page, so none is sent unseen.
