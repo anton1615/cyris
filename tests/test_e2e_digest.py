@@ -326,7 +326,11 @@ EXPECTED_ROUTES = {
 # publish_site and the run record.
 EXPECTED_D1 = [
     "schema",
+    # The lane step is pending on a first boot, so the runner reads its precondition
+    # and records it; its statements do not run on a database that never had the column.
     "SELECT schema_migrations",
+    "PRAGMA table_info",
+    "INSERT OR IGNORE INTO schema_migrations",
     "SELECT settings",
     "SELECT sources",
     # An empty table: the run tracks no topic, so it embeds nothing.
