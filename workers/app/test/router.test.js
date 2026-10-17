@@ -1173,3 +1173,80 @@ describe("PublicArchiveUnchangedWhenFlagIsOff", () => {
     expect(resp.status).toBe(200);
   });
 });
+
+describe("InterestPageGate", () => {
+  const anonymous = async (method, path, extra = {}, opts = {}) => {
+    const deps = makeDeps();
+    const resp = await handleRequest(request(method, path, opts), env(extra), deps);
+    return { resp, deps };
+  };
+
+  it("refuses an anonymous reader without reaching the container or Pages", async () => {
+    const { resp, deps } = await anonymous("GET", "/interest", {}, { headers: { Accept: "text/html" } });
+
+    expect(resp.status).toBe(401);
+    expect(await resp.text()).toContain('name="next" value="/interest"');
+    expect(deps.fetchImpl.calls).toHaveLength(0);
+    expect(deps.container.calls).toHaveLength(0);
+    expect(resp.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it("refuses every spelling of the page, including the encoded one", async () => {
+    for (const [method, path] of [
+      ["GET", "/interest"],
+      ["GET", "/interest/"],
+      ["GET", "/interest.html"],
+      ["HEAD", "/interest.html"],
+      ["GET", "/%69nterest"],
+      ["GET", "/%69nterest.html"],
+      ["GET", "/%E0%A4%A"],
+    ]) {
+      const { resp, deps } = await anonymous(method, path);
+
+      expect(resp.status, `${method} ${path}`).toBe(401);
+      expect(deps.fetchImpl.calls, path).toHaveLength(0);
+      expect(deps.container.calls, path).toHaveLength(0);
+    }
+  });
+
+  it("refuses the page on the Access hostname too", async () => {
+    const { resp } = await anonymous(
+      "GET",
+      "/interest",
+      { CYRIS_UI_ACCESS_HOST: ACCESS_HOST },
+      { host: ACCESS_HOST },
+    );
+
+    expect(resp.status).toBe(401);
+  });
+
+  it("serves the page from the container to a signed-in reader", async () => {
+    const deps = makeDeps();
+    const resp = await handleRequest(
+      request("GET", "/interest", { cookie: await sessionCookie() }),
+      env(),
+      deps,
+    );
+
+    expect(resp.status).toBe(200);
+    expect(deps.container.calls).toHaveLength(1);
+    expect(deps.fetchImpl.calls).toHaveLength(0);
+  });
+
+  it("leaves the archive root and its pages public when the flag is off", async () => {
+    for (const path of ["/", "/2026-08-30-evening.html"]) {
+      const { resp } = await anonymous("GET", path);
+
+      expect(resp.status, path).toBe(200);
+    }
+  });
+
+  it("does not gate paths that only start like the page", async () => {
+    for (const path of ["/interestx.html", "/interest.html.bak"]) {
+      const { resp, deps } = await anonymous("GET", path);
+
+      expect(resp.status, path).toBe(200);
+      expect(deps.fetchImpl.calls, path).toHaveLength(1);
+    }
+  });
+});

@@ -13,12 +13,30 @@ import { typeScaleStyle } from "./type_scale.js";
 const COOKIE = "cyris_session";
 const MIN_TOKEN_LENGTH = 32;
 
+const INTEREST_PATHS = ["/interest", "/interest.html", "/interest/"];
+
+// The interest map is drawn by the container from the reader's own votes, so it
+// is signed-in only on every deployment, flag or not. Matched on the decoded
+// path, so an encoded spelling cannot reach the archive proxy instead; a path
+// that does not decode is held back the same way. Only /interest is a page:
+// the container answers the other spellings 404.
+const interestPage = (path) => {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(path).toLowerCase();
+  } catch {
+    return true;
+  }
+  return INTEREST_PATHS.includes(decoded);
+};
+
 export const PROTECTED = (path) =>
   path === "/settings" ||
   path === "/onboarding" ||
   path === "/labels" ||
   path === "/login" ||
   path === "/run" ||
+  interestPage(path) ||
   path.startsWith("/api/") ||
   path.startsWith("/static/");
 
