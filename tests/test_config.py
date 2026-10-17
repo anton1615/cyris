@@ -1,6 +1,7 @@
 """Tests for configuration loader."""
 
 import logging
+import re
 import tomllib
 from pathlib import Path
 
@@ -678,3 +679,9 @@ class TestJsonSettingsFromFileOnly:
     def test_the_webhook_env_var_name_is_gone(self):
         with pytest.raises(ImportError):
             from cyris.config import DISCORD_WEBHOOK_ENV_VAR  # noqa: F401
+
+
+def test_the_example_sources_file_has_no_tier_key() -> None:
+    example = (Path(__file__).parent.parent / "sources.example.yaml").read_text()
+
+    assert not re.search(r"^\s*tier:", example, re.MULTILINE)  # legacy-tier
