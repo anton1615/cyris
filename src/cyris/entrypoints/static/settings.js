@@ -586,7 +586,7 @@ let filter = "all";
 let openName = null;
 
 const EMPTY = {
-  all: "No sources yet. The next run stops until one is added.",
+  all: "No sources yet. The next run waits until one is added.",
   rss: "No RSS sources.",
   newsletter: "No newsletter sources.",
 };
@@ -749,7 +749,8 @@ function loaded(d) {
   renderAreas();
   $("add-source").disabled = !d.writable;
   if (!d.writable) show("err", NO_SOURCE_TABLE, "sources-notice");
-  // No source stops the next run, as a missing setting does.
+  // No source publishes no issue, so the category is marked like a missing
+  // setting; unlike one, the next run waits instead of stopping.
   sourcesNav().classList.toggle("missing", !sources.length);
   renderSources();
 }

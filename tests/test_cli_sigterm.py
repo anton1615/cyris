@@ -21,6 +21,17 @@ pytestmark = pytest.mark.integration
 runner = CliRunner()
 
 
+def _loaded_config() -> MagicMock:
+    """A config past every gate `run` passes before the pipeline.
+
+    A mock answers each gate with a truthy mock, and an awaiting-onboarding
+    answer would end the run before `run_digest` is reached.
+    """
+    cfg = MagicMock()
+    cfg.awaiting_onboarding.return_value = False
+    return cfg
+
+
 def _invoke_run_recording_sigterm_handler() -> tuple[object, list[object]]:
     recorded: list[object] = []
 
@@ -29,7 +40,7 @@ def _invoke_run_recording_sigterm_handler() -> tuple[object, list[object]]:
         return SimpleNamespace(rendered="")
 
     with (
-        patch("cyris.bootstrap.load_effective_config", MagicMock()),
+        patch("cyris.bootstrap.load_effective_config", MagicMock(return_value=_loaded_config())),
         patch("cyris.bootstrap.build_deps", MagicMock()),
         patch("cyris.service_layer.run_digest.run_digest", fake_run_digest),
     ):
@@ -70,8 +81,11 @@ async def fake_run_digest(deps, options):
     return SimpleNamespace(rendered="")
 
 
+config = MagicMock()
+config.awaiting_onboarding.return_value = False
+
 with (
-    patch("cyris.bootstrap.load_effective_config", MagicMock()),
+    patch("cyris.bootstrap.load_effective_config", MagicMock(return_value=config)),
     patch("cyris.bootstrap.build_deps", MagicMock()),
     patch("cyris.service_layer.run_digest.run_digest", fake_run_digest),
 ):

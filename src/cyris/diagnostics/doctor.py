@@ -50,10 +50,13 @@ def _writable(path: Path) -> bool:
 def _check_sources(cfg: Config) -> Check:
     if cfg.app.store.is_d1:
         home, fix = "D1", "Add one on /settings, or run `cyris sources push`."
-        if not cfg.sources:
-            return Check("sources", "fail", "no sources in D1", fix)
     else:
         home, fix = "sources.yaml", "Add feeds to sources.yaml (see sources.example.yaml)."
+    if cfg.awaiting_onboarding():
+        # Not a failure: a deployment ships with no source, and a run with none
+        # ends quietly instead of stopping (`Config.awaiting_onboarding`). It is
+        # still a warn, because nothing is published until a source is added.
+        return Check("sources", "warn", f"none in {home} yet — waiting for onboarding", fix)
     feeds = [s for s in cfg.sources.values() if s.url and s.type == "rss"]
     email = [s for s in cfg.sources.values() if s.email_match]
     summarize = [s for s in cfg.sources.values() if s.tier == Tier.SUMMARIZE]

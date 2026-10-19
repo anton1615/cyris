@@ -188,7 +188,8 @@ A D1 deployment reads runtime settings from D1 only, and `cyris doctor` fails wh
   add `cd /path/to/cyris &&`.
 - **doctor: `provider is anthropic but ANTHROPIC_API_KEY is empty`**: put the key in
   `.env`, or set `provider = "none"` and `model = ""`.
-- **`No sources in sources.yaml.`**: add at least one source.
+- **`waiting for onboarding`**: `sources.yaml` holds no source, so the run ends
+  having fetched nothing. Add at least one source.
 - **A run succeeds but `agent-vault/html/` stays empty**: set `[html_output] enabled =
   true`; left out, it defaults to off.
 - **`Not a digest hour (…)`**: `--if-due` outside the schedule, which is normal. Use

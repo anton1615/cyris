@@ -25,6 +25,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and Anthropic alike, so models compare evenly. Workers AI always runs at low. Save checks the level
   against the current model.
 
+### Changed
+
+- **A deployment with no source waits instead of failing.** An empty source list
+  is how a deployment starts, before onboarding picks any feed, so `cyris run`
+  now ends there having fetched nothing and called no model, saying it waits for
+  onboarding; a scheduled run sends no "Digest run could not start" alert for it;
+  `cyris doctor` reports the wait as a warning rather than a failed check; and
+  `/settings` retires the last source like any other. A source that cannot be
+  fetched at all — an RSS source with no feed URL, a newsletter with no sender
+  match — still stops the run.
+
 ### Fixed
 
 - An entry a feed lists late now reaches the next digest. The RSS Worker selected

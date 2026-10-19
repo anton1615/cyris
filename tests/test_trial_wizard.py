@@ -45,6 +45,8 @@ esac
 FAKE_CURL = r"""#!/bin/bash
 echo "curl $*" >> "$CALLS"
 case " $* " in
+  *"/stats"*) echo "${FAKE_STATS_CODE:-401}" ;;
+  *"/poll"*) printf '{"feeds":%s}\n' "${FAKE_POLL_FEEDS:-1}" ;;
   *" -D - "*)
     n=$(( $(cat "$FAKE_DIR/login" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$FAKE_DIR/login"
     if [[ -z "${FAKE_LOGIN_NEVER:-}" && $n -gt ${FAKE_LOGIN_FAIL_FIRST:-0} ]]; then
@@ -75,7 +77,7 @@ output_language = "zh-Hant"
 """
 
 
-def _state(done: str, email: str = "") -> str:
+def _state(done: str, email: str = "", source_count: str = "1") -> str:
     return "\n".join(
         [
             "DOMAIN=example.com",
@@ -90,7 +92,7 @@ def _state(done: str, email: str = "") -> str:
             "TRIAL_KV_ID=" + "c" * 32,
             "PAGES_CREATED=yes",
             "TRIAL_PROMOTE_URL=https://p-t1.x.workers.dev",
-            "SOURCE_COUNT=1",
+            f"SOURCE_COUNT={source_count}",
             f"STAGES_DONE={done}",
             "",
         ]
@@ -139,13 +141,13 @@ class Rig:
 
 @pytest.fixture
 def rig(tmp_path: Path):
-    def make(done: str, email: str = "", **env: str) -> Rig:
+    def make(done: str, email: str = "", source_count: str = "1", **env: str) -> Rig:
         repo = tmp_path / "repo"
         (repo / "scripts").mkdir(parents=True)
         shutil.copy(ROOT / "scripts/trial-wizard.sh", repo / "scripts/trial-wizard.sh")
         (repo / "scripts/provision_trial.py").write_text("")
         (repo / "cyris.toml.example").write_text(EXAMPLE_CONFIG)
-        (repo / f".env.trial-{SLUG}-wizard").write_text(_state(done, email))
+        (repo / f".env.trial-{SLUG}-wizard").write_text(_state(done, email, source_count))
         (repo / f".env.trial-{SLUG}").write_text(
             f"CLOUDFLARE_API_TOKEN={TOKEN}\nGEMINI_API_KEY=g\nCYRIS_UI_TOKEN=u\n"
             f"CYRIS_STORE_DATABASE_ID={D1_ID}\n"
@@ -305,3 +307,34 @@ def test_a_declined_deploy_looks_once_instead_of_waiting(rig) -> None:
     assert "does not answer 302 → /login, and nothing was deployed now." in run.out
     assert run.calls.count(" -D - ") == 1
     assert "▸ Stage 13/18" in run.out
+
+
+# Stage 14 reads /poll to see the feeds the first boot pushed. A trial with no
+# source of its own has none to push and waits for onboarding, so feeds 0 is the
+# answer that stage expects there. Every answer from stage 14 on, in order: the
+# rss deploy declined, the Worker URL, the app deploy declined, then the pauses
+# and the clipboard of stages 14 to 16, and stage 17's period with its POST
+# declined. A prompt left unanswered would loop on end-of-file rather than stop.
+RSS_URL = "https://rss-t1.x.workers.dev"
+FROM_STAGE_14 = START + "\n".join(["n", RSS_URL, "n", "", "", "", "n", "", "morning", "n", ""])
+
+
+def test_stage_14_takes_feeds_0_when_no_source_was_pushed(rig) -> None:
+    r = rig(_stages(13), source_count="0", FAKE_POLL_FEEDS="0")
+
+    run = r.run(stdin=FROM_STAGE_14)
+
+    assert "/poll feeds = 0: no source yet, so the trial waits for onboarding." in run.out
+    assert "/poll reports feeds" not in run.out
+    assert run.code == 0
+    assert "14" in r.done().removeprefix("STAGES_DONE=").split(",")
+
+
+def test_stage_14_still_stops_when_a_pushed_source_polls_no_feed(rig) -> None:
+    r = rig(_stages(13), source_count="1", FAKE_POLL_FEEDS="0")
+
+    run = r.run(stdin=FROM_STAGE_14)
+
+    assert "/poll reports feeds '0', sources push had 1." in run.out
+    assert run.code == 1
+    assert "14" not in r.done().removeprefix("STAGES_DONE=").split(",")

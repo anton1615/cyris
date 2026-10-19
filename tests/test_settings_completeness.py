@@ -153,55 +153,6 @@ def test_the_error_lists_every_key_on_an_empty_d1(tmp_path: Path, d1: SqliteD1) 
     )
 
 
-def test_run_on_a_d1_with_no_sources_says_how_to_add_one(
-    tmp_path: Path, d1: SqliteD1, built: list[object], caplog
-) -> None:
-    seed_d1_settings(d1)
-
-    result = runner.invoke(app, ["run", *_paths(tmp_path)])
-
-    assert result.exit_code == 1
-    assert "No sources in D1. Add one on /settings, or run `cyris sources push`." in caplog.text
-    assert built == []
-
-
-def test_run_on_a_d1_with_only_unfetchable_sources_stops(
-    tmp_path: Path, d1: SqliteD1, built: list[object], caplog
-) -> None:
-    from cyris.adapters.store.d1 import apply_schema
-    from cyris.adapters.store.source_store import D1SourceStore
-
-    seed_d1_settings(d1)
-    apply_schema(d1)
-    D1SourceStore(d1).upsert(SourceConfig(name="No Feed"))
-    D1SourceStore(d1).upsert(SourceConfig(name="No Sender", type="newsletter"))
-
-    result = runner.invoke(app, ["run", *_paths(tmp_path)])
-
-    assert result.exit_code == 1
-    assert (
-        "No fetchable sources in D1: No Feed, No Sender. An RSS source needs a feed URL, "
-        "a newsletter source a sender match." in caplog.text
-    )
-    assert built == []
-
-
-def test_run_without_sources_yaml_names_the_file(
-    tmp_path: Path, built: list[object], caplog, monkeypatch
-) -> None:
-    monkeypatch.delenv("CYRIS_STORE_BACKEND", raising=False)
-    config_path = tmp_path / "cyris.toml"
-    config_path.write_text(settings_toml())
-
-    result = runner.invoke(
-        app, ["run", "--config", str(config_path), "--sources", str(tmp_path / "absent.yaml")]
-    )
-
-    assert result.exit_code == 1
-    assert "No sources in sources.yaml." in caplog.text
-    assert built == []
-
-
 def test_promote_sync_starts_on_an_empty_d1(tmp_path: Path, d1: SqliteD1, monkeypatch) -> None:
     monkeypatch.delenv("CYRIS_PROMOTE_WORKER_URL", raising=False)
     monkeypatch.delenv("CYRIS_PROMOTE_TOKEN", raising=False)

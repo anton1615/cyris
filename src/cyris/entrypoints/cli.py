@@ -207,6 +207,16 @@ def run(
             _alert_could_not_start(cfg, e)
         raise typer.Exit(1) from e
 
+    if cfg.awaiting_onboarding():
+        # A new deployment has no source until onboarding picks some, and every
+        # hourly tick would otherwise report the same failure. Ending here keeps
+        # the exit status 0, builds no deps, calls no LLM and sends no alert.
+        logger.info("%s", cfg.onboarding_wait())
+        # The one caller that asked for a file gets nothing, as when not due.
+        if output is not None:
+            raise typer.Exit(1)
+        return
+
     if if_due:
         # The schedule lives in D1 so changing it does not need a rebuild. The app
         # Worker's Cron Trigger asks the same question before waking the container
