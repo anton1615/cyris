@@ -2741,6 +2741,7 @@ async def test_the_headline_closer_to_an_upvote_takes_the_last_slot(tmp_path: Pa
     assert on_summary["preference_rank_applied"] is True
     assert on_summary["preference_rank_moved_headlines"] == 1
     assert on_summary["preference_rank_moved_features"] == 0
+    assert on_summary["preference_rank_moved_clusters"] == 0
     assert "preference_rank_skipped" not in on_summary
     assert off_summary["preference_rank_applied"] is False
     assert off_summary["preference_rank_skipped"] == "switched off"

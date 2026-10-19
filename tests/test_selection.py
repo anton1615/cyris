@@ -489,8 +489,86 @@ class TestRankByPreference:
 
         assert _names(ranked.featured_articles) == ["lead", "low", "high", "mid"]
         assert _names(ranked.filtered_headlines) == ["c", "a"]
-        assert preference_moves(baseline, ranked) == {"headlines": 2, "features": 3}
-        assert preference_moves(baseline, baseline) == {"headlines": 0, "features": 0}
+        assert preference_moves(baseline, ranked) == {
+            "headlines": 2,
+            "features": 3,
+            "clusters": 0,
+        }
+        assert preference_moves(baseline, baseline) == {
+            "headlines": 0,
+            "features": 0,
+            "clusters": 0,
+        }
+
+
+class TestNewsClustersFollowThePreference:
+    """A cluster stands on its best-scoring member, and is ordered before the cap cuts."""
+
+    @staticmethod
+    def _cluster(name: str, *members: str) -> DigestSection:
+        return DigestSection(heading=name, items=[_headline(m) for m in members])
+
+    def test_a_cluster_holding_a_voted_topic_survives_a_cap_too_small_for_every_cluster(self):
+        content = _base_content(
+            news_clusters=[
+                self._cluster("quiet", "quiet-a", "quiet-b"),
+                self._cluster("voted", "voted-a", "voted-b"),
+            ]
+        )
+        preference = {"https://example.com/quiet-a": -0.2, "https://example.com/voted-b": 0.4}
+
+        result = select_digest_articles(content, max_items=2, preference=preference)
+
+        assert _names(result.news_clusters) == ["voted"]
+        assert _names(result.news_clusters[0].items) == ["voted-a", "voted-b"]
+
+    def test_without_a_preference_the_clusters_keep_the_models_order(self):
+        clusters = [self._cluster(n, f"{n}-a", f"{n}-b") for n in ("first", "second", "third")]
+        content = _base_content(news_clusters=clusters)
+
+        for preference in (None, {}):
+            result = select_digest_articles(content, max_items=4, preference=preference)
+
+            assert _names(result.news_clusters) == ["first", "second"]
+
+    def test_a_cluster_no_member_of_which_was_judged_keeps_its_slot(self):
+        content = _base_content(
+            news_clusters=[
+                self._cluster("unjudged", "unjudged-a"),
+                self._cluster("low", "low-a"),
+                self._cluster("high", "high-a"),
+            ]
+        )
+        preference = {"https://example.com/low-a": -0.1, "https://example.com/high-a": 0.5}
+
+        result = select_digest_articles(content, max_items=3, preference=preference)
+
+        assert _names(result.news_clusters) == ["unjudged", "high", "low"]
+
+    def test_the_moves_count_the_cluster_positions_that_changed(self):
+        content = _base_content(
+            news_clusters=[self._cluster("quiet", "quiet-a"), self._cluster("voted", "voted-a")]
+        )
+        preference = {"https://example.com/quiet-a": -0.3, "https://example.com/voted-a": 0.4}
+
+        baseline = select_digest_articles(content, max_items=2)
+        ranked = select_digest_articles(content, max_items=2, preference=preference)
+
+        assert preference_moves(baseline, ranked)["clusters"] == 2
+
+    def test_the_clusters_still_yield_to_the_features_and_the_summaries(self):
+        content = _base_content(
+            featured_articles=[DigestSection(heading="lead", items=[_headline("lead")])],
+            thematic_summaries=_make_sections([1], "theme"),
+            news_clusters=[self._cluster("voted", "voted-a")],
+        )
+        preference = {"https://example.com/voted-a": 0.9, "https://example.com/lead": -0.9}
+
+        result = select_digest_articles(content, max_items=2, preference=preference)
+
+        assert _names(result.featured_articles) == ["lead"]
+        assert len(result.thematic_summaries) == 1
+        assert result.news_clusters == []
 
 
 class TestSelectDigestArticlesWithAttention:

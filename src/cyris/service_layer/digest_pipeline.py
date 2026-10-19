@@ -285,6 +285,9 @@ class DigestPipeline:
                 for entry in (
                     *laid_out.filtered_headlines,
                     *(item for section in laid_out.featured_articles[1:] for item in section.items),
+                    # Every member, not one per cluster: a cluster is ordered by its
+                    # best-scoring member, and which that is is not known yet.
+                    *(item for section in laid_out.news_clusters for item in section.items),
                 )
                 for url in entry.urls
             )

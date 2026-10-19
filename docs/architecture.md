@@ -365,21 +365,25 @@ pending. The cap takes the Top story whole, or its best article in its slot, bef
 **The vote order** (`[digest] rank_by_preference`). When it is on and vote similarity judged this
 run's candidates, a candidate's preference is its cosine to the nearest upvote minus its cosine to
 the nearest downvote, a side with no seed counting 0. `select_digest_articles` orders by it before
-the issue cap: the Features after their score sort, and the headlines, which otherwise keep the
-model's order. The cap then cuts as before, so of two headlines competing for the last slot the one
-closer to an upvote is shown. An item of several articles takes its best article's preference,
-equal preferences keep the incoming order, and an item with none keeps its slot. The Top story
+the issue cap: the Features after their score sort, and the headlines and the news clusters, which
+otherwise keep the model's order. The cap then cuts as before, so of two headlines competing for the
+last slot the one closer to an upvote is shown, and a cluster the reader voted into is not the one
+the tail loses. An item of several articles takes its best article's preference, and so does a
+cluster, over every member the clustering step gave it, cut ones included; equal preferences keep
+the incoming order, and an entry none of whose articles was judged keeps its slot. A cluster's own
+members keep the model's order, the quotas between the clusters and the headlines do not move
+(ADR-0019), the Top story
 never moves, and which Features `max_featured` keeps is still the score's choice. The order rejects
 nothing and stamps no `triaged_at`: what it changes is which article the cap shows, accepted, and
 which it cuts, left pending. Off, or with vote similarity off or skipped, the issue keeps the
 model's order. `run_summary` records which: `preference_rank_applied`, the reason in
-`preference_rank_skipped`, and `preference_rank_moved_headlines` and `_features`, the positions
-that differ from the order without it.
+`preference_rank_skipped`, and `preference_rank_moved_headlines`, `_features` and `_clusters`, the
+positions that differ from the order without it.
 
 **Who scores them** (`digest.preference_source`, `cosine` or `clef`). `cosine` is the order above.
 `clef` replaces the cosine difference with Clef's probability that the reader upvotes the item,
-asked once per kept item, the headlines and Features the issue kept and no other candidate, so a run
-makes tens of calls, not one per candidate. Each question carries the article's title, source and
+asked once per kept item, the headlines and Features the issue kept and every member of its news
+clusters, and no other candidate, so a run makes tens of calls, not one per candidate. Each question carries the article's title, source and
 first `digest.scoring_snippet_length` characters (the snippet scoring reads), and the titles, never the text, of its five nearest upvotes and five nearest
 downvotes. The filter is untouched, the cap and the pending-left-over rule apply as before, and no `triaged_at` is
 stamped. The whole issue falls back to the cosine order when Clef cannot score every asked item:
