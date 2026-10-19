@@ -667,9 +667,14 @@ stage_14() {
   poll=$(curl -s -X POST --max-time 120 -H "Authorization: Bearer $TRIAL_WORKER_TOKEN" "$TRIAL_RSS_URL/poll" || true)
   say "/poll: $poll"
   feeds=$(grep -oE '"feeds":[0-9]+' <<<"$poll" | cut -d: -f2 || true)
-  [[ "$feeds" == 0 ]] && die "/poll reports feeds 0: the first boot pushed no RSS source. Go back to stage 13."
+  # A trial with no source of its own waits for onboarding, so feeds 0 is the
+  # expected answer there; with sources pushed, feeds 0 means they did not land.
   [[ "$feeds" == "$SOURCE_COUNT" ]] || die "/poll reports feeds '$feeds', sources push had $SOURCE_COUNT."
-  printf '  %s✓%s /poll feeds = %s\n' "$GREEN" "$RESET" "$feeds"
+  if [[ "$feeds" == 0 ]]; then
+    note "/poll feeds = 0: no source yet, so the trial waits for onboarding."
+  else
+    printf '  %s✓%s /poll feeds = %s\n' "$GREEN" "$RESET" "$feeds"
+  fi
   in_file "$APP_ENV" write_env CYRIS_WORKER_TOKEN "$TRIAL_WORKER_TOKEN"
   in_file "$APP_ENV" write_env CYRIS_RSS_WORKER_URL "$TRIAL_RSS_URL"
   grep -qx "CYRIS_WORKER_TOKEN=$TRIAL_WORKER_TOKEN" "$APP_ENV" || die "CYRIS_WORKER_TOKEN did not land."
