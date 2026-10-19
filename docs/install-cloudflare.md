@@ -165,8 +165,8 @@ none has a default in code, so save every category until nothing is marked:
   [How sources are processed](sources.md).
 
 Until all 23 are saved, every run stops with `Missing settings in D1: …`; with no
-source it stops with `No sources in D1`. `cyris settings push` and
-`cyris sources push` do the same from a clone (see
+source every run ends having fetched nothing, logging `waiting for onboarding`.
+`cyris settings push` and `cyris sources push` do the same from a clone (see
 [Running the CLI against the deployment](#running-the-cli-against-the-deployment)).
 
 ## 7. Run the first digest now
@@ -205,7 +205,8 @@ bunx wrangler tail cyris-app --env-file /dev/null
 ```
 
 Every run ends with one `run_summary` JSON line: status, counts, LLM spend and wall
-time. When `status` is `ok`, the digest is at
+time. A run with no source yet logs that it is waiting for onboarding instead: it
+stops before the digest is made, so it writes no summary. When `status` is `ok`, the digest is at
 `https://<project>.pages.dev/<date>-<period>`, and the Worker's own URL serves the
 archive.
 
@@ -358,7 +359,8 @@ your own repository.
   missing. Set it with `secret put` or `secret bulk`.
 - **`Missing settings in D1: …`**: save every `/settings` category, Vote similarity
   on the Model tab included.
-- **`No sources in D1`**: add a source on `/settings` → Sources.
+- **`waiting for onboarding`** in the log: the deployment has no source yet, so the
+  run ends having fetched nothing. Add one on `/settings` → Sources.
 - **`Not a digest hour (…)`** after `POST /run`: add `?period=morning` or
   `?period=evening`.
 - **The Worker's root answers 503** "Neither CYRIS_PROMOTE_PAGES_PROJECT nor
