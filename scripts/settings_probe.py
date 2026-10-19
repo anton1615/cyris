@@ -913,14 +913,18 @@ def _keep_only(name: str) -> Callable[[Fixture], None]:
     return setup
 
 
-# Installed before the page loads: every DELETE of a source is answered as retired.
-ANSWER_DELETE_OK = """
+# Installed before the page loads: every DELETE of a source is refused. The
+# server refuses none by itself — retiring the last source is allowed — so a
+# check that reads a failed retire stubs one here. The answer comes late, as a
+# server's would: answered at once, the button is enabled again before focus
+# drops, and a focus check passes with focus() broken.
+ANSWER_DELETE_REFUSED = """
 const realFetch = window.fetch;
-const retired = JSON.stringify({ok: true, name: "x", note: "Effective next run."});
+const refused = JSON.stringify({ok: false, error: "Could not retire it."});
 window.fetch = (input, init) =>
   String(input).includes("/api/sources/") && init && init.method === "DELETE"
-    ? Promise.resolve(new Response(retired,
-        {status: 200, headers: {"Content-Type": "application/json"}}))
+    ? new Promise((resolve) => setTimeout(() => resolve(new Response(refused,
+        {status: 500, headers: {"Content-Type": "application/json"}})), 100))
     : realFetch(input, init);
 """
 
@@ -1297,7 +1301,7 @@ CHECKS: list[Check] = [
         """,
         script="""
             const rows = $$("#src-body tr").map((row) => row.textContent.trim());
-            const copy = "No sources yet. The next run stops until one is added.";
+            const copy = "No sources yet. The next run waits until one is added.";
             expect(same(rows, [copy]), `rows: ${rows}`);
         """,
         sabotage="""$("#src-body td").textContent = "No sources configured.";""",
@@ -2171,8 +2175,10 @@ CHECKS: list[Check] = [
         sabotage_preload=IGNORE_ARMED_RETIRE,
         receipt=lambda fixture: "曼報 is still listed" if "曼報" in fixture.sources else None,
     ),
+    # The last source may go: an empty table is a deployment waiting for
+    # onboarding, so the page leaves the empty-table line behind.
     Check(
-        id="retire-last-refused",
+        id="retire-last-allowed",
         fixture="writable",
         path="/settings#sources",
         setup=_keep_only("Hacker News"),
@@ -2181,17 +2187,19 @@ CHECKS: list[Check] = [
             editorAct("retire").click();
             await sleep(200);
             editorAct("retire").click();
-            const notice = () => editorAct("retire").parentElement.querySelector(".notice");
-            await waitFor(() => settled(notice()) || visible($("#sources-notice")), "the retire");
+            await waitFor(() => visible($("#sources-notice")), "the toolbar notice");
         """,
         script="""
-            const notice = editorAct("retire").parentElement.querySelector(".notice");
-            expect(notice.classList.contains("err"), `not an error: ${notice.className}`);
-            expect(notice.textContent.includes("last source"), `notice: ${notice.textContent}`);
-            expect(rowNames().includes("Hacker News"), `rows: ${rowNames()}`);
+            const text = $("#sources-notice").textContent;
+            expect(text === "Hacker News retired. Effective next run.", `notice: ${text}`);
+            const rows = $$("#src-body tr").map((row) => row.textContent.trim());
+            const copy = "No sources yet. The next run waits until one is added.";
+            expect(same(rows, [copy]), `rows: ${rows}`);
         """,
-        sabotage_preload=ANSWER_DELETE_OK,
-        receipt=_still_listed("Hacker News"),
+        sabotage_preload=IGNORE_ARMED_RETIRE,
+        receipt=lambda fixture: (
+            "Hacker News is still listed" if "Hacker News" in fixture.sources else None
+        ),
     ),
     # A pressed button is disabled while its write is out, which drops focus; a
     # keyboard reader gets it back where the result left them.
@@ -2220,7 +2228,7 @@ CHECKS: list[Check] = [
         id="retire-failure-focuses-retire",
         fixture="writable",
         path="/settings#sources",
-        setup=_keep_only("Hacker News"),
+        preload=ANSWER_DELETE_REFUSED,
         focused=True,
         act="""
             await openRow("Hacker News");

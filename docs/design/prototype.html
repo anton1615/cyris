@@ -1379,7 +1379,7 @@ function renderSources() {
       <td><span class="pill">${s.tier}</span></td>
       <td class="target">${esc(s.url || s.email_match || "—")}</td>
       <td class="small">${esc((s.tags || []).join(", ") || "—")}</td>
-    </tr>`).join("") || `<tr><td class="small" colspan="5">No sources yet. The next run stops until one is added.</td></tr>`;
+    </tr>`).join("") || `<tr><td class="small" colspan="5">No sources yet. The next run waits until one is added.</td></tr>`;
   if (openName !== null) openEditor(openName);
 }
 function openEditor(name) {
@@ -1412,12 +1412,6 @@ function openEditor(name) {
     }
     clearTimeout(armTimer);
     retire.classList.remove("armed"); retire.textContent = "Retire";
-    if (sources.length === 1) {
-      const result = $('[data-act="retire-result"]', ed);
-      result.textContent = `${name} is the last source. A run with none stops, so add another before retiring it.`;
-      result.hidden = false;
-      return;
-    }
     sources = sources.filter((x) => x.name !== name); openName = null; renderSources();
     $("#add-source").focus();
   };

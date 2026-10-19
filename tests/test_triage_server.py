@@ -246,7 +246,7 @@ class TestSourcesWriteSurface:
 
 
 class TestLastSource:
-    """A deployment with no source stops running, so the page cannot retire the last one."""
+    """An empty table is a deployment waiting for onboarding, so the last source may go."""
 
     async def _delete(self, names: list[str], retire: str):
         from cyris.adapters.store.source_store import D1SourceStore
@@ -263,17 +263,12 @@ class TestLastSource:
         finally:
             await test_client.close()
 
-    async def test_the_last_source_is_kept(self) -> None:
+    async def test_the_last_source_is_retired(self) -> None:
         status, body, left = await self._delete(["Only"], "Only")
 
-        assert status == 409
-        assert body == {
-            "ok": False,
-            "error": (
-                "Only is the last source. A run with none stops, so add another before retiring it."
-            ),
-        }
-        assert left == {"Only"}
+        assert status == 200
+        assert body == {"ok": True, "name": "Only", "note": "Effective next run."}
+        assert left == set()
 
     async def test_one_of_two_is_retired(self) -> None:
         status, _, left = await self._delete(["A", "B"], "A")

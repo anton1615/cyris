@@ -768,17 +768,8 @@ class TriageServer:
             )
         name = request.match_info["name"]
         try:
-            if set(self._source_store.list_sources()) == {name}:
-                return web.json_response(
-                    {
-                        "ok": False,
-                        "error": (
-                            f"{name} is the last source. A run with none stops, "
-                            "so add another before retiring it."
-                        ),
-                    },
-                    status=409,
-                )
+            # The last source may go: an empty table is a deployment waiting for
+            # onboarding, and a run with none ends without fetching anything.
             self._source_store.delete(name)
         except Exception as e:  # noqa: BLE001 - the reason belongs in the response
             return web.json_response({"ok": False, "error": str(e)}, status=500)
