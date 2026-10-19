@@ -675,19 +675,22 @@ class TestKeptItemsReachThePreference:
         assert [a.url for a in kept] == [articles[0].url, articles[1].url, articles[4].url]
         assert [a.title for a in kept] == ["Original one", "Original two", articles[4].title]
 
-    async def test_a_news_cluster_never_reaches_the_preference(self, sample_sources):
+    async def test_every_cluster_member_reaches_the_preference(self, sample_sources):
         articles, headlines, sections = self._kept_issue()
-        wire = Article(
-            id=9,
-            title="Wire story",
-            url="https://news.example/9",
-            content="News content",
-            published_at=datetime(2026, 4, 10, tzinfo=UTC),
-            source_name="Wire",
-            source_tier=Tier.FILTER,
-            source_tags=["news"],
-        )
-        cluster = DigestSection(heading="News", items=[_item(wire)])
+        wires = [
+            Article(
+                id=9 + n,
+                title=f"Wire story {n}",
+                url=f"https://news.example/{9 + n}",
+                content="News content",
+                published_at=datetime(2026, 4, 10, tzinfo=UTC),
+                source_name="Wire",
+                source_tier=Tier.FILTER,
+                source_tags=["news"],
+            )
+            for n in range(2)
+        ]
+        cluster = DigestSection(heading="News", items=[_item(w) for w in wires])
         asked: list[list[Article]] = []
 
         async def preference(kept):
@@ -695,7 +698,7 @@ class TestKeptItemsReachThePreference:
             return None
 
         await self._process(
-            [*articles, wire],
+            [*articles, *wires],
             sample_sources,
             headlines=headlines,
             sections=sections,
@@ -704,8 +707,8 @@ class TestKeptItemsReachThePreference:
         )
 
         [kept] = asked
-        assert wire.url not in [a.url for a in kept]
-        assert len(kept) == 3
+        assert {w.url for w in wires} <= {a.url for a in kept}
+        assert len(kept) == 5
 
     async def test_without_a_preference_nothing_is_asked_and_nothing_moves(self, sample_sources):
         articles, headlines, sections = self._kept_issue()
@@ -743,7 +746,7 @@ class TestPreferenceScoresOrderTheCap:
         _, _, scored = await self._headlines(sample_sources, {h1: 0.1, h2: 0.9})
 
         assert [i.title for i in scored.content.filtered_headlines] == ["Article 2"]
-        assert scored.preference_moves == {"headlines": 1, "features": 0}
+        assert scored.preference_moves == {"headlines": 1, "features": 0, "clusters": 0}
 
     async def test_no_scores_keep_the_model_order(self, sample_sources):
         h1, _, result = await self._headlines(sample_sources, None)
@@ -755,4 +758,50 @@ class TestPreferenceScoresOrderTheCap:
         h1, _, result = await self._headlines(sample_sources, {})
 
         assert [i.title for i in result.content.filtered_headlines] == [h1.title]
-        assert result.preference_moves == {"headlines": 0, "features": 0}
+        assert result.preference_moves == {"headlines": 0, "features": 0, "clusters": 0}
+
+    async def _clusters(self, sample_sources, scores):
+        wires = [
+            _article(i, Tier.FILTER, "Wire").model_copy(update={"source_tags": ["news"]})
+            for i in (1, 2, 3, 4)
+        ]
+        clusters = [
+            DigestSection(heading="quiet", items=[_item(w) for w in wires[:2]]),
+            DigestSection(heading="voted", items=[_item(w) for w in wires[2:]]),
+        ]
+
+        async def preference(_kept):
+            return scores
+
+        pipeline = DigestPipeline(FakeLLM(), **pipeline_settings(max_digest_output=2))
+        with (
+            patch(
+                "cyris.service_layer.digest_pipeline.filter_articles",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "cyris.service_layer.digest_pipeline.cluster_news",
+                new_callable=AsyncMock,
+                return_value=(clusters, []),
+            ),
+        ):
+            return await pipeline.process(
+                wires,
+                sample_sources,
+                timezone=TEST_SETTINGS["general.timezone"],
+                preference=preference,
+            )
+
+    async def test_the_cluster_of_a_voted_article_takes_the_last_slots(self, sample_sources):
+        urls = [f"https://example.com/{i}" for i in (1, 4)]
+        result = await self._clusters(sample_sources, dict(zip(urls, (-0.2, 0.6), strict=True)))
+
+        assert [s.heading for s in result.content.news_clusters] == ["voted"]
+        assert result.preference_moves["clusters"] == 1
+
+    async def test_no_scores_keep_the_models_cluster_order(self, sample_sources):
+        result = await self._clusters(sample_sources, None)
+
+        assert [s.heading for s in result.content.news_clusters] == ["quiet"]
+        assert result.preference_moves is None

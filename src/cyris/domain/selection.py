@@ -145,7 +145,7 @@ def rank_by_preference[Ranked: (DigestItem, DigestSection)](
 
 
 def preference_moves(baseline: DigestContent, ranked: DigestContent) -> dict[str, int]:
-    """How many headline and Features positions name a different article than `baseline`'s."""
+    """How many headline, Features and cluster positions name other articles than `baseline`'s."""
 
     def moved(before: list, after: list) -> int:
         pairs = zip_longest((_urls(e) for e in before), (_urls(e) for e in after))
@@ -154,6 +154,7 @@ def preference_moves(baseline: DigestContent, ranked: DigestContent) -> dict[str
     return {
         "headlines": moved(baseline.filtered_headlines, ranked.filtered_headlines),
         "features": moved(baseline.featured_articles[1:], ranked.featured_articles[1:]),
+        "clusters": moved(baseline.news_clusters, ranked.news_clusters),
     }
 
 
@@ -211,8 +212,8 @@ def select_digest_articles(
         content: Full processed digest content.
         max_items: Total article cap.
         preference: Article URL to the reader's vote preference. When given, the
-            Features and the headlines are ordered by it before the cap cuts them;
-            the Top story is never moved.
+            Features, the news clusters and the headlines are ordered by it before
+            the cap cuts them; the Top story is never moved.
 
     Returns:
         New DigestContent with limited items.
@@ -230,15 +231,18 @@ def select_digest_articles(
         selected_summaries = _truncate_sections(content.thematic_summaries, remaining)
         remaining = 0
 
-    # Priority 2: news clusters
-    news_count = _count_section_items(content.news_clusters)
+    # Priority 2: news clusters, ordered by preference before the cut so that a
+    # cluster the reader voted into is not the one the tail loses. A cluster stands
+    # on its best-scoring member; one no member of was judged keeps its slot.
+    clusters = rank_by_preference(content.news_clusters, preference)
+    news_count = _count_section_items(clusters)
     if remaining == 0:
         selected_clusters = []
     elif news_count <= remaining:
-        selected_clusters = list(content.news_clusters)
+        selected_clusters = clusters
         remaining -= news_count
     else:
-        selected_clusters = _truncate_sections(content.news_clusters, remaining)
+        selected_clusters = _truncate_sections(clusters, remaining)
         remaining = 0
 
     # Priority 3: attention sections

@@ -661,6 +661,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
     else:
         summary["preference_rank_moved_headlines"] = result.preference_moves["headlines"]
         summary["preference_rank_moved_features"] = result.preference_moves["features"]
+        summary["preference_rank_moved_clusters"] = result.preference_moves["clusters"]
     summary.update(order.receipt.as_summary())
     # A view, not a verdict: no hit changes its article's state or the issue's counts.
     content.tracked_topics = tracked_sections
