@@ -76,15 +76,15 @@ async def test_the_vault_check_is_gone_on_d1_and_creates_no_directory(tmp_path: 
     assert not (tmp_path / "never-created").exists()
 
 
-def test_an_empty_d1_sources_table_fails_with_the_push_hint(tmp_path: Path) -> None:
+def test_an_empty_d1_sources_table_waits_with_the_push_hint(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     cfg.app.store.backend = "d1"
     cfg.sources = {}
 
     check = doctor._check_sources(cfg)
 
-    assert check.status == "fail"
-    assert check.detail == "no sources in D1"
+    assert check.status == "warn"
+    assert check.detail == "none in D1 yet — waiting for onboarding"
     assert check.fix == "Add one on /settings, or run `cyris sources push`."
     assert "bundled" not in check.detail
 
@@ -112,11 +112,15 @@ async def test_the_sources_check_names_where_they_came_from(tmp_path: Path) -> N
     assert check.detail.endswith("— from sources.yaml")
 
 
-async def test_no_sources_is_a_failure(tmp_path: Path) -> None:
+async def test_no_sources_is_not_a_failure_but_a_wait(tmp_path: Path) -> None:
+    """An empty list is a deployment waiting for onboarding, so `doctor` exits 0."""
     cfg = _config(tmp_path)
     cfg.sources = {}
 
-    assert _by_name(await doctor.run_checks(cfg), "sources").status == "fail"
+    check = _by_name(await doctor.run_checks(cfg), "sources")
+
+    assert check.status == "warn"
+    assert check.detail == "none in sources.yaml yet — waiting for onboarding"
 
 
 async def test_a_provider_without_its_key_names_the_variable(tmp_path: Path, monkeypatch) -> None:

@@ -92,7 +92,7 @@ class TestLoadConfig:
         cfg = load_config(config_path=config_file, sources_path=tmp_path / "nope.yaml")
         assert cfg.sources == {}
 
-    def test_missing_sources_fails_doctor(self, tmp_path):
+    def test_missing_sources_waits_for_onboarding_in_doctor(self, tmp_path):
         from cyris.diagnostics.doctor import _check_sources
 
         config_file = tmp_path / "cyris.toml"
@@ -100,8 +100,8 @@ class TestLoadConfig:
         cfg = load_config(config_path=config_file, sources_path=tmp_path / "nope.yaml")
         check = _check_sources(cfg)
         assert check.name == "sources"
-        assert check.status == "fail"
-        assert check.detail == "no usable sources"
+        assert check.status == "warn"
+        assert check.detail == "none in sources.yaml yet — waiting for onboarding"
 
     def test_sources_file_is_used(self, tmp_path):
         config_file = tmp_path / "cyris.toml"
