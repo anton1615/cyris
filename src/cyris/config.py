@@ -432,7 +432,11 @@ class IncompleteSettingsError(ValueError):
 
 
 class NoSourcesError(ValueError):
-    """A run was started with no source to fetch from."""
+    """A run was started with sources, none of which can be fetched from.
+
+    An *empty* list is not this error: a deployment ships with no source and
+    waits for onboarding to pick some (`Config.awaiting_onboarding`).
+    """
 
 
 class Config(BaseModel):
@@ -485,22 +489,38 @@ class Config(BaseModel):
             f"Missing from cyris.toml: {keys}. cyris.toml.example lists every key."
         )
 
+    def awaiting_onboarding(self) -> bool:
+        """No source at all: a deployment whose reader has not picked feeds yet.
+
+        A permitted state, not an error. A new deployment's `sources` is empty
+        until onboarding fills it, so a run ends there having fetched nothing
+        and called no LLM, and a scheduled tick reports no failure.
+        """
+        return not self.sources
+
+    def onboarding_wait(self) -> str:
+        """Why a run with no source does nothing, and where a source comes from."""
+        where = (
+            "Add one on /settings, or run `cyris sources push`."
+            if self.app.store.is_d1
+            else "Add feeds to sources.yaml."
+        )
+        return f"No sources yet, so this run has nothing to fetch: waiting for onboarding. {where}"
+
     def require_sources(self) -> None:
-        """Raise NoSourcesError when this deployment's one source list has none to fetch."""
-        if any(s.fetchable for s in self.sources.values()):
+        """Raise NoSourcesError when every source in the one list is unfetchable.
+
+        An empty list returns: that is `awaiting_onboarding`, which the caller
+        reports instead of failing.
+        """
+        if not self.sources or any(s.fetchable for s in self.sources.values()):
             return
         home = "D1" if self.app.store.is_d1 else "sources.yaml"
-        if self.sources:
-            names = ", ".join(sorted(self.sources))
-            raise NoSourcesError(
-                f"No fetchable sources in {home}: {names}. An RSS source needs a feed URL, "
-                "a newsletter source a sender match."
-            )
-        if self.app.store.is_d1:
-            raise NoSourcesError(
-                "No sources in D1. Add one on /settings, or run `cyris sources push`."
-            )
-        raise NoSourcesError("No sources in sources.yaml.")
+        names = ", ".join(sorted(self.sources))
+        raise NoSourcesError(
+            f"No fetchable sources in {home}: {names}. An RSS source needs a feed URL, "
+            "a newsletter source a sender match."
+        )
 
     def validate_required_keys(self) -> None:
         """Raise ValueError if required API keys are missing.
