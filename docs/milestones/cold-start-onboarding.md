@@ -11,7 +11,8 @@ depends: []
 ## 這個里程碑定下什麼
 
 - **新部署不帶預設 feed。** 試用精靈第 13 步替試用者複製預設來源的做法，以及 `sources.example.yaml` 這類範本，都要拿掉。
-- **第一次打開 /settings 時走 onboarding。** 讀者先從清單挑來源，系統立刻抓回這些來源的近期文章，讀者再對其中幾篇按「有興趣」或「沒興趣」。
+- **onboarding 是一個逐步精靈，放在獨立頁面 `/onboarding`。** `sources` 是空表時，/settings 會轉到這一頁。精靈依序走六步：輸出語言與時區、出刊時間、挑來源、投票卡片、通知、第一期。挑來源時，讀者從清單挑；系統立刻抓回這些來源的近期文章，讀者再對其中幾篇按「有興趣」或「沒興趣」。
+- **精靈不放 Model、Pipeline、Areas、Tracking。** 前兩區是部署者的事，後兩區要先有幾期資料才有意義。vote similarity 由精靈直接打開，不問讀者。
 - **清單由專案自己收集，只收媒體自己提供的 feed。** 清單以 A 級資料檔放在 repo 的 `src/cyris/` 底下，不收 RSS hub，也不收聚合 feed。
 - **卡片有三種狀態。** 「有興趣」和「沒興趣」才算票，沒碰過的卡不代表任何意思。按過的文章以 accepted 或 rejected 加上 `triaged_at` 寫進 store，成為第一期的 seed。
 - **文章經 run 原本的抓取路徑進來。** 有 rss Worker 的部署走 `POST /poll` 和 `GET /articles`，沒有的走 `RssSource`。同一個解析器，才能保證投過票的 URL 和第一次 run 看到的一致。
@@ -40,7 +41,14 @@ depends: []
 - 實際收錄前要再驗一次。
 - 標 `news` 的例子：中央社各分類、公視、自由時報、RTHK，以及照 owner 本機 `sources.yaml` 標法的報導者。不標的例子：iThome、科技新報、INSIDE、The Verge、Ars Technica。
 
-**onboarding 流程**
+**onboarding 精靈**
+- **頁面照 `/labels` 的做法。** 在容器裡掛一條路由和一個模板（`src/cyris/entrypoints/triage_server.py:221-222`），並把 `/onboarding` 加進 app Worker 的 `PROTECTED`（`workers/app/src/router.js:16-22`）。
+- **設定步驟沿用 /settings 現有的 API。** 這些 API 是 `/api/settings/values`、`/api/settings/schedule`、`/api/settings/notify`、`/api/settings/email` 和 `/api/settings/vote-similarity`（`triage_server.py:194-200`），所以精靈寫進去的值和一般表單寫進去的值一樣。
+- **輸出語言和時區排第一。** 這兩項要在第一期之前定好，否則第一期會用錯的語言或錯的時段。
+- **每一步都能跳過。** 跳過的設定維持預設值，之後在 /settings 改。
+- **三個子步驟各自成卡。** 挑來源、投票卡片、第一期是精靈裡的三步，實作在精靈的外框之後。
+
+**onboarding 的投票與寫入**
 - **寫入順序。** 按過的文章先存進 `stored_articles`，再經 `record_votes` 投票，因為 `accept` 和 `reject` 只能更新已經存在的列（`src/cyris/adapters/store/d1_store.py:238-245`、`src/cyris/adapters/promotions.py:65-79`）。
 - **在容器內直接寫。** 寫法照 `/labels`，不經 promote Worker（`src/cyris/entrypoints/triage_server.py:1392-1399`）。
 - **沒碰的文章。** 它們留在 rss 緩衝區，第一次 run 照常當候選。
@@ -66,7 +74,7 @@ depends: []
 
 ### 討論中替 owner 定的預設（可改回）
 
-- **入口：** /settings 偵測到 `sources` 是空表時，進入 onboarding。
+- **入口：** /settings 偵測到 `sources` 是空表時，轉到 `/onboarding`。已有來源的部署直接打開 `/onboarding`，也會被轉回 /settings。
 - **vote similarity：** onboarding 結束時必須是開著的。出貨預設是關的（`cyris.toml.example:97`），關著的時候票沒有任何作用。Cloudflare 部署一定有 `workers_ai` 的 bge-m3，門檻已校準為 0.53（`src/cyris/provider_defaults.json`）。
 - **卡片怎麼抽：** 每個來源固定抽幾張，從 8 天緩衝區裡比較舊的文章抽，免得把最新鮮的內容從第一期拿走。
 - **第一期由誰啟動：** onboarding 最後一步呼叫 `/run`，帶一個今天不會再排程的 period，精靈第 17 步跟著拿掉（`scripts/trial-wizard.sh:716-745`）。帶的 period 如果今天稍後還會排程，那次排程會用 `INSERT OR REPLACE` 蓋掉第一期（`src/cyris/adapters/store/digests.py:26`）。
@@ -88,6 +96,7 @@ depends: []
 - **試用者在意的媒體不在名單裡。** 如果大多是數位時代、端傳媒、天下、udn 這幾家，「只收媒體自己的 feed」就不夠，要重看「每套部署自架 RSSHub 補洞」。
 - **清單失效得比發版快。** 如果 onboarding 常選到抓不到文章的 feed，要重看「在專案網站上發布清單」。
 - **讀者幾乎不按「沒興趣」。** 三態卡片就退化成只收正向票。
+- **讀者走到一半就離開。** 如果試用者常在設定步驟停下來，就要把語言、出刊時間和通知移出精靈，只留挑來源、投票和第一期。
 - **`/poll` 等太久。** 如果實際等待時間讓讀者走不完流程，要重看抓取路徑。
 - **重大新聞被投票擠掉。** 如果分群排序後，颱風這類新聞被擠到後面截掉，就要加限制，例如保留模型排序前幾名的分群。
 - **分群很少。** 如果每期分群很少，排序延伸到分群的效益就很小。每期產生多少分群還沒量測。
