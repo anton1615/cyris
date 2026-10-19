@@ -984,6 +984,7 @@ on main after the change lands, citing the hash it landed as.
 | 2026-10-16 | `c456b79`..`acfc1ab` | `AIGatewayClient` (§2) posts Gemini's native body to the gateway's `google-ai-studio` endpoint with only `cf-aig-authorization`, because `/ai/run` never reads a BYOK key; §5 gives `ai_gateway` its own grade-C `CLOUDFLARE_AIG_TOKEN` (AI Gateway Run, no fallback), which the app Worker forwards. |
 | 2026-10-20 | `6a47422`..`de44784` | The vote order reaches news clusters (§3.2): every member is scored, a cluster is ordered by its best-scoring member before the issue cap cuts it, and the cluster/headline quota is unchanged; `run_summary` adds `preference_rank_moved_clusters` (ADR 0019). |
 | 2026-10-20 | `5a9a124`..`e915f84` | An empty source list is a deployment waiting for onboarding (§4, §5): `cyris run` ends at exit 0 before `build_deps` with no LLM call or alert, `cyris doctor` warns instead of failing, and `/settings` retires the last source; a list whose every source is unfetchable still stops the run. |
+| 2026-10-20 | `cf9cb10`..`22251ff` | §5 grades the onboarding feed catalog A: `src/cyris/onboarding_feeds.json` lists publisher-own feeds as `SourceConfig` entries, `scripts/validate_feed_catalog.py` checks each against both parsers, and nothing reads the catalog at runtime until the onboarding picker lands. |
 
 ## 8. Where the core never changes
 
