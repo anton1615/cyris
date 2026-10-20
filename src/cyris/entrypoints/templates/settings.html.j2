@@ -123,8 +123,7 @@
             <div class="field">
               <span class="label" id="embedding-provider-label">Embedding provider</span>
               <div class="choices" id="embedding-providers" role="radiogroup" aria-labelledby="embedding-provider-label"></div>
-              <p class="small">The embedder vote similarity compares articles with.</p>
-              <details class="more"><summary>More</summary><p class="small">Its similarity cutoff is not set here: it follows the provider, because each model's scores run on their own scale.</p></details>
+              <p class="small">The embedder vote similarity compares articles with. Its similarity cutoff comes with the model, so it is not set here.</p>
             </div>
             <div class="field">
               <label class="label" for="embedding-model-input">Embedding model</label>
@@ -134,8 +133,7 @@
             <div class="field">
               <label class="label" for="vote-enabled">Vote similarity</label>
               <select class="select" id="vote-enabled"><option value="false">Off</option><option value="true">On</option></select>
-              <p class="small">Drop candidates close to an article you voted down.</p>
-              <details class="more"><summary>More</summary><p class="small">Preview what it would drop with <code>cyris vote-sim</code> before turning it on. Turning it on checks the embedder first.</p></details>
+              <p class="small">Drop candidates close to an article you voted down. Preview what it would drop with <code>cyris vote-sim</code>; turning it on checks the embedder first.</p>
             </div>
             <div class="field">
               <label class="label" for="vote-seeds">Votes compared</label>
@@ -164,7 +162,7 @@
                 <div class="field"><label class="small" for="evening">Evening</label><input class="input narrow" id="evening" type="number" min="0" max="23" autocomplete="off"></div>
               </div>
               <div class="notice err" id="hours-error" data-field-error hidden></div>
-              <details class="more"><summary>More</summary><p class="small">Whole hours in the timezone below. The tick is hourly, so half hours are refused rather than rounded down.</p></details>
+              <p class="small">Whole hours from 0 to 23, in the timezone below; half hours are refused.</p>
             </div>
             <div class="field">
               <label class="label" for="timezone">Timezone</label>
@@ -186,31 +184,28 @@
               <label class="label" for="output-language">Output language</label>
               <select class="select" id="output-language"></select>
               <p class="small">The language headlines and summaries are written in.</p>
-              <details class="more"><summary>More</summary><p class="small">Each one is stored as its BCP 47 tag, such as zh-Hant or en. A tag stored outside this list is kept, shown as the tag itself, and passed to the model as written.</p></details>
             </div>
             <div class="field">
               <label class="label" for="style-prompt">Style</label>
               <textarea class="input" id="style-prompt" rows="4"></textarea>
-              <p class="small">Your tone or focus for the summaries, in your own words.</p>
-              <details class="more"><summary>More</summary><p class="small">Empty means none.</p></details>
+              <p class="small">Your tone or focus for the summaries, in your own words; empty means none.</p>
             </div>
             <div class="field">
               <label class="label" for="type-scale">Type size</label>
               <select class="select" id="type-scale"><option value="0.875">Smaller</option><option value="1">Default</option><option value="1.125">Larger</option></select>
-              <p class="small">How large the text is on every page.</p>
-              <details class="more"><summary>More</summary><p class="small">It applies within a minute, to issues already published too, except those rendered before this setting existed and pages opened on pages.dev directly.</p></details>
+              <p class="small">How large the text is on every page. It applies within a minute, to issues already published too.</p>
             </div>
             <div class="field">
               <label class="label" for="rank-by-preference">Order by your votes</label>
               <select class="select" id="rank-by-preference"><option value="false">Off</option><option value="true">On</option></select>
-              <p class="small">Put the headlines and Features closest to what you voted up first.</p>
-              <details class="more"><summary>More</summary><p class="small">It works while vote similarity is on (Model). When an issue is full, the headlines it leaves out stay for the next issue; none is dropped. Off keeps the model's order.</p></details>
+              <p class="small">Put the headlines and Features closest to what you voted up first. Headlines a full issue leaves out stay for the next one.</p>
+              <p class="small" id="rank-needs" hidden>Needs vote similarity on, under Model.</p>
             </div>
             <div class="field">
               <label class="label" for="preference-source">Order judged by</label>
               <select class="select" id="preference-source"><option value="cosine">Title similarity</option><option value="clef">Clef</option></select>
-              <p class="small">Who decides which headlines are closest to your votes.</p>
-              <details class="more"><summary>More</summary><p class="small">Clef needs a Workers AI token. An issue Clef cannot fully score uses title similarity.</p></details>
+              <p class="small">Who decides which headlines are closest to your votes. An issue Clef cannot fully score uses title similarity.</p>
+              <p class="small" id="clef-needs" hidden>Clef needs a Workers AI token: set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN (or CLOUDFLARE_EMBEDDING_API_TOKEN).</p>
             </div>
             <div class="actions-line">
               <button class="btn primary" type="submit" id="save-digest" disabled>Save</button>
@@ -235,8 +230,7 @@
             <div class="field">
               <label class="label" for="max-articles">Articles per run</label>
               <input class="input narrow" id="max-articles" type="number" min="1" autocomplete="off">
-              <p class="small">How many of the window's newest articles one run scores and digests, across all sources.</p>
-              <details class="more"><summary>More</summary><p class="small">Newest by publish time. Set it above a window's volume and every article in it runs.</p></details>
+              <p class="small">How many of the window's newest articles, by publish time, one run scores and digests across all sources.</p>
             </div>
             <div class="field">
               <label class="label" for="featured-threshold">Top story score</label>
@@ -255,14 +249,12 @@
                 <div class="field"><label class="small" for="summarize-snippet">Summary</label><input class="input narrow" id="summarize-snippet" type="number" min="1" autocomplete="off"></div>
                 <div class="field"><label class="small" for="filter-snippet">News clustering and headlines</label><input class="input narrow" id="filter-snippet" type="number" min="1" autocomplete="off"></div>
               </div>
-              <p class="small">How much of each article the model reads at each step.</p>
-              <details class="more"><summary>More</summary><p class="small">More costs more per call.</p></details>
+              <p class="small">How much of each article the model reads at each step; more costs more per call.</p>
             </div>
             <div class="field">
               <label class="label" for="reasoning-effort">Reasoning effort</label>
               <select class="select" id="reasoning-effort"><option value="default">Default</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
-              <p class="small">How hard the model thinks before it answers.</p>
-              <details class="more"><summary>More</summary><p class="small">Default keeps what each provider did before this setting: low on OpenAI, the model's own level on Gemini, Anthropic and AI Gateway. Workers AI always runs at low. Low, Medium and High send that level to every other provider, so models compare evenly. Gemini 2.5 gets a thinking budget instead. More effort costs more tokens and time. Save checks the level with one call to the current model.</p></details>
+              <p class="small">How hard the model thinks before it answers; more costs more tokens and time. Default keeps each provider's own level, except low on OpenAI; Workers AI always runs at low, and Save checks the level with one call.</p>
             </div>
             <div class="actions-line">
               <button class="btn primary" type="submit" id="save-pipeline" disabled>Save</button>
@@ -282,15 +274,13 @@
             <div class="field">
               <label class="label" for="discord-webhook">Discord webhook</label>
               <input class="input" id="discord-webhook" type="text" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
-              <p class="small">To change it, paste the whole URL.</p>
+              <p class="small">To change it, paste the whole URL; it is saved once Discord confirms it exists. Turn off clears it: runs then finish without a message.</p>
               <p class="small" id="notify-state" hidden>Notifications are off.</p>
-              <details class="more"><summary>More</summary><p class="small">It is saved only after Discord confirms it exists. Turn off clears it: runs then finish without a message.</p></details>
             </div>
             <div class="field">
               <label class="label" for="email-to">Email to</label>
               <input class="input" id="email-to" type="email" placeholder="you@example.com" autocomplete="off">
-              <p class="small">Leave it empty to send no mail.</p>
-              <details class="more"><summary>More</summary><p class="small">It must be a verified destination address in Cloudflare Email Routing. It is saved only after a test message reaches it.</p></details>
+              <p class="small">Leave it empty to send no mail. It must be a verified destination in Cloudflare Email Routing, and is saved once a test message reaches it.</p>
             </div>
             <div class="field">
               <label class="label" for="email-from">Email from</label>
@@ -395,8 +385,7 @@
         <div class="tab" data-tab="tracking" hidden>
           <div class="tab-head">
             <h2 class="heading">Tracking</h2>
-            <p class="small">Topics each issue lists every close article for, under Tracking.</p>
-            <details class="more"><summary>More</summary><p class="small">An article is listed when the cosine between its title and the topic's description reaches the topic's threshold. A threshold holds for the embedding model it was set for, so a topic set for another model is skipped. No topic is a valid answer: the next run still goes out.</p></details>
+            <p class="small">Topics each issue lists every close article for, under Tracking; a topic set for another embedding model is skipped.</p>
           </div>
           <div class="toolbar">
             <div class="notice" id="topics-notice" role="status" hidden></div>
@@ -428,8 +417,7 @@
         </div>
         <div class="field" data-for="rss"><label class="label" for="e-url">Feed URL</label><input class="input" id="e-url" name="url" type="text" autocomplete="off"></div>
         <div class="field" data-for="newsletter"><label class="label" for="e-email">Sender match</label><input class="input" id="e-email" name="email_match" type="text" placeholder="from:hi@example.com" autocomplete="off">
-          <p class="small">Maps a sender to this source.</p>
-          <details class="more"><summary>More</summary><p class="small">Email routing itself stays in the Cloudflare dashboard.</p></details></div>
+          <p class="small">Maps a sender to this source; email routing itself stays in the Cloudflare dashboard.</p></div>
         <div class="field" data-for="newsletter"><label class="label" for="e-home">Homepage</label><input class="input" id="e-home" name="homepage" type="text" autocomplete="off"></div>
         <div class="field"><label class="label" for="e-tags">Tags</label><input class="input" id="e-tags" name="tags" type="text" placeholder="comma separated" autocomplete="off"></div>
         <div class="field-row">
@@ -488,8 +476,7 @@
           <div class="field"><label class="label" for="t-threshold">Threshold</label><input class="input narrow" id="t-threshold" name="threshold" type="number" min="0" max="1" step="0.01" autocomplete="off"></div>
           <div class="field"><label class="label" for="t-model">Embedding model</label><input class="input" id="t-model" name="model" type="text" autocomplete="off"></div>
         </div>
-        <p class="small">The cosine a title must reach, on the scale of that model.</p>
-        <details class="more"><summary>More</summary><p class="small">There is no default threshold. Run <code>cyris topic-sim</code> with the description to see the window's titles ranked by cosine, then pick the lowest one that is still on topic.</p></details>
+        <p class="small">The cosine a title must reach, on that model's scale; there is no default. <code>cyris topic-sim</code> ranks the window's titles against the description: pick the lowest cosine still on topic.</p>
       </div>
       <div class="editor-foot">
         <div class="actions-line">

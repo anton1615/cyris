@@ -712,8 +712,15 @@ EXPECTED_IDS = {
     "fits-375-tab-hint-taps-through",
     "fits-largest-375-tab-hint-taps-through",
     "tap-tabs-375",
-    "tap-more-375",
-    "tap-more-apart-375",
+    "tap-folds-375",
+    "digest-order-waits-for-vote-similarity",
+    "digest-order-follows-vote-similarity",
+    "digest-order-unset-saves-off",
+    "digest-clef-waits-for-its-token",
+    "digest-clef-offered-with-its-token",
+    "digest-order-reason-describes-it",
+    "digest-clef-reason-describes-it",
+    "digest-order-reason-leaves-with-vote-similarity",
 }
 
 
