@@ -560,6 +560,27 @@ _CHECKS: list[Check] = [
         receipt=_calls(WEBHOOK_STORED, MAIL_STORED),
     ),
     Check(
+        id="notify-step-refuses-a-sender-without-a-recipient",
+        fixture="empty",
+        path=f"{PAGE}#notify",
+        act=f"""
+            await loaded();
+            setValue($("#o-email-from"), {json.dumps(NEW_MAIL_FROM)});
+            press("o-next");
+            await waitFor(settled, "the refusal");
+        """,
+        script="""
+            const text = notice().textContent;
+            expect(visible(notice()), "the refusal is not shown");
+            expect(notice().classList.contains("err"), `not an error: ${text}`);
+            expect(text.includes("sent to, too"), `notice: ${text}`);
+            expect(same(shownSteps(), ["notify"]), `shown: ${shownSteps()}`);
+            expect(same(marks(), ["o-email-to"]), `marked: ${marks()}`);
+        """,
+        sabotage="""notice().hidden = true;""",
+        receipt=_calls(),
+    ),
+    Check(
         id="notify-step-left-empty-writes-nothing",
         fixture="empty",
         path=f"{PAGE}#notify",

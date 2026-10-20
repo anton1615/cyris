@@ -121,6 +121,8 @@ async function post(url, body) {
 const changed = (ids) => ids.filter((id) => $(id).value !== loaded.get(id));
 const keep = (ids) => ids.forEach((id) => loaded.set(id, $(id).value));
 const fieldOf = (ids, keys, field) => ids.filter((id) => keys[id] === field);
+// The registry's label, or the key itself when the settings read never answered.
+const labelOf = (key) => REGISTRY[key]?.label ?? key;
 
 // Each save answers the line to show when it stored something, "" when the step
 // was left as it was loaded, or throws with what to tell the reader.
@@ -132,7 +134,7 @@ async function saveLanguage() {
   try {
     const data = await post("/api/settings/values", {values});
     keep(ids);
-    const parts = ids.map((id) => `${REGISTRY[PLAIN[id]].label}: ${data.values[PLAIN[id]]}`);
+    const parts = ids.map((id) => `${labelOf(PLAIN[id])}: ${data.values[PLAIN[id]]}`);
     return `${parts.join(", ")}. ${data.note}`;
   } catch (err) {
     mark(err.field ? fieldOf(ids, PLAIN, err.field) : ids);
@@ -179,9 +181,14 @@ async function saveNotify() {
     }
   }
   const mail = Object.keys(MAIL);
-  if (changed(mail).length && $(mail[0]).value.trim()) {
+  const [to, from] = mail.map((id) => $(id).value);
+  if (changed(mail).length && !to.trim() && from.trim()) {
+    // The mirror of the server's own refusal of a recipient without a sender:
+    // with nowhere to send it, the pair is not a setting yet.
+    mark([mail[0]]);
+    problems.push("Enter the address the digest is sent to, too.");
+  } else if (changed(mail).length && to.trim()) {
     show("busy", "Sending a test message…");
-    const [to, from] = mail.map((id) => $(id).value);
     try {
       const data = await post("/api/settings/email", {email_to: to, email_from: from});
       keep(mail);

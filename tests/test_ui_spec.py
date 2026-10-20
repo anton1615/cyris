@@ -580,6 +580,14 @@ async def test_settings_never_asks_the_browser_to_confirm(triage: TestClient, pa
     assert not _uses_confirm(await _served(triage, path))
 
 
+def test_the_onboarding_script_keeps_the_scroll_and_dialog_rules() -> None:
+    script = (STYLE.parent / "onboarding.js").read_text()
+    assert _motion_without_preference(script) == []
+    assert _literal_scroll_offsets(script) == []
+    assert not _uses_confirm(script)
+    assert not _uses_confirm(_source("onboarding"))
+
+
 SETTINGS_HASHES = [
     "#model",
     "#digest",

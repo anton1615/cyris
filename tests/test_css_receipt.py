@@ -1267,6 +1267,7 @@ EXPECTED_ONBOARDING_IDS = {
     "a-refused-value-is-marked-in-its-own-field",
     "notify-step-saves-the-webhook",
     "notify-step-saves-the-mail-pair",
+    "notify-step-refuses-a-sender-without-a-recipient",
     "notify-step-left-empty-writes-nothing",
     "finish-leaves-for-settings",
     "an-empty-deployment-is-sent-from-settings-to-the-wizard",
