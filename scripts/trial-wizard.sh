@@ -336,7 +336,7 @@ receipts() {
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://cyris-digest.pages.dev/ || true)
   if [[ "$code" == 200 ]]; then printf '  %s✓%s https://cyris-digest.pages.dev/ → 200\n' "$GREEN" "$RESET"; else warn "https://cyris-digest.pages.dev/ → $code"; fi
   printf '\n%s  cyris doctor --deployment%s\n' "$BOLD" "$RESET"
-  note "Expected image sha: ${IMAGE_TAG:-unknown} (production's). 'publishing' fails until the first digest exists; that is not a blocker."
+  note "Expected image: ${IMAGE_TAG:-unknown}, the last one deployed to this trial (by this wizard or scripts/deploy_trial.py). 'publishing' fails until the first digest exists; that is not a blocker."
   local dir
   dir=$(mktemp -d)
   {

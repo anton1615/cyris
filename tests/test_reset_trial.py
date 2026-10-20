@@ -351,7 +351,9 @@ def test_what_a_recount_still_sees_is_a_warning_not_a_failure(reset, capsys) -> 
 
 
 def test_an_exported_token_never_reaches_wrangler(reset, tree: Path) -> None:
-    env = reset.wrangler_env(SLUG, {"CLOUDFLARE_API_TOKEN": "prod-SECRET", "PATH": "/bin"})
+    env = reset.provision_trial.wrangler_env(
+        SLUG, {"CLOUDFLARE_API_TOKEN": "prod-SECRET", "PATH": "/bin"}
+    )
 
     assert "CLOUDFLARE_API_TOKEN" not in env
     assert env["CLOUDFLARE_ACCOUNT_ID"] == "0123456789abcdef0123456789abcdef"

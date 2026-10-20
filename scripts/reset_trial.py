@@ -31,7 +31,6 @@ Usage:
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -41,6 +40,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import provision_trial
+from provision_trial import wrangler, wrangler_env
 
 ROOT = provision_trial.ROOT
 SHIPPED_SETTINGS = "cyris.toml.example"
@@ -147,11 +147,6 @@ def reset_sql(present: list[str], defaults: dict[str, object], now: str) -> list
             "updated_at = excluded.updated_at"
         )
     return statements
-
-
-def wrangler(config: str, *args: str) -> list[str]:
-    """Every wrangler call: the trial's own config, and never this checkout's `.env`."""
-    return ["bunx", "wrangler", *args, "--config", config, "--env-file", "/dev/null"]
 
 
 def _json(stdout: str):
@@ -266,23 +261,6 @@ def _runner(env: dict[str, str]) -> Runner:
         return done.stdout
 
     return run
-
-
-def wrangler_env(slug: str, base: dict[str, str] | None = None) -> dict[str, str]:
-    """The environment wrangler runs in: the login, never a token the shell exported.
-
-    A `CLOUDFLARE_API_TOKEN` beats both `--env-file /dev/null` and the OAuth login
-    (docs/trial-deployment.md), so it is dropped. The account comes from the
-    wizard's state, as the wizard itself exports it.
-    """
-    env = {k: v for k, v in (base if base is not None else os.environ).items()}
-    env.pop("CLOUDFLARE_API_TOKEN", None)
-    state = ROOT / f".env.trial-{slug}-wizard"
-    if state.exists():
-        for line in state.read_text(encoding="utf-8").splitlines():
-            if line.startswith("ACCOUNT_ID="):
-                env["CLOUDFLARE_ACCOUNT_ID"] = line.split("=", 1)[1]
-    return env
 
 
 def build_parser() -> argparse.ArgumentParser:

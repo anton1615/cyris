@@ -19,6 +19,7 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -261,7 +262,8 @@ def load_rendered(slug: str) -> dict[str, dict]:
             out[kind] = tomllib.loads((ROOT / rel).read_text(encoding="utf-8"))
         except FileNotFoundError:
             raise ProductionNameError(
-                f"{rel} not found: render it first (scripts/trial-wizard.sh {slug} --from 8)"
+                f"{rel} not found: run this from the checkout that provisioned {slug},"
+                " or render its configs with `provision_trial.py render` first"
             ) from None
     d1 = (out["rss"].get("d1_databases") or [{}])[0]
     kv = (out["promote"].get("kv_namespaces") or [{}])[0]
@@ -302,6 +304,26 @@ def env_file(rel: str) -> dict[str, str]:
 def wizard_state(slug: str) -> dict[str, str]:
     """The wizard's saved inputs, ids and image for a trial."""
     return env_file(f".env.trial-{slug}-wizard")
+
+
+def wrangler(config: str, *args: str) -> list[str]:
+    """Every wrangler call on a trial: its own config, and never this checkout's `.env`."""
+    return ["bunx", "wrangler", *args, "--config", config, "--env-file", "/dev/null"]
+
+
+def wrangler_env(slug: str, base: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment wrangler runs in: the login, never a token the shell exported.
+
+    A `CLOUDFLARE_API_TOKEN` beats both `--env-file /dev/null` and the OAuth login
+    (docs/trial-deployment.md), so it is dropped. The account comes from the
+    wizard's state, as the wizard itself exports it.
+    """
+    env = dict(base if base is not None else os.environ)
+    env.pop("CLOUDFLARE_API_TOKEN", None)
+    account = wizard_state(slug).get("ACCOUNT_ID")
+    if account:
+        env["CLOUDFLARE_ACCOUNT_ID"] = account
+    return env
 
 
 def cmd_names(args) -> int:
