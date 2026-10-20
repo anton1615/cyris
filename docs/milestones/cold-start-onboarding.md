@@ -74,7 +74,7 @@ depends: []
 
 ### 討論中替 owner 定的預設（可改回）
 
-- **入口：** /settings 偵測到 `sources` 是空表時，轉到 `/onboarding`。已有來源的部署直接打開 `/onboarding`，也會被轉回 /settings。
+- **入口：** /settings 偵測到 `sources` 是空表時，轉到 `/onboarding`。D1 部署不論有沒有來源，都可以直接打開 `/onboarding`；json 後端打開它會被轉回 /settings。原本「已有來源的部署打開 `/onboarding` 轉回 /settings」那條，2026-10-20 由 owner 拿掉：挑來源寫入之後，讀者在投票或第一期那步重新整理頁面，會被踢出精靈。精靈出口的 `?from=onboarding` 標記保留，因為跳過挑來源的部署走完精靈時，`sources` 還是空表。
 - **vote similarity：** onboarding 結束時必須是開著的。出貨預設是關的（`cyris.toml.example:97`），關著的時候票沒有任何作用。Cloudflare 部署一定有 `workers_ai` 的 bge-m3，門檻已校準為 0.53（`src/cyris/provider_defaults.json`）。
 - **卡片怎麼抽：** 每個來源固定抽幾張，從 8 天緩衝區裡比較舊的文章抽，免得把最新鮮的內容從第一期拿走。
 - **第一期由誰啟動：** onboarding 最後一步呼叫 `/run`，帶一個今天不會再排程的 period，精靈第 17 步跟著拿掉（`scripts/trial-wizard.sh:716-745`）。帶的 period 如果今天稍後還會排程，那次排程會用 `INSERT OR REPLACE` 蓋掉第一期（`src/cyris/adapters/store/digests.py:26`）。
