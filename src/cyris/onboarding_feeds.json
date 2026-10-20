@@ -28,7 +28,7 @@
       "name": "報導者",
       "url": "https://www.twreporter.org/a/rss2.xml",
       "tier": "filter",
-      "tags": ["news", "investigative"],
+      "tags": ["investigative"],
       "language": "zh",
       "topics": ["taiwan", "ideas"]
     },

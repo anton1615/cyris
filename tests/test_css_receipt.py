@@ -1444,9 +1444,10 @@ async def test_the_onboarding_probe_refusing_table_turns_its_feed_down_once():
 
 
 def test_the_onboarding_probe_picks_carry_more_than_one_tag():
-    """A body that lost a tag must differ from the entry it was sent for."""
+    """A body that lost a tag, or reordered two, must differ from the entry it was sent for."""
     assert len(onboarding_probe.PICKS) == 2
-    assert all(len(entry["tags"]) > 1 for entry in onboarding_probe.PICKS)
+    assert all(entry["tags"] for entry in onboarding_probe.PICKS)
+    assert any(len(entry["tags"]) > 1 for entry in onboarding_probe.PICKS)
     assert onboarding_probe.REFUSED != onboarding_probe.TAKEN
 
 

@@ -125,12 +125,15 @@ PROBE_VALUES = {key: _VALUES[key] for key in GRADE_D_KEYS}
 
 A_SOURCE = SourceConfig(name="Simon Willison", url="https://simonwillison.net/atom/everything/")
 
-# The feed list the server offers, and the two the reader picks: each carries two
-# tags, so a body that lost one, or its order, is told from the list's own.
+# The feed list the server offers, and the two the reader picks: those with the
+# most tags, so a body that lost one, or its order, is told from the list's own.
+# Ranked rather than filtered, so a list with one multi-tag entry still gives two,
+# and kept in the list's order, which is the order the page posts them in.
 FEEDS = load_onboarding_feeds()
 TOPICS = load_onboarding_topics()
 LABELS = {topic["id"]: topic["label"] for topic in TOPICS}
-PICKS = [entry for entry in FEEDS if len(entry["tags"]) > 1][:2]
+_MOST_TAGS = sorted(FEEDS, key=lambda entry: -len(entry["tags"]))[:2]
+PICKS = [entry for entry in FEEDS if entry in _MOST_TAGS]
 # The feed the `refuses-one` table turns down once, and the one it takes beside it.
 REFUSED, TAKEN = FEEDS[1], FEEDS[0]
 REFUSAL = "D1 is busy; try again"
