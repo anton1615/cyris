@@ -145,11 +145,12 @@ session cookie lasts 30 days. Login sends you to `/`, the archive, which has not
 serve until the first digest is published, so open `/settings` next.
 
 While `sources` is still empty, `/settings` sends you to `/onboarding`, the guided setup.
-It walks the output language and timezone, the publish hours and the notifications, and
-saves each through the same routes `/settings` does; every step can be skipped, and a
-skipped setting keeps the value it has. `Finish` opens `/settings`, where the categories
-below are filled in. The steps that pick sources, take your first votes and build the
-first issue are still placeholders, so add a source on `/settings` → Sources as before.
+It walks the output language and timezone, the publish hours, your sources and the
+notifications, and saves each through the same routes `/settings` does; every step can be
+skipped, and a skipped setting keeps the value it has. The sources step lists the feeds the
+project collected and adds the ones you check; skip it to add your own later on
+`/settings` → Sources. `Finish` opens `/settings`, where the categories below are filled
+in. The steps that take your first votes and build the first issue are still placeholders.
 
 The first request after a deploy starts the container, so the page can take a minute;
 right after the very first deploy, container routes can fail for several minutes

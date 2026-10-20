@@ -1,9 +1,10 @@
 // The onboarding wizard: one step at a time, moved through with Back, Next and
 // Skip, ending back on /settings. Three steps write settings, each through the
 // route /settings saves that field with, so what lands in the store is what the
-// settings form would have stored. The sources, votes and first-issue steps are
-// placeholders until their own tickets land (onboarding.html.j2): they write
-// nothing, so Next on them only moves on.
+// settings form would have stored. The sources step writes each picked feed
+// through POST /api/sources, the route the settings form adds a source with. The
+// votes and first-issue steps are placeholders until their own tickets land
+// (onboarding.html.j2): they write nothing, so Next on them only moves on.
 const $ = (id) => document.getElementById(id);
 
 // The six steps, in order. Each one's hash opens it, so a reload keeps the place.
@@ -202,7 +203,88 @@ async function saveNotify() {
   return lines.join("\n");
 }
 
-const SAVES = {language: saveLanguage, schedule: saveSchedule, notify: saveNotify};
+// The feed list's rows, one per entry GET /api/onboarding/feeds sent, in its
+// order; empty when the server offered none.
+let FEEDS = [];
+
+// A row's state, shown on its right before its tags. An added feed's checkbox
+// is disabled, and that is what keeps a retry from sending it again.
+function setState(row, state) {
+  row.state = state;
+  row.tags.textContent = [state, ...row.entry.tags].filter(Boolean).join(" · ");
+  const added = state === "Added";
+  row.box.disabled = added;
+  row.label.classList.toggle("unavailable", added);
+  if (state === "Not added") row.box.setAttribute("aria-invalid", "true");
+  else row.box.removeAttribute("aria-invalid");
+}
+
+// The loading line goes only once the step is drawn, so a list that fails to
+// draw leaves it in place for the reason.
+function renderFeeds(data) {
+  if (!data.feeds.length) {
+    $("o-feeds-loading").remove();
+    $("o-feeds-had").hidden = false;
+    return;
+  }
+  FEEDS = data.feeds.map((entry) => {
+    const label = document.createElement("label");
+    label.className = "choice";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    // The entry's own name and tags, as the list holds them.
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = entry.name;
+    const tags = document.createElement("span");
+    tags.className = "label";
+    label.append(box, name, tags);
+    const row = {entry, label, box, tags};
+    box.addEventListener("change", () => { if (row.state === "Not added") setState(row, ""); });
+    setState(row, "");
+    return row;
+  });
+  $("o-feeds").append(...FEEDS.map((row) => row.label));
+  $("o-feeds").hidden = false;
+  $("o-feeds-loading").remove();
+}
+
+// One POST /api/sources per picked feed, each body the entry as listed, so the
+// source stored is the list's own, tags and tier included. A feed already added
+// is not sent again: Next after a partial failure retries only the ones that failed.
+async function saveSources() {
+  const picked = FEEDS.filter((row) => row.box.checked && !row.box.disabled);
+  if (!picked.length) return "";
+  const added = [], failed = [];
+  let note = "";
+  for (const [index, row] of picked.entries()) {
+    show("busy", `Adding ${row.entry.name} (${index + 1} of ${picked.length})…`);
+    try {
+      ({note} = await post("/api/sources", row.entry));
+      setState(row, "Added");
+      added.push(row.entry.name);
+    } catch (err) {
+      setState(row, "Not added");
+      failed.push(`${row.entry.name}: ${err.message}`);
+      // A lapsed sign-in fails every feed after it the same way.
+      if (err === SESSION_EXPIRED) break;
+    }
+  }
+  if (failed.length) {
+    const which = failed.length === 1 ? "This one was" : "These were";
+    throw new Error([
+      `Added ${added.length} of ${picked.length} feeds. ${which} not added:`,
+      ...failed,
+      "Press Next to try again, or Skip to go on without them.",
+    ].join("\n"));
+  }
+  const feeds = added.length === 1 ? "feed" : "feeds";
+  return `Added ${added.length} ${feeds}: ${added.join(", ")}. ${note}`;
+}
+
+const SAVES = {
+  language: saveLanguage, schedule: saveSchedule, sources: saveSources, notify: saveNotify,
+};
 
 // Only ever called from a step that has one after it: the last step shows
 // Finish in Next's and Skip's place.
@@ -275,3 +357,18 @@ fetch("/api/settings")
       : `Could not load settings: ${e}. Reload the page to try again.`);
   })
   .finally(() => document.querySelectorAll(".step [data-loading]").forEach((el) => el.remove()));
+
+fetch("/api/onboarding/feeds")
+  .then(async (r) => {
+    if (r.status === 401) throw SESSION_EXPIRED;
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || `cyris answered ${r.status}`);
+    }
+    return r.json();
+  })
+  .then(renderFeeds)
+  .catch((e) => {
+    $("o-feeds-loading").textContent = e === SESSION_EXPIRED ? e.message
+      : `Could not load the feed list: ${e}. Reload the page to try again.`;
+  });

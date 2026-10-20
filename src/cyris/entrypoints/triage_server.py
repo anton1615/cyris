@@ -1,9 +1,11 @@
 """The settings web server: /settings, /labels and the APIs they call."""
 
 import asyncio
+import json
 import logging
 import os
 from datetime import UTC, datetime
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -144,6 +146,16 @@ ONBOARDING_PATH = "/onboarding"
 ONBOARDING_EXIT_MARK = ("from", "onboarding")
 
 
+def load_onboarding_feeds() -> list[dict[str, Any]]:
+    """The feed picker's entries, as `onboarding_feeds.json` holds them (grade A).
+
+    Sent to the page as written: each entry is a `SourceConfig` body, so a
+    picked one is posted to `POST /api/sources` unchanged, tags and tier included.
+    """
+    raw = (files("cyris") / "onboarding_feeds.json").read_text(encoding="utf-8")
+    return json.loads(raw)["feeds"]
+
+
 class TriageServer:
     """Serves /settings, /onboarding, /labels and the settings, sources, labels and build APIs."""
 
@@ -214,6 +226,7 @@ class TriageServer:
         self._app.router.add_get("/api/sources", self._handle_get_sources)
         self._app.router.add_post("/api/sources", self._handle_post_source)
         self._app.router.add_delete("/api/sources/{name}", self._handle_delete_source)
+        self._app.router.add_get("/api/onboarding/feeds", self._handle_get_onboarding_feeds)
         self._app.router.add_get("/api/topics", self._handle_get_topics)
         self._app.router.add_post("/api/topics", self._handle_post_topic)
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
@@ -772,6 +785,25 @@ class TriageServer:
 
         logger.info("Source %s written to D1", source.name)
         return web.json_response({"ok": True, "name": source.name, "note": "Effective next run."})
+
+    async def _handle_get_onboarding_feeds(self, request: web.Request) -> web.Response:
+        """The wizard's feed list, offered only while the `sources` table is empty.
+
+        Once a deployment has a source, more are added one at a time under
+        Sources in /settings, so `feeds` is empty and the step says so instead.
+        """
+        if self._source_store is None:
+            return web.json_response({"awaiting": False, "feeds": []})
+        # Read here rather than through _awaiting_onboarding(), which reads a
+        # failure as "not waiting": the page would then claim sources that do not exist.
+        try:
+            awaiting = not self._effective_sources()
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            logger.warning("Could not read the sources table for onboarding", exc_info=True)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+        return web.json_response(
+            {"awaiting": awaiting, "feeds": load_onboarding_feeds() if awaiting else []}
+        )
 
     async def _handle_delete_source(self, request: web.Request) -> web.Response:
         if self._source_store is None:

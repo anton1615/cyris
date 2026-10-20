@@ -86,12 +86,18 @@
       </div>
     </section>
 
-    {# Placeholder, until the pick-sources ticket lands: this step writes nothing. #}
-    <section class="step" data-step="sources" data-coming-next hidden>
+    {# The list is the server's (GET /api/onboarding/feeds), offered only while the
+       sources table is empty; each pick is posted to POST /api/sources as listed. #}
+    <section class="step" data-step="sources" hidden>
       <div class="step-head">
         <h2 class="heading">Sources</h2>
-        <p class="small">Coming next: pick the feeds this deployment reads, from a list of media that publish their own. Until then, add them one at a time under Sources in Settings.</p>
+        <p class="small">The feeds this deployment reads. Each one is a publisher's own feed; pick the ones you read.</p>
+        <p class="small" id="o-feeds-loading">Loading feeds…</p>
       </div>
+      <fieldset class="sources-check" id="o-feeds" hidden>
+        <legend class="label">Feeds</legend>
+      </fieldset>
+      <p class="small" id="o-feeds-had" hidden>This deployment already has sources. Add more later under Sources in Settings; Next moves on.</p>
     </section>
 
     {# Placeholder, until the vote-cards ticket lands: this step writes nothing. #}

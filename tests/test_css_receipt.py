@@ -1249,8 +1249,9 @@ def test_the_labels_probe_runs_on_the_shared_core():
 
 
 # The checks `scripts/onboarding_probe.py` must carry: the frame walks, each
-# settings step writes what it was given, a skip writes nothing, only the right
-# deployment sees the wizard, and the page fits a phone.
+# settings step writes what it was given, the sources step lists the feed list
+# and stores each pick as listed, a skip writes nothing, only the right
+# deployment sees the wizard and its list, and the page fits a phone.
 EXPECTED_ONBOARDING_IDS = {
     "opens-on-the-first-step",
     "the-step-list-names-every-step",
@@ -1271,10 +1272,21 @@ EXPECTED_ONBOARDING_IDS = {
     "notify-step-left-empty-writes-nothing",
     "finish-leaves-for-settings",
     "an-empty-deployment-is-sent-from-settings-to-the-wizard",
+    "sources-step-lists-every-entry",
+    "sources-step-stores-the-picked-entries",
+    "sources-step-stores-the-listed-tier",
+    "sources-step-skipped-writes-no-source",
+    "sources-step-with-nothing-picked-writes-nothing",
+    "sources-step-names-a-feed-it-could-not-add",
+    "sources-step-retries-only-what-it-could-not-add",
+    "has-sources-opens-the-wizard-without-the-list",
     "has-sources-keeps-the-step-a-reload-opens",
     "json-has-no-wizard",
     "fits-375",
     "fits-largest-375",
+    "fits-sources-375",
+    "fits-largest-sources-375",
+    "tap-feeds-375",
     "tap-steps-375",
 }
 
@@ -1342,9 +1354,35 @@ async def test_the_onboarding_probe_fixtures_with_a_table_serve_the_wizard(kind:
     await client.start_server()
     try:
         response = await client.get(onboarding_probe.PAGE, allow_redirects=False)
+        feeds = await (await client.get("/api/onboarding/feeds")).json()
     finally:
         await client.close()
     assert response.status == 200
+    assert len(feeds["feeds"]) == (len(onboarding_probe.FEEDS) if kind == "empty" else 0)
+
+
+async def test_the_onboarding_probe_fixture_records_each_source_it_stored():
+    fixture = onboarding_probe.build_fixture("empty")
+    status, _ = await _get_json(fixture, "/api/sources", "POST", onboarding_probe.PICKS[0])
+    assert status == 200
+    assert onboarding_probe._sources(onboarding_probe.PICKS[0])(fixture) is None
+    assert onboarding_probe._sources()(fixture) is not None
+
+
+async def test_the_onboarding_probe_refusing_table_turns_its_feed_down_once():
+    fixture = onboarding_probe.build_fixture("refuses-one")
+    refused = onboarding_probe.REFUSED
+    first, body = await _get_json(fixture, "/api/sources", "POST", refused)
+    second, _ = await _get_json(fixture, "/api/sources", "POST", refused)
+    assert (first, body["error"], second) == (500, onboarding_probe.REFUSAL, 200)
+    assert onboarding_probe._sources(refused)(fixture) is None
+
+
+def test_the_onboarding_probe_picks_carry_more_than_one_tag():
+    """A body that lost a tag must differ from the entry it was sent for."""
+    assert len(onboarding_probe.PICKS) == 2
+    assert all(len(entry["tags"]) > 1 for entry in onboarding_probe.PICKS)
+    assert onboarding_probe.REFUSED != onboarding_probe.TAKEN
 
 
 async def test_the_onboarding_probe_fixture_records_what_a_step_wrote():

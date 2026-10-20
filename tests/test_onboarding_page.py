@@ -1,9 +1,11 @@
-"""/onboarding: who is sent to the wizard, its six steps, and what its three saves write.
+"""/onboarding: who is sent to the wizard, its six steps, and what its four saves write.
 
 The wizard adds no write path of its own: each settings step posts the body the
-settings form posts, to the route `settings_fields.json` names for that field.
-What a browser actually sends is checked by `scripts/onboarding_probe.py`; here
-the shapes of those bodies are held to the settings page's own.
+settings form posts, to the route `settings_fields.json` names for that field,
+and the sources step posts each picked feed to `POST /api/sources` as the list
+holds it. What a browser actually sends is checked by `scripts/onboarding_probe.py`;
+here the shapes of those bodies are held to the settings page's own, and the
+stored sources to the list's entries.
 """
 
 import json
@@ -13,21 +15,27 @@ from pathlib import Path
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
+import cyris
 import cyris.entrypoints
 from cyris.config import SETTINGS_FIELDS
 from cyris.domain.models import SourceConfig
-from cyris.entrypoints.triage_server import TriageServer, render_onboarding_page
+from cyris.entrypoints.triage_server import (
+    TriageServer,
+    load_onboarding_feeds,
+    render_onboarding_page,
+)
 
 pytestmark = pytest.mark.unit
 
 STATIC = Path(cyris.entrypoints.__file__).parent / "static"
 ONBOARDING_JS = (STATIC / "onboarding.js").read_text()
 SETTINGS_JS = (STATIC / "settings.js").read_text()
+CATALOG = json.loads((Path(cyris.__file__).parent / "onboarding_feeds.json").read_text())["feeds"]
 
-# The six steps, in the order the milestone sets: the three that write settings
-# and the three the later tickets fill in.
+# The six steps, in the order the milestone sets: the three that write settings,
+# the one that writes sources, and the two the later tickets fill in.
 STEPS = ["language", "schedule", "sources", "votes", "notify", "first-issue"]
-COMING_NEXT = ["sources", "votes", "first-issue"]
+COMING_NEXT = ["votes", "first-issue"]
 
 
 class FakeSettings:
@@ -41,23 +49,40 @@ class FakeSettings:
 
 
 class FakeSourceStore:
-    """Stands in for the D1 `sources` table, empty or not."""
+    """Stands in for the D1 `sources` table, empty or not; records every row it was given."""
 
     def __init__(self, sources: dict[str, SourceConfig]) -> None:
         self.sources = sources
+        self.upserts: list[SourceConfig] = []
 
     def list_sources(self) -> dict[str, SourceConfig]:
         return dict(self.sources)
+
+    def upsert(self, source: SourceConfig) -> None:
+        self.upserts.append(source)
+        self.sources[source.name] = source
+
+
+class FailingSourceStore(FakeSourceStore):
+    """A `sources` table whose read fails, as a D1 timeout does."""
+
+    def list_sources(self) -> dict[str, SourceConfig]:
+        raise RuntimeError("D1 timed out")
 
 
 A_SOURCE = SourceConfig(name="Feed", url="https://feed.test/rss")
 
 
-def _server(*, table: dict | None, settings: FakeSettings | None = None) -> TriageServer:
+def _server(
+    *,
+    table: dict | None,
+    settings: FakeSettings | None = None,
+    store: FakeSourceStore | None = None,
+) -> TriageServer:
     """A deployment whose `sources` table is `table`, or one with no table at all (`json`)."""
     return TriageServer(
         settings=settings,
-        source_store=None if table is None else FakeSourceStore(table),
+        source_store=store or (None if table is None else FakeSourceStore(table)),
     )
 
 
@@ -112,6 +137,14 @@ class TestWhoSeesTheWizard:
         assert response.status == 200
         assert 'id="o-steps"' in await response.text()
 
+    async def test_the_wizard_stays_open_after_its_sources_step_writes(self, serve) -> None:
+        client = await serve(_server(table={}))
+
+        await client.post("/api/sources", json=CATALOG[0])
+        response = await client.get("/onboarding", allow_redirects=False)
+
+        assert response.status == 200
+
     async def test_a_deployment_with_a_source_keeps_its_settings_page(self, serve) -> None:
         client = await serve(_server(table={"Feed": A_SOURCE}))
 
@@ -130,10 +163,6 @@ class TestWhoSeesTheWizard:
 
     async def test_a_failed_source_read_still_serves_settings(self, serve) -> None:
         """/settings is where a reader fixes D1, so routing never depends on reading it."""
-
-        class FailingSourceStore(FakeSourceStore):
-            def list_sources(self) -> dict[str, SourceConfig]:
-                raise RuntimeError("D1 timed out")
 
         client = await serve(TriageServer(settings=None, source_store=FailingSourceStore({})))
 
@@ -249,6 +278,13 @@ class TestItWritesWhatTheSettingsFormWrites:
     def test_the_wizard_posts_to_no_route_the_settings_page_does_not(self) -> None:
         assert set(_body_keys(ONBOARDING_JS)) <= set(_body_keys(SETTINGS_JS))
 
+    def test_the_wizard_posts_a_source_only_as_the_settings_page_does(self) -> None:
+        """Besides the settings routes, the one write is `POST /api/sources`, the form's own."""
+        routes = set(re.findall(r'post\(\s*"([^"]+)"', ONBOARDING_JS))
+
+        assert routes - set(_body_keys(ONBOARDING_JS)) == {"/api/sources"}
+        assert "/api/sources" in SETTINGS_JS
+
     def test_the_wizard_posts_only_the_four_settings_routes(self) -> None:
         assert set(_body_keys(ONBOARDING_JS)) == {
             "/api/settings/values",
@@ -322,3 +358,93 @@ class TestTheStepsWriteThroughTheExistingApi:
         assert response.status == 400
         assert (await response.json())["field"] == "general.timezone"
         assert settings.calls == []
+
+
+class TestThePickSourcesStep:
+    """The list comes from the server, only to an empty table, and a pick is stored as listed."""
+
+    async def test_an_empty_table_is_offered_every_entry_of_the_list(self, serve) -> None:
+        client = await serve(_server(table={}))
+
+        response = await client.get("/api/onboarding/feeds")
+
+        assert response.status == 200
+        assert await response.json() == {"awaiting": True, "feeds": CATALOG}
+
+    async def test_a_table_with_a_source_is_offered_no_list(self, serve) -> None:
+        client = await serve(_server(table={"Feed": A_SOURCE}))
+
+        response = await client.get("/api/onboarding/feeds")
+
+        assert await response.json() == {"awaiting": False, "feeds": []}
+
+    async def test_a_json_deployment_is_offered_no_list(self, serve) -> None:
+        client = await serve(_server(table=None))
+
+        response = await client.get("/api/onboarding/feeds")
+
+        assert await response.json() == {"awaiting": False, "feeds": []}
+
+    async def test_a_failed_source_read_is_an_error_not_a_full_table(self, serve) -> None:
+        """Read as "has sources", a failure would tell the reader sources exist."""
+        client = await serve(TriageServer(settings=None, source_store=FailingSourceStore({})))
+
+        response = await client.get("/api/onboarding/feeds")
+
+        assert response.status == 500
+        assert (await response.json())["error"] == "D1 timed out"
+
+    def test_the_list_is_the_catalog_as_written(self) -> None:
+        assert load_onboarding_feeds() == CATALOG
+        assert len(CATALOG) == 27
+
+    async def test_each_picked_entry_is_stored_as_the_list_holds_it(self, serve) -> None:
+        """What the page posts, the entry unchanged, reaches the store with its tags and tier."""
+        store = FakeSourceStore({})
+        client = await serve(_server(table={}, store=store))
+        offered = (await (await client.get("/api/onboarding/feeds")).json())["feeds"]
+
+        for entry in offered:
+            response = await client.post("/api/sources", json=entry)
+            assert response.status == 200, await response.text()
+
+        assert [
+            s.model_dump(mode="json", include=set(e))
+            for s, e in zip(store.upserts, CATALOG, strict=True)
+        ] == CATALOG
+        assert [s.area_id for s in store.upserts] == [None] * len(CATALOG)
+        assert {s.type for s in store.upserts} == {"rss"}
+
+    async def test_the_list_is_gone_once_a_pick_is_stored(self, serve) -> None:
+        client = await serve(_server(table={}))
+
+        await client.post("/api/sources", json=CATALOG[0])
+        response = await client.get("/api/onboarding/feeds")
+
+        assert await response.json() == {"awaiting": False, "feeds": []}
+
+    def test_the_script_posts_each_entry_unchanged(self) -> None:
+        assert 'post("/api/sources", row.entry)' in ONBOARDING_JS
+        assert ONBOARDING_JS.count('post("/api/sources"') == 1
+
+    def test_the_script_reads_the_list_from_the_server(self) -> None:
+        assert 'fetch("/api/onboarding/feeds")' in ONBOARDING_JS
+
+    @pytest.mark.parametrize("field", ["name", "url"])
+    def test_no_entry_is_written_into_the_page_or_its_script(self, field: str) -> None:
+        page = render_onboarding_page()
+        written = [e[field] for e in CATALOG if e[field] in page or e[field] in ONBOARDING_JS]
+
+        assert written == []
+
+    def test_skipping_the_step_saves_no_pick(self) -> None:
+        """Only Next saves; Skip moves on with every checked feed left unwritten."""
+        handler = re.search(
+            r'\$\("o-skip"\)\.addEventListener\("click", \(\) => \{(.*?)\n\}\);',
+            ONBOARDING_JS,
+            re.S,
+        )
+        assert handler, "no Skip handler"
+
+        assert "SAVES" not in handler[1] and "saveSources" not in handler[1]
+        assert "sources: saveSources" in ONBOARDING_JS
