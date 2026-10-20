@@ -497,8 +497,30 @@ sources live in a file the app never writes, has no wizard at all: this page sen
   added. `Next` with nothing checked and `Skip` write no source. The list shows only while the table
   is empty; once it has a source, the step is one line saying to add more later under Sources in
   Settings, and `Next` only moves on.
-- The steps that vote on cards and build the first issue say `Coming next` and what to do meanwhile.
-  They carry no field and write nothing until their own tickets land, so `Next` on them only moves on.
+- **Votes** deals cards from the deployment's RSS feeds as soon as the step opens
+  (`POST /api/onboarding/cards`), read through the run's own fetch, so a card's link is the URL the
+  first issue reads. While they are fetched, a small line marked `aria-busy` says so and that it can
+  take a minute or two, the rss Worker's poll of the feeds just picked. The cards sit in one panel (§4),
+  one list row each: the source in the label role, the title in the title role as a link to the
+  article (a feed URL that is not `http(s)` is shown unlinked), the excerpt in the small role when
+  there is one, both with `lang=""`, and below them a segmented control (§4) of two toggle buttons,
+  `Interested` and `Not interested`, with `aria-pressed`. A press marks the card; pressing the marked
+  answer again leaves the card untouched, which counts for nothing. Each feed gives at most a fixed
+  number of its older articles, alternating between feeds (`docs/architecture.md` §5). A feed the read
+  found no article for is named in an error notice above the cards, which says it stays in the sources;
+  a failed poll is said there too. With no feed at all, or no card to deal, one small line says so
+  and that `Next` goes on. `Next` writes the marked cards, and only those, as votes
+  (`POST /api/onboarding/votes`): each is stored, then accepted or rejected with `triaged_at`, as a
+  `/labels` answer is. A recorded card shows `Recorded · Interested` or `Recorded · Not interested`
+  in the label role in place of its buttons, and a later `Next` does not send it again. A card whose
+  article left its feed after the deal shows `No longer in the feed · not recorded` there instead, and
+  the notice counts it; the other votes are still recorded. Once a vote is
+  recorded, `Next` also turns vote similarity on through `/api/settings/vote-similarity` with the
+  embedder the deployment already stores, unless it is on already; when that save is refused, the
+  reader stays on the step, the notice says the votes were recorded and why vote similarity is still
+  off, and `Next` tries only that again. `Skip`, and `Next` with no card marked, write nothing.
+- The step that builds the first issue says `Coming next` and what to do meanwhile. It carries no
+  field and writes nothing until its own ticket lands, so it offers only `Finish`.
 
 ### email
 
