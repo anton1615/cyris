@@ -33,7 +33,10 @@ cp sources.example.yaml sources.yaml
   `[html_output] enabled = true` a run succeeds and writes no digest.
 - **`.env`** holds secrets. Locally only the key for your LLM provider matters; leave
   the Cloudflare names blank.
-- **`sources.yaml`** is the source list.
+- **`sources.yaml`** is the source list, and it starts empty: a new deployment ships
+  with no feed ([ADR-0020](decisions/0020-new-deployments-start-from-onboarding.md)). The
+  Cloudflare install asks for feeds in its onboarding wizard; a local install has no
+  wizard, so you write them here (step 3).
 
 ## 3. Edit `cyris.toml`
 
@@ -56,9 +59,16 @@ Then put the matching key in `.env` (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`,
 `OPENAI_API_KEY`, `CLOUDFLARE_AI_TOKEN` plus `CLOUDFLARE_ACCOUNT_ID` for
 `workers_ai`, or `CLOUDFLARE_AIG_TOKEN` plus `CLOUDFLARE_ACCOUNT_ID` for `ai_gateway`, which also
 needs the provider's key stored in your gateway:
-see [Running the LLM through AI Gateway](operations.md#running-the-llm-through-ai-gateway)), and replace the sample feeds in `sources.yaml` with yours. Each source
-takes a tier; see [How sources are processed](sources.md).
-Email-only newsletters (`type: newsletter`) are inert locally.
+see [Running the LLM through AI Gateway](operations.md#running-the-llm-through-ai-gateway)).
+
+Then add the feeds you read under `sources:` in `sources.yaml`, replacing its empty `[]`.
+The file's commented entries show each shape a source takes. For ready-made entries,
+`src/cyris/onboarding_feeds.json` lists the publishers' own feeds the onboarding wizard
+offers; each entry there is already a source in this shape, and YAML reads a JSON object
+as written, so a copied entry goes in as `- {"name": …, "url": …}`. Each source takes a tier; see [How sources are processed](sources.md).
+Email-only newsletters (`type: newsletter`) are inert locally. Until `sources.yaml` lists
+a source, `cyris doctor` warns that it is waiting for onboarding and every run ends
+having fetched nothing.
 
 ## 4. Check the configuration
 

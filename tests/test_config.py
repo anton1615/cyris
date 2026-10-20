@@ -39,16 +39,34 @@ class TestLoadConfig:
         assert cfg.app.llm_provider.api_key == "test-anthropic-key"
         assert cfg.app.digest.preference_source == "cosine"
 
-        # Curated teaching sample covering the main source shapes.
-        assert len(cfg.sources) == 5
-        assert cfg.sources["Stratechery"].tier == Tier.SUMMARIZE
-        assert cfg.sources["TechCrunch"].tier == Tier.FILTER
+        # A new deployment ships no feed (ADR-0020): copied as is, it waits for onboarding.
+        assert cfg.sources == {}
+        assert cfg.awaiting_onboarding()
+
+    def test_the_example_shapes_load_once_uncommented(self, tmp_path):
+        """The commented entries teach every source shape, so each must load as written."""
+        example = (Path(__file__).parent.parent / "sources.example.yaml").read_text()
+        head, shapes = example.split("sources: []\n")
+        # An entry's lines are the commented ones that open with `- ` or continue it.
+        entries = [
+            "  " + line.removeprefix("  # ")
+            for line in shapes.splitlines()
+            if line.startswith(("  # - ", "  #   "))
+        ]
+        sources = tmp_path / "sources.yaml"
+        sources.write_text(head + "sources:\n" + "\n".join(entries) + "\n")
+
+        cfg = load_config(config_path=tmp_path / "nope.toml", sources_path=sources)
+
+        assert set(cfg.sources) == {"The Verge", "報導者", "Some Email Newsletter"}
+        assert cfg.sources["The Verge"].tier == Tier.SUMMARIZE
+        # a language override on a non-English feed, at the default tier
+        assert cfg.sources["報導者"].language == "zh"
+        assert cfg.sources["報導者"].tier == Tier.FILTER
         # email-only newsletter shape: no url, matched by From: header
         assert cfg.sources["Some Email Newsletter"].type == "newsletter"
         assert cfg.sources["Some Email Newsletter"].url is None
         assert cfg.sources["Some Email Newsletter"].email_match == "from:newsletter@example.com"
-        # language override on a non-English feed
-        assert cfg.sources["報導者"].language == "zh"
 
     def test_missing_config_file(self, tmp_path):
         sources = tmp_path / "sources.yaml"

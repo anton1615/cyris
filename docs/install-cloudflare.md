@@ -144,7 +144,9 @@ Open `https://cyris-app.<subdomain>.workers.dev/login` and paste `CYRIS_UI_TOKEN
 session cookie lasts 30 days. Login sends you to `/`, the archive, which has nothing to
 serve until the first digest is published, so open `/settings` next.
 
-While `sources` is still empty, `/settings` sends you to `/onboarding`, the guided setup.
+A new deployment has no source, and none is copied in for you
+([ADR-0020](decisions/0020-new-deployments-start-from-onboarding.md)). While `sources` is
+still empty, `/settings` sends you to `/onboarding`, the guided setup.
 It walks the output language and timezone, the publish hours, your sources and the
 notifications, and saves each through the same routes `/settings` does; every step can be
 skipped, and a skipped setting keeps the value it has. The sources step lists the feeds the
