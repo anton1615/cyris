@@ -201,7 +201,7 @@ Each component has exactly one stylesheet (§7). Heights in the table are fixed 
 | **field** | From top to bottom: the field name in the label role, the control, and help in the small role, spaced `--s-2`. Help longer than one sentence goes into `<details>`, with the summary text `More` |
 | **category list dots** | Two 6px dots on the right of each item in the settings category list: `--accent` means the category has unsaved changes, `--warn` means the category is missing a required value. Both can show at once, with the missing-value dot on the left |
 | **choice list** | Several options for a single choice (for example provider): `--bg-elev` background, 1px `--border` border, `--r-control`; each row has `--s-3` top and bottom and `--s-4` left and right, rows divided by a bottom line, `--surface` on hover. The right side shows the state in the label role; a state too long to sit beside the name moves to its own line below it, still on the right, and is never cut off. An unselectable row sets its radio and name to opacity .5, never the state text that says why. On failed validation the border turns `--warn`, with a notice below, as an input's does |
-| **checklist** | Several options that can be chosen together: a `fieldset` with its legend in the label role, `--bg-elev` background, 1px `--border` border and `--r-control`, and one row per option. Each row is laid out like a choice list's row, with a checkbox in `--accent` and the name in the name role; rows are divided by a bottom line and `--surface` on hover. Every option starts checked, except in onboarding's feed list, where the reader picks from none (§6 onboarding). The fieldset takes no browser border or padding. An unselectable row sets its checkbox and name to opacity .5 |
+| **checklist** | Several options that can be chosen together: a `fieldset` with its legend in the label role, `--bg-elev` background, 1px `--border` border and `--r-control`, and one row per option. Each row is laid out like a choice list's row, with a checkbox in `--accent` and the name in the name role; rows are divided by a bottom line and `--surface` on hover. Every option starts checked, except in onboarding's topic and feed lists, where the reader picks from none (§6 onboarding). The fieldset takes no browser border or padding. An unselectable row sets its checkbox and name to opacity .5 |
 | **headline card** | Only for the archive's latest issue. `--surface` background, 1px `--border-strong` border, square corners, `--s-6` padding. From top to bottom: an `--accent` `Latest` label with the date (data) and the period (label); the title of the issue's first story, which is its group heading when that story is a group (title role); the article count (data); the titles of the two topics with the most members (small, joined by ` · `); and two small secondary buttons, `Digest` and `All articles`. A tap anywhere on the card outside `All articles` opens the digest, because `Digest` takes taps over the whole card (**tap area**); hovering or pressing the card hovers or presses the `Digest` button. A field with no data is left out, with no placeholder text |
 | **panel** | `--bg-elev` background, 1px `--border` border, square corners. An optional head row: `--surface` background, a bottom line, `--s-3` top and bottom and `--s-5` left and right, the title on the left and a count or action on the right. Adjacent panels are spaced `--s-5` |
 | **list row / table row** | The class name is `.list-row` (`.row` is taken by the digest stats card). `--s-3` top and bottom, `--s-5` left and right, rows divided by a bottom line, `--surface` on hover. Table headers use the label role on `--surface`. A table sits in its own `overflow-x: auto` container |
@@ -487,18 +487,29 @@ sources live in a file the app never writes, has no wizard at all: this page sen
   its result, shown on the step the reader has moved to. A refusal keeps the reader on the step, says
   why in `--warn`, and marks the field it is about as failed validation, as settings does; an empty
   publish hour is refused on the page, because padded it would reach the server as `00:00`.
-- **Sources** lists the project's feed list (`src/cyris/onboarding_feeds.json`), which the server
-  sends (`GET /api/onboarding/feeds`), as a checklist (§4) whose rows start unchecked: each row is
-  the entry's name, as the list writes it, and its tags on the right, in the list's order. `Next`
-  writes each checked feed through `POST /api/sources`, one request per feed, with the entry as its
-  body, so the stored source is the list's own, tags and tier included; the busy notice names the
-  feed being added. An added row reads `Added` before its tags, and its checkbox and name take the
+- **Sources** offers the project's feed list (`src/cyris/onboarding_feeds.json`), which the server
+  sends with its topics (`GET /api/onboarding/feeds`), topics first. A topic is what a feed is
+  about, never its form. The topics are a checklist (§4) legended `Topics`, in the list's order,
+  whose rows start unchecked: each row is the topic's label and, on the right, how many feeds it
+  holds. Until one is chosen, one small line says to pick a topic to see its feeds, and no feed
+  shows. Once one is, the chosen topics' feeds show below, one checklist per chosen topic, legended
+  with its label, in the topics' order; their rows start unchecked too, and each is the entry's
+  name, as the list writes it, and its tags on the right, in the list's order. A feed sits under
+  the first of its own topics that is chosen, so a feed in two chosen topics shows once. Unchoosing
+  a topic hides its unchecked feeds; a checked one, added or not, that no chosen topic holds any
+  more stays checked and shown, in a first checklist legended `Picked, outside the chosen topics`,
+  and leaves it only when unchecked, so `Next` never sends a feed the reader cannot see. The chosen topics are kept for the tab
+  (`sessionStorage`), so a reload opens the step on the same feeds; a feed's own check is not kept.
+  `Next` writes each checked feed through `POST /api/sources`, one request per feed, with the entry
+  less its `topics` as its body (topics are the list's grouping, not a source's field), so the
+  stored source is the list's own, tags and tier included; the busy notice names the feed being
+  added. An added row reads `Added` before its tags, and its checkbox and name take the
   unselectable opacity. When some feeds are not added, the reader stays on the step, the notice says
   how many were added and names each one that was not with the server's reason, and each such row
   reads `Not added` and is marked as failed validation; `Next` then sends only the rows not yet
-  added. `Next` with nothing checked and `Skip` write no source. The list shows only while the table
-  is empty; once it has a source, the step is one line saying to add more later under Sources in
-  Settings, and `Next` only moves on.
+  added. `Next` with nothing checked and `Skip` write no source. The topics and the list show only
+  while the table is empty; once it has a source, the step is one line saying to add more later
+  under Sources in Settings, and `Next` only moves on.
 - **Votes** deals cards from the deployment's RSS feeds as soon as the step opens
   (`POST /api/onboarding/cards`), read through the run's own fetch, so a card's link is the URL the
   first issue reads. While they are fetched, a small line marked `aria-busy` says so and that it can

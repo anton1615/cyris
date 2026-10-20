@@ -548,9 +548,14 @@ class TestThePickSourcesStep:
 
         assert await response.json() == {"awaiting": False, "topics": [], "feeds": []}
 
-    def test_the_script_posts_each_entry_unchanged(self) -> None:
-        assert 'post("/api/sources", row.entry)' in ONBOARDING_JS
+    def test_the_script_posts_each_entry_without_its_topics(self) -> None:
+        assert 'post("/api/sources", row.source)' in ONBOARDING_JS
         assert ONBOARDING_JS.count('post("/api/sources"') == 1
+        assert "const {topics, ...source} = entry;" in ONBOARDING_JS
+
+    def test_the_script_keeps_the_chosen_topics_for_a_reload(self) -> None:
+        """scripts/onboarding_probe.py's reload check clears this key as its sabotage."""
+        assert 'const TOPICS_KEY = "cyris-onboarding-topics";' in ONBOARDING_JS
 
     def test_the_script_reads_the_list_from_the_server(self) -> None:
         assert 'fetch("/api/onboarding/feeds")' in ONBOARDING_JS

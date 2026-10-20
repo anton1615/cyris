@@ -1,8 +1,9 @@
 // The onboarding wizard: one step at a time, moved through with Back, Next and
 // Skip, ending back on /settings. Three steps write settings, each through the
 // route /settings saves that field with, so what lands in the store is what the
-// settings form would have stored. The sources step writes each picked feed
-// through POST /api/sources, the route the settings form adds a source with. The
+// settings form would have stored. The sources step shows the feed list's topics,
+// then the chosen topics' feeds, and writes each picked feed through
+// POST /api/sources, the route the settings form adds a source with. The
 // votes step deals cards from those feeds (POST /api/onboarding/cards) and
 // writes the marked ones as votes (POST /api/onboarding/votes), then turns vote
 // similarity on through /api/settings/vote-similarity, the Model form's route.
@@ -213,15 +214,85 @@ async function saveNotify() {
   return lines.join("\n");
 }
 
-// The feed list's rows, one per entry GET /api/onboarding/feeds sent, in its
-// order; empty when the server offered none.
+// The topic list's rows, one per topic GET /api/onboarding/feeds sent, in its
+// order, and the feed list's rows, one per entry, in its order; both empty
+// when the server offered none.
+let TOPICS = [];
 let FEEDS = [];
+
+// The topics chosen, kept for this tab so a reload opens the step on the same
+// feeds. A feed's own pick is not kept: a reload starts it unchecked, as before.
+const TOPICS_KEY = "cyris-onboarding-topics";
+
+const chosenTopics = () => TOPICS.filter((row) => row.box.checked).map((row) => row.topic.id);
+
+function storedTopics() {
+  try {
+    const ids = JSON.parse(sessionStorage.getItem(TOPICS_KEY) || "[]");
+    return new Set(Array.isArray(ids) ? ids : []);
+  } catch {
+    return new Set();
+  }
+}
+
+// A checklist row, as the list's rows all are: a checkbox, the name, and the
+// label role on the right.
+function checklistRow(name) {
+  const label = document.createElement("label");
+  label.className = "choice";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  const title = document.createElement("span");
+  title.className = "name";
+  title.textContent = name;
+  const side = document.createElement("span");
+  side.className = "label";
+  label.append(box, title, side);
+  return {label, box, side};
+}
+
+function checklist(legend, rows) {
+  const set = document.createElement("fieldset");
+  set.className = "sources-check";
+  const head = document.createElement("legend");
+  head.className = "label";
+  head.textContent = legend;
+  set.append(head, ...rows.map((row) => row.label));
+  return set;
+}
+
+// Where a picked feed goes once none of its topics is chosen: it stays checked
+// and shown, so Next never sends a feed the reader can no longer see.
+const KEPT = "Picked, outside the chosen topics";
+
+// The chosen topics' feeds, one checklist per topic in the topic list's order.
+// A feed goes under the first of its own topics that is chosen, so one in two
+// chosen topics shows once; a picked feed in none of them goes under KEPT,
+// first, rather than vanish with its pick.
+function drawFeeds() {
+  const chosen = chosenTopics();
+  const groups = new Map(chosen.map((id) => [id, []]));
+  const kept = [];
+  for (const row of FEEDS) {
+    const home = row.entry.topics.find((id) => groups.has(id));
+    if (home) groups.get(home).push(row);
+    else if (row.box.checked) kept.push(row);
+  }
+  const sets = kept.length ? [checklist(KEPT, kept)] : [];
+  for (const row of TOPICS) {
+    const rows = groups.get(row.topic.id);
+    if (rows && rows.length) sets.push(checklist(row.topic.label, rows));
+  }
+  $("o-feeds").replaceChildren(...sets);
+  $("o-feeds").hidden = !sets.length;
+  $("o-feeds-hint").hidden = chosen.length > 0;
+}
 
 // A row's state, shown on its right before its tags. An added feed's checkbox
 // is disabled, and that is what keeps a retry from sending it again.
 function setState(row, state) {
   row.state = state;
-  row.tags.textContent = [state, ...row.entry.tags].filter(Boolean).join(" · ");
+  row.side.textContent = [state, ...row.entry.tags].filter(Boolean).join(" · ");
   const added = state === "Added";
   row.box.disabled = added;
   row.label.classList.toggle("unavailable", added);
@@ -238,30 +309,43 @@ function renderFeeds(data) {
     return;
   }
   FEEDS = data.feeds.map((entry) => {
-    const label = document.createElement("label");
-    label.className = "choice";
-    const box = document.createElement("input");
-    box.type = "checkbox";
+    // The list's own grouping is not a source's field: the body posted is the rest.
+    const {topics, ...source} = entry;
     // The entry's own name and tags, as the list holds them.
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = entry.name;
-    const tags = document.createElement("span");
-    tags.className = "label";
-    label.append(box, name, tags);
-    const row = {entry, label, box, tags};
-    box.addEventListener("change", () => { if (row.state === "Not added") setState(row, ""); });
+    const row = {entry, source, ...checklistRow(entry.name)};
+    row.box.addEventListener("change", () => {
+      if (row.state === "Not added") setState(row, "");
+      // An unchecked feed none of whose topics is chosen leaves the list.
+      if (!row.box.checked && !topics.some((id) => chosenTopics().includes(id))) drawFeeds();
+    });
     setState(row, "");
     return row;
   });
-  $("o-feeds").append(...FEEDS.map((row) => row.label));
-  $("o-feeds").hidden = false;
+  const stored = storedTopics();
+  TOPICS = data.topics.map((topic) => {
+    const count = FEEDS.filter((row) => row.entry.topics.includes(topic.id)).length;
+    const row = {topic, ...checklistRow(topic.label)};
+    row.side.textContent = `${count} ${count === 1 ? "feed" : "feeds"}`;
+    row.box.checked = stored.has(topic.id);
+    row.box.addEventListener("change", () => {
+      // Kept only for a reload: storage the browser refuses must not stop the redraw.
+      try {
+        sessionStorage.setItem(TOPICS_KEY, JSON.stringify(chosenTopics()));
+      } catch {}
+      drawFeeds();
+    });
+    return row;
+  });
+  $("o-topics").append(...TOPICS.map((row) => row.label));
+  $("o-topics").hidden = false;
+  drawFeeds();
   $("o-feeds-loading").remove();
 }
 
-// One POST /api/sources per picked feed, each body the entry as listed, so the
-// source stored is the list's own, tags and tier included. A feed already added
-// is not sent again: Next after a partial failure retries only the ones that failed.
+// One POST /api/sources per picked feed, each body the entry as listed less its
+// topics, so the source stored is the list's own, tags and tier included. A feed
+// already added is not sent again: Next after a partial failure retries only the
+// ones that failed. Every picked feed is on the page, so none is sent unseen.
 async function saveSources() {
   const picked = FEEDS.filter((row) => row.box.checked && !row.box.disabled);
   if (!picked.length) return "";
@@ -270,7 +354,7 @@ async function saveSources() {
   for (const [index, row] of picked.entries()) {
     show("busy", `Adding ${row.entry.name} (${index + 1} of ${picked.length})…`);
     try {
-      ({note} = await post("/api/sources", row.entry));
+      ({note} = await post("/api/sources", row.source));
       setState(row, "Added");
       added.push(row.entry.name);
     } catch (err) {
