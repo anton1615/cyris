@@ -140,13 +140,17 @@ SLOW_SECONDS = 3
 _NOW = datetime.now(UTC)
 
 # The first-issue fixtures' clock: 10:30 in the probe's Asia/Taipei, between its
-# 08:00 and 20:00, so the step takes the morning; `first-issue-early` is 06:30,
-# before both, so it takes none.
+# 08:00 and 20:00, so the step takes today's morning; `first-issue-early` is
+# 06:30, before both, so it takes yesterday's evening.
 TAIPEI = ZoneInfo(PROBE_VALUES["general.timezone"])
 ISSUE_DATE = "2026-10-20"
+YESTERDAY = "2026-10-19"
 BETWEEN = datetime(2026, 10, 20, 10, 30, tzinfo=TAIPEI)
 EARLY = datetime(2026, 10, 20, 6, 30, tzinfo=TAIPEI)
 ISSUE_PERIOD = "morning"
+# What `POST /run` is given, as (period, date), for each fixture's first issue.
+ISSUE_RUN = (ISSUE_PERIOD, ISSUE_DATE)
+EARLY_RUN = ("evening", YESTERDAY)
 DIGEST_URL = f"https://cyris.example/{ISSUE_DATE}-{ISSUE_PERIOD}"
 ARCHIVE_URL = "https://cyris.example/"
 FAILURE = "RuntimeError: the Gemini key was refused"
@@ -156,7 +160,7 @@ RUN_ENDS = {
     "first-issue": ["ok"],
     "first-issue-slow": [],
     "first-issue-fails": ["error", "ok"],
-    "first-issue-early": [],
+    "first-issue-early": ["ok"],
 }
 # How long a check waits for the page to read a run's row: the page reads every
 # 5 seconds (POLL_MS in onboarding.js).
@@ -268,7 +272,7 @@ class FakeRunLog:
 
     def __init__(self) -> None:
         self.rows: list[dict] = []
-        self.record("ok", "evening", digest_url="https://cyris.example/2026-10-19-evening")
+        self.record("ok", "evening", digest_url="https://cyris.example/2026-10-18-evening")
 
     def record(self, status: str, period: str, **summary) -> None:
         self.rows.append(
@@ -291,7 +295,7 @@ class FakeDigestStore:
     """Stands in for `D1DigestStore`'s list of stored issues; none for the first issue's key."""
 
     def issues(self) -> list[tuple[str, str]]:
-        return [("2026-10-19", "evening")]
+        return [("2026-10-18", "evening")]
 
 
 class FakeRssEdge:
@@ -372,18 +376,27 @@ def build_fixture(kind: str) -> Fixture:
     fixture = Fixture(server._app, settings, settings.calls, store, articles)
     ends = list(RUN_ENDS.get(kind, []))
 
-    # The app Worker's `POST /run?period=`, which the container does not serve
-    # either: it starts the run and answers at once, and the run records its row.
+    # The app Worker's `POST /run?period=&date=`, which the container does not
+    # serve either: it starts the run and answers at once, and the run records
+    # its row. As the Worker does, it takes a date only for today or yesterday
+    # in the deployment's time zone, here on the fixture's own clock.
+    today = server._clock().date()
+    known = {today.isoformat(), (today - timedelta(days=1)).isoformat()}
+
     async def start_run(request: web.Request) -> web.Response:
         period = request.query.get("period")
+        date = request.query.get("date")
         if period not in ("morning", "evening"):
             return web.json_response(
                 {"error": "period must be one of morning, evening"}, status=400
             )
-        fixture.runs.append(period)
+        if date is not None and date not in known:
+            return web.json_response({"error": "date must be today or yesterday"}, status=400)
+        fixture.runs.append((period, date))
         if ends:
             status = ends.pop(0)
-            url = f"https://cyris.example/{ISSUE_DATE}-{period}" if status == "ok" else None
+            dated = date or today.isoformat()
+            url = f"https://cyris.example/{dated}-{period}" if status == "ok" else None
             error = FAILURE if status == "error" else None
             run_log.record(status, period, digest_url=url, error=error)
         return web.json_response({"started": "run", "at": datetime.now(UTC).isoformat()})
@@ -479,6 +492,18 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("o-start").click();
   }, true);
 });
+}"""
+
+# A sabotage: the first issue before the morning is dated today, a key the
+# 20:00 tick stores over.
+RUN_TODAY = """{
+const realFetch = window.fetch;
+window.fetch = (input, init) => {
+  if (String(input).startsWith("/run?")) {
+    input = String(input).replace("date=2026-10-19", "date=2026-10-20");
+  }
+  return realFetch(input, init);
+};
 }"""
 
 # A sabotage: the run is started for the evening, which the 20:00 tick stores over.
@@ -607,11 +632,11 @@ def _votes(*, up: tuple[int, ...] = (), down: tuple[int, ...] = ()) -> Callable:
 _NOTHING_VOTED = _votes()
 
 
-def _runs(*periods: str) -> Callable[[Fixture], str | None]:
-    """A receipt: `POST /run` took exactly these periods, in order, and nothing was written."""
+def _runs(*keys: tuple[str, str | None]) -> Callable[[Fixture], str | None]:
+    """A receipt: `POST /run` took exactly these (period, date), in order; nothing was written."""
 
     def receipt(fixture: Fixture) -> str | None:
-        if fixture.runs == list(periods) and fixture.calls == [] and not fixture.sources.writes:
+        if fixture.runs == list(keys) and fixture.calls == [] and not fixture.sources.writes:
             return None
         return f"runs: {fixture.runs}, settings: {fixture.calls}, sources: {fixture.sources.writes}"
 
@@ -686,12 +711,13 @@ _CHECKS: list[Check] = [
             expect(plan().includes("{ISSUE_DATE} {ISSUE_PERIOD} issue"), `plan: ${{plan()}}`);
             const text = notice().textContent;
             expect(!notice().classList.contains("err"), `an error: ${{text}}`);
-            expect(text.includes("Your first issue is published."), `notice: ${{text}}`);
+            expect(text.includes("the {ISSUE_DATE} {ISSUE_PERIOD} issue, is published."),
+              `notice: ${{text}}`);
             expect(!visible($("#o-start")), "Start still shows once the issue is out");
             expect(visible($("#o-finish")), "no way out once the issue is out");
         """,
         sabotage_preload=RUN_EVENING,
-        receipt=_runs(ISSUE_PERIOD),
+        receipt=_runs(ISSUE_RUN),
     ),
     Check(
         id="first-issue-says-where-to-read-it",
@@ -709,7 +735,7 @@ _CHECKS: list[Check] = [
             expect(same(links, wanted), `links: ${{JSON.stringify(links)}}`);
         """,
         sabotage="""$("#o-result a").removeAttribute("href");""",
-        receipt=_runs(ISSUE_PERIOD),
+        receipt=_runs(ISSUE_RUN),
     ),
     Check(
         id="first-issue-shows-the-run-while-it-is-out",
@@ -733,7 +759,7 @@ _CHECKS: list[Check] = [
             expect(visible($("#o-finish")), "no way out while the run is out");
         """,
         sabotage="""notice().removeAttribute("aria-busy");""",
-        receipt=_runs(ISSUE_PERIOD),
+        receipt=_runs(ISSUE_RUN),
     ),
     Check(
         id="first-issue-says-why-its-run-failed",
@@ -756,7 +782,7 @@ _CHECKS: list[Check] = [
             expect(visible($("#o-finish")), "no way out after the failure");
         """,
         sabotage="""$("#o-start").hidden = true;""",
-        receipt=_runs(ISSUE_PERIOD),
+        receipt=_runs(ISSUE_RUN),
     ),
     Check(
         id="first-issue-tries-again-after-a-failure",
@@ -776,7 +802,7 @@ _CHECKS: list[Check] = [
               RUN_READ_MS);
             expect(!notice().classList.contains("err"), `an error: ${notice().textContent}`);
         """.replace("RUN_READ_MS", str(RUN_READ_MS)),
-        receipt=_runs(ISSUE_PERIOD, ISSUE_PERIOD),
+        receipt=_runs(ISSUE_RUN, ISSUE_RUN),
     ),
     Check(
         id="first-issue-skipped-starts-no-run",
@@ -799,20 +825,29 @@ _CHECKS: list[Check] = [
         receipt=_runs(),
     ),
     Check(
-        id="first-issue-before-the-morning-waits-for-it",
+        id="first-issue-before-the-morning-takes-yesterdays-evening",
         fixture="first-issue-early",
         path=f"{PAGE}#first-issue",
         act="""
             await loaded();
             await issueRead();
+            press("o-start");
+            await runEnded();
         """,
-        script="""
-            expect(plan().includes("comes at 08:00 Asia/Taipei"), `plan: ${plan()}`);
-            expect(!visible($("#o-start")), "Start shows with no period to take");
-            expect(visible($("#o-finish")), "no way out");
+        script=f"""
+            const text = notice().textContent;
+            expect(plan().includes("{YESTERDAY} evening issue now, dated yesterday"),
+              `plan: ${{plan()}}`);
+            expect(plan().includes("08:00 and 20:00 Asia/Taipei"), `plan: ${{plan()}}`);
+            expect(!notice().classList.contains("err"), `an error: ${{text}}`);
+            expect(text.includes("the {YESTERDAY} evening issue, is published"),
+              `notice: ${{text}}`);
+            const read = $("#o-result a").getAttribute("href");
+            expect(read === "https://cyris.example/{YESTERDAY}-evening", `Read it: ${{read}}`);
         """,
-        sabotage="""$("#o-start").hidden = false;""",
-        receipt=_runs(),
+        # The run is dated today instead: the 20:00 tick would store over it.
+        sabotage_preload=RUN_TODAY,
+        receipt=_runs(EARLY_RUN),
     ),
     Check(
         id="first-issue-with-no-source-says-so",

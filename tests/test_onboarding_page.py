@@ -1,7 +1,7 @@
 """/onboarding: who is sent to the wizard, its six steps, and what its five saves write.
 
 The last step starts no write of its own: it starts a run through the app
-Worker's `POST /run?period=`, with the period `GET /api/onboarding/first-issue`
+Worker's `POST /run?period=&date=`, with the key `GET /api/onboarding/first-issue`
 picks; that route's own answers are `tests/test_onboarding_first_issue.py`'s.
 
 Each settings step posts the body the settings form posts, to the route
@@ -306,19 +306,24 @@ class TestItWritesWhatTheSettingsFormWrites:
 
     def test_the_wizard_starts_a_run_only_through_the_workers_own_route(self) -> None:
         """The run path any manual run takes; the wizard opens none of its own."""
+        start_run = re.search(r"async function startRun.*?\n\}", ONBOARDING_JS, re.S)[0]
         starts = re.findall(r"fetch\(`(/run[^`]*)`", ONBOARDING_JS)
 
-        assert starts == ["/run?period=${encodeURIComponent(period)}"]
+        assert starts == ["/run?${query}"]
+        assert (
+            "const query = `period=${encodeURIComponent(period)}"
+            "&date=${encodeURIComponent(date)}`;" in start_run
+        )
         assert (
             'method: "POST"' in re.search(r"async function startRun.*?\n\}", ONBOARDING_JS, re.S)[0]
         )
 
-    def test_the_run_takes_the_period_the_server_picked(self) -> None:
+    def test_the_run_takes_the_key_the_server_picked(self) -> None:
         start = re.search(r"async function startIssue\(\) \{(.*?)\n\}", ONBOARDING_JS, re.S)
         assert start, "no startIssue in onboarding.js"
 
         assert 'getJson("/api/onboarding/first-issue")' in start[1]
-        assert "await startRun(ISSUE.period);" in start[1]
+        assert "await startRun(ISSUE.period, ISSUE.date);" in start[1]
         assert start[1].index("planIssue(ISSUE, retry)") < start[1].index("startRun(")
 
     def test_skipping_the_last_step_leaves_through_finish(self) -> None:

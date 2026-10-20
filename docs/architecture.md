@@ -556,7 +556,6 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Mail vocabulary: forward/reply subject prefixes, "view in browser" markers | A | `adapters/fetch/keywords.json`, loaded by `keywords.py` | unchanged — data so a new locale is not a code edit; the regex structure around the tokens stays in code |
 | Onboarding's feed picker: name, url, tier, tags, language per entry | A | `src/cyris/onboarding_feeds.json` | catalog added 2026-10-20, read by the onboarding picker ([cold-start-onboarding.md](milestones/cold-start-onboarding.md)) — the image ships `src/` only, so it sits beside `keywords.json` rather than in a `.example` file outside it. Collected by the project, not a reader: each entry is a publisher's own feed (never an RSS hub or an aggregator, except Hacker News through hnrss.org, which has no feed of its own), reads as a `SourceConfig` at `tier: filter`, and passed both parsers (`workers/rss/src/parse.js` and feedparser) with an article inside 8 days when `scripts/validate_feed_catalog.py` last ran for real. The container reads it for `GET /api/onboarding/feeds`, which sends the entries as written only while `sources` is empty, and the wizard's sources step writes each of the reader's picks, unchanged, through the existing `POST /api/sources`; after that a deployment's feeds live only in its own `sources` (D1) or `sources.yaml`, same as any other source, so a stale catalog entry costs nothing beyond onboarding. `tests/test_onboarding_feeds.py` holds every entry to the shape; `scripts/validate_feed_catalog.py` is a reviewer-run gate on real feeds, not a test, because it asks about the network rather than the code |
 | Onboarding vote cards: `CARDS_PER_SOURCE` = 3, drawn from the oldest half of each feed's articles inside `BUFFER_DAYS` = 8 | A | `adapters/fetch/onboarding_cards.py` | added 2026-10-20 ([cold-start-onboarding.md](milestones/cold-start-onboarding.md)) — each card asks the reader for a decision, and the poll's wait budget allows 12 feeds, so three keeps a full pick at 36 cards, enough to say what a source is about without turning the step into a triage session. The older half only, because a voted article leaves the first issue's candidates and the newest are what that issue is for; 8 days is the rss Worker's `RETENTION_DAYS`, the buffer's depth. `tests/test_onboarding_cards.py` holds the count to this row and the reach to the Worker's |
-| Onboarding first issue: `RUN_CAP` = 15 minutes before midnight, past which the step starts no run | A | `service_layer/schedule.py` | added 2026-10-20 — an issue is dated when the pipeline writes it, not when the run starts, so a run started within the run container's own cap (`RUN_SLEEP_AFTER` in `workers/app/src/index.js`) of midnight could carry the next date and a period that date's tick stores over. `tests/test_first_issue_period.py` holds it |
 | Onboarding poll wait: `POLL_CONCURRENCY` 4 and `POLL_FEED_TIMEOUT_SECONDS` 20 per batch, plus `POLL_WRITE_MARGIN_SECONDS` 30 | A | `adapters/fetch/rss_worker_source.py` | added 2026-10-20 — a mirror of the Worker's `CONCURRENCY` and `FETCH_TIMEOUT_MS`, which bound a `POST /poll` at ceil(N / 4) × 20 seconds for N feeds (60 for 12), with the margin for its buffer writes; `tests/test_onboarding_cards.py` holds the two equal. A poll that outlasts it, or fails, still deals what the buffer already held, and the step says the poll failed |
 | Project link and favicon on the rendered pages | A | `PROJECT_URL` and `FAVICON` in `adapters/output/html_digest.py` | done 2026-10-02 — the upstream project's site, not this deployment's: a fork's pages still credit where they came from, so neither a deployment nor a reader setting changes it. The favicon is a copy of `website/assets/favicon.svg`, because the image ships `src/` only; `tests/test_ui_spec.py` holds the two copies equal, and every publish deploys it, on the manifest path and the local-directory path alike |
 | Image's build commit | A | `GIT_SHA` build arg, baked as `CYRIS_GIT_SHA` by the `Dockerfile` | unchanged — the release workflow supplies it; a local `docker build` legitimately leaves it empty |
@@ -956,18 +955,19 @@ through the promote Worker; the press is a person's, so it may stamp `triaged_at
 store*). A marked article the read no longer finds is left out and named back as `missing`; only
 when none is found does it record nothing. The step then turns vote similarity on through `/api/settings/vote-similarity`.
 
-The first-issue step starts no run of its own: it posts the app Worker's `POST /run?period=`, the
-manual-run route, with the period `GET /api/onboarding/first-issue` picks. An issue is keyed by
-`(date, period)` and a scheduled run stores its issue over any other with that key
-(`adapters/store/digests.py`), so the period is the latest publish hour that has already begun today
-(`first_issue_period` in `service_layer/schedule.py`): no tick left that day gives it again. Before
-the morning hour, and within `RUN_CAP` of midnight (§5), there is none, and the step leaves the first
-issue to the next morning's tick rather than take a key a tick would replace; it also starts none
-when an issue already holds the key, or when there is no source. The issue is then today's issue of
-an ordinary period, so the archive, `is_latest_issue`, the Pages publish and the raw page treat it as
-they treat a scheduled one. The same route reads the newest `digest_runs` row (§4), which the page
-polls until a row newer than the one it saw before posting says how the run ended: a link to the
-issue and the archive, or the status and the run's `error`. It needs D1, as the wizard does.
+The first-issue step starts no run of its own: it posts the app Worker's `POST /run?period=&date=`,
+the manual-run route (§3.2), with the key `GET /api/onboarding/first-issue` picks
+(`first_issue_key` in `service_layer/schedule.py`). A scheduled run stores its issue over any other
+with its key, so the key is today's latest publish hour already begun, which no tick left that day
+gives again, or, while both of today's hours are still to come, yesterday's evening, since any key
+dated today is one a tick will take. The date is sent with the run, so a run that ends after
+midnight keeps it. The step starts none when an issue already holds the key, or when there is no
+source. Yesterday's evening is an ordinary key: the archive sorts it before today's morning,
+`is_latest_issue` reads it as the newest until that issue lands, and its Pages slug and raw page
+carry its date; the notification subjects carry that date too. The same route reads the newest
+`digest_runs` row (§4), which the page polls until a row newer than the one it saw before posting
+says how the run ended: a link to the issue and the archive, or the status and the run's `error`.
+It needs D1, as the wizard does.
 
 Votes go through the Worker's same-origin `POST /api/vote`, which attaches `CYRIS_PROMOTE_TOKEN`
 server-side; no page carries the token. The vote buttons render only when a probe of

@@ -1,9 +1,9 @@
-"""GET /api/onboarding/first-issue: the period the wizard's first issue takes, and its run.
+"""GET /api/onboarding/first-issue: the key the wizard's first issue takes, and its run.
 
-The run itself is the app Worker's `POST /run?period=` (workers/app); this route
-only picks the period, says whether an issue already holds that key, and reads
-the newest recorded run back, which is how the page tells when its run ended.
-Which period is safe at each hour is `tests/test_first_issue_period.py`'s.
+The run itself is the app Worker's `POST /run?period=&date=` (workers/app); this
+route only picks the key, says whether an issue already holds it, and reads the
+newest recorded run back, which is how the page tells when its run ended.
+Which key is safe at each hour is `tests/test_first_issue_period.py`'s.
 """
 
 import json
@@ -96,6 +96,7 @@ async def test_between_the_two_hours_the_first_issue_is_todays_morning() -> None
 
     assert status == 200
     assert (body["date"], body["period"], body["published"]) == ("2026-10-20", "morning", False)
+    assert body["today"] == "2026-10-20"
     assert (body["sources"], body["timezone"], body["hours"]) == (
         1,
         "Asia/Taipei",
@@ -111,10 +112,23 @@ async def test_the_date_is_the_deployments_own_not_utcs() -> None:
     assert (body["date"], body["period"]) == ("2026-10-20", "evening")
 
 
-async def test_before_the_morning_hour_there_is_no_period() -> None:
+async def test_before_the_morning_hour_the_key_is_yesterdays_evening() -> None:
     _, body = await _get(_server(at=_local(6, 30)))
 
-    assert body["period"] is None
+    assert (body["date"], body["period"], body["today"]) == ("2026-10-19", "evening", "2026-10-20")
+
+
+async def test_published_is_read_for_yesterdays_key_before_the_morning() -> None:
+    held = await _get(_server(at=_local(6, 30), issues=[("2026-10-19", "evening")]))
+    other = await _get(_server(at=_local(6, 30), issues=[("2026-10-20", "evening")]))
+
+    assert (held[1]["published"], other[1]["published"]) == (True, False)
+
+
+async def test_late_in_the_evening_the_key_stays_todays_evening() -> None:
+    _, body = await _get(_server(at=_local(23, 55)))
+
+    assert (body["date"], body["period"]) == ("2026-10-20", "evening")
 
 
 async def test_an_issue_already_under_the_key_is_said() -> None:

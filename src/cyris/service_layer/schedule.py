@@ -20,12 +20,6 @@ Period = Literal["morning", "evening"]
 # the earlier hour. The archive sorts a day's issues by it.
 PERIOD_ORDER: tuple[str, ...] = get_args(Period)
 
-# How long a run started now may take to date its issue: the run container's
-# own cap (`RUN_SLEEP_AFTER` in workers/app/src/index.js). An issue is dated when
-# the pipeline writes it, not when the run starts, so a run started closer than
-# this to midnight could carry tomorrow's date.
-RUN_CAP = timedelta(minutes=15)
-
 
 def validate_schedule(times: list[str]) -> list[str]:
     """Exactly two distinct whole hours, earliest first. Raises ValueError."""
@@ -59,26 +53,26 @@ def due_period(now: datetime, times: list[str]) -> Period | None:
     return None
 
 
-def first_issue_period(now: datetime, times: list[str]) -> Period | None:
-    """The period a run started at `now` can take without a later tick replacing its issue.
+def first_issue_key(now: datetime, times: list[str]) -> tuple[str, Period]:
+    """The (date, period) a run started at `now` can take without a later tick replacing it.
 
-    An issue is keyed by (date, period), and the run that `due_period` starts at
-    a publish hour stores its issue over any other with that key. So the first
-    issue takes the latest publish hour that has already begun today: every
-    tick left today falls on a later hour, and none of them gives that period
-    again before the date changes. None while both hours are still to come, and
-    within `RUN_CAP` of midnight, where the run could finish on the next date;
-    the next morning's scheduled issue is then the first. `now` must already be
-    local. Raises ValueError on a schedule `validate_schedule` refuses.
+    An issue is keyed by (date, period), and the run `due_period` starts at a
+    publish hour stores its issue over any other with that key. So the first
+    issue takes today's latest publish hour that has already begun: every tick
+    left today falls on a later hour, and none of them gives that period again
+    before the date changes. While both of today's hours are still to come,
+    any key dated today is one a tick will take, so it is yesterday's evening.
+    The run is started with this date, so a run that ends after midnight keeps
+    it. `now` must already be local. Raises ValueError on a schedule
+    `validate_schedule` refuses.
     """
     earlier, later = (int(time.split(":")[0]) for time in validate_schedule(times))
-    if (now + RUN_CAP).date() != now.date():
-        return None
+    today = now.date()
     if now.hour >= later:
-        return "evening"
+        return today.isoformat(), "evening"
     if now.hour >= earlier:
-        return "morning"
-    return None
+        return today.isoformat(), "morning"
+    return (today - timedelta(days=1)).isoformat(), "evening"
 
 
 def is_latest_issue(key: tuple[str, str], issues: Iterable[tuple[str, str]]) -> bool:

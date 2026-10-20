@@ -143,14 +143,14 @@
       </div>
     </section>
 
-    {# The run is the app Worker's own POST /run?period=, the route any manual run
-       takes. GET /api/onboarding/first-issue picks the period a later tick today
+    {# The run is the app Worker's own POST /run?period=&date=, the route any manual
+       run takes. GET /api/onboarding/first-issue picks the key a later tick today
        cannot replace, and reads the run's outcome back from digest_runs. #}
     <section class="step" data-step="first-issue" hidden>
       <div class="step-head">
         <h2 class="heading">First issue</h2>
         <p class="small">Build an issue now from your feeds and votes, instead of waiting for the next publish hour.</p>
-        <details class="more"><summary>More</summary><p class="small">It is dated today and takes the publish hour that has already passed, so no later issue today replaces it. It runs as a scheduled issue does, notifications included, and takes a few minutes. Skip leaves without one, and the next publish hour brings the first issue.</p></details>
+        <details class="more"><summary>More</summary><p class="small">It takes today's latest publish hour that has already begun, or yesterday's evening while both of today's are still to come, so no later issue replaces it. It runs as a scheduled issue does, notifications included, and takes a few minutes. Skip leaves without one, and the next publish hour brings the first issue.</p></details>
         <p class="small" id="o-issue-loading" aria-busy="true">Checking which issue comes first…</p>
       </div>
       <p class="small" id="o-issue-plan" hidden></p>

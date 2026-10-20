@@ -961,17 +961,18 @@ class TriageServer:
     async def _handle_get_first_issue(self, request: web.Request) -> web.Response:
         """What the wizard's last step needs to start the first issue and wait for it.
 
-        `period` is the one a run started now can take without a tick later
-        today storing over its issue (`first_issue_period`), or null when the
-        next morning's scheduled issue is the first. `published` says an issue
-        already holds that key, which a new run would replace. `run` is the
-        newest recorded run, so the page can tell the one it starts by its id.
-        The run itself is started by the app Worker's `POST /run`, as any manual
-        run is; nothing here starts one.
+        `date` and `period` are the key a run started now can take without a
+        tick later today storing over its issue (`first_issue_key`): today's
+        latest publish hour already begun, or yesterday's evening before both.
+        `today` is the deployment's own date, for the page to say which it is.
+        `published` says an issue already holds that key, which a new run would
+        replace. `run` is the newest recorded run, so the page can tell the one
+        it starts by its id. The run itself is started by the app Worker's
+        `POST /run?period=&date=`, as any manual run is; nothing here starts one.
         """
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-        from cyris.service_layer.schedule import first_issue_period, validate_schedule
+        from cyris.service_layer.schedule import first_issue_key, validate_schedule
 
         if self._run_log is None or self._digest_store is None or self._source_store is None:
             return web.json_response(
@@ -986,7 +987,7 @@ class TriageServer:
         times = self._values.get("general.digest_schedule")
         try:
             now = self._clock().astimezone(ZoneInfo(str(timezone)))
-            period = first_issue_period(now, times)
+            date, period = first_issue_key(now, times)
             hours = validate_schedule(times)
         except (ValueError, TypeError, ZoneInfoNotFoundError) as e:
             return web.json_response(
@@ -997,10 +998,9 @@ class TriageServer:
                 },
                 status=409,
             )
-        date = now.strftime("%Y-%m-%d")
         try:
             sources = len(self._effective_sources())
-            published = period is not None and (date, period) in self._digest_store.issues()
+            published = (date, period) in self._digest_store.issues()
             run = self._run_log.newest()
         except Exception as e:  # noqa: BLE001 - the reason belongs in the response
             logger.warning("Could not read the first issue's state", exc_info=True)
@@ -1010,6 +1010,7 @@ class TriageServer:
                 "ok": True,
                 "date": date,
                 "period": period,
+                "today": now.strftime("%Y-%m-%d"),
                 "published": published,
                 "sources": sources,
                 "timezone": timezone,

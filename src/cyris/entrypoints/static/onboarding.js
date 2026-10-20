@@ -6,8 +6,8 @@
 // votes step deals cards from those feeds (POST /api/onboarding/cards) and
 // writes the marked ones as votes (POST /api/onboarding/votes), then turns vote
 // similarity on through /api/settings/vote-similarity, the Model form's route.
-// The first-issue step starts a run through the app Worker's POST /run?period=,
-// the route any manual run takes, with the period GET /api/onboarding/first-issue
+// The first-issue step starts a run through the app Worker's POST /run?period=&date=,
+// the route any manual run takes, with the key GET /api/onboarding/first-issue
 // picks, and reads the run's outcome back from that same route.
 const $ = (id) => document.getElementById(id);
 
@@ -554,16 +554,18 @@ function planIssue(data, retry) {
       "Press Back to pick some, or Finish and add them later under Sources in Settings.");
     return false;
   }
-  if (!data.period) {
-    plan(`Your first issue comes at ${data.hours[0]} ${data.timezone}, the next morning ` +
-      "publish hour. One built now would be replaced by a scheduled issue of the same date " +
-      "and period, so the wizard leaves it to that hour.");
-    return false;
-  }
   if (data.published && !retry) {
     plan(`The ${data.date} ${data.period} issue is already published, and one built now ` +
       "would replace it. Read it in the archive.");
     return false;
+  }
+  if (data.date !== data.today) {
+    // Today's two hours are both still to come, and each would replace an
+    // issue dated today, so the first one is dated yesterday.
+    plan(`Start builds the ${data.date} ${data.period} issue now, dated yesterday: ` +
+      `neither of today's publish hours, ${data.hours.join(" and ")} ${data.timezone}, has ` +
+      "begun, and an issue dated today would be replaced by them. It takes a few minutes.");
+    return true;
   }
   plan(`Start builds the ${data.date} ${data.period} issue now. It takes a few minutes, ` +
     "and no later issue today replaces it.");
@@ -595,10 +597,12 @@ async function loadIssue() {
 }
 
 // The app Worker's own manual run: it answers once the run container is starting.
-async function startRun(period) {
+// The date goes with it, so a run that ends after midnight keeps its key.
+async function startRun(period, date) {
   let res;
   try {
-    res = await fetch(`/run?period=${encodeURIComponent(period)}`, {method: "POST"});
+    const query = `period=${encodeURIComponent(period)}&date=${encodeURIComponent(date)}`;
+    res = await fetch(`/run?${query}`, {method: "POST"});
   } catch (err) {
     throw new Error(`Could not reach cyris (${err.message}). Check the connection and try again.`);
   }
@@ -630,7 +634,7 @@ async function startIssue() {
       setIssue("closed");
       return;
     }
-    await startRun(ISSUE.period);
+    await startRun(ISSUE.period, ISSUE.date);
   } catch (err) {
     failIssue(err.message);
     return;
@@ -667,7 +671,7 @@ async function waitForRun(run) {
       return failIssue(err.message);
     }
     const row = data.run;
-    if (row && row.id > run.after && row.period === run.period) return endIssue(row);
+    if (row && row.id > run.after && row.period === run.period) return endIssue(row, run);
     if (Date.now() - run.started > RUN_WAIT_MS) {
       return failIssue(`No run has ended in ${RUN_WAIT_MS / 60000} minutes, so this one ` +
         "did not start or stopped without a record. Its log is in the app Worker's logs.");
@@ -676,7 +680,7 @@ async function waitForRun(run) {
   }
 }
 
-function endIssue(row) {
+function endIssue(row, run) {
   sessionStorage.removeItem(RUNNING_KEY);
   running = null;
   if (row.status !== "ok") {
@@ -686,12 +690,13 @@ function endIssue(row) {
     return failIssue(why.join(" "));
   }
   setIssue("done", () => {
+    const issue = `Your first issue, the ${run.date} ${run.period} issue,`;
     if (!row.digest_url) {
-      show("ok", "Your first issue is built. This deployment publishes no site, " +
+      show("ok", `${issue} is built. This deployment publishes no site, ` +
         "so it reached you only through its notifications.");
       return;
     }
-    show("ok", "Your first issue is published. ");
+    show("ok", `${issue} is published. `);
     $("o-result").append(
       link("Read it", row.digest_url), ", or find it with every later issue in the ",
       link("archive", new URL("/", row.digest_url).href), ".");
