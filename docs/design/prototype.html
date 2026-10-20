@@ -369,6 +369,16 @@ details.more p { margin-top: var(--s-2); }
 .sources-check > .label { padding: var(--s-2) var(--s-4) 0; }
 .sources-check .choice { justify-content: flex-start; }
 .choice .name { flex: 1 1 auto; font-weight: 600; font-size: calc(18px * var(--type-scale)); }
+/* The toggle tile (ui-language.md §4): a button per option, pressed or not, with a mark that is not colour alone. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); gap: var(--s-2); }
+.tile { position: relative; display: grid; align-content: start; gap: var(--s-1); min-height: var(--s-16); padding: var(--s-3) var(--s-8) var(--s-3) var(--s-4); border: 1px solid var(--border-strong); border-radius: var(--r-control); background: var(--bg-elev); color: var(--text); font-family: var(--font-sans); text-align: left; cursor: pointer; transition: background-color var(--t-fast), border-color var(--t-fast), opacity var(--t-fast); }
+.tile:hover { background: var(--surface); }
+.tile:active { opacity: .7; }
+.tile::after { content: ""; position: absolute; top: var(--s-3); right: var(--s-3); width: var(--s-3); height: var(--s-3); border: 1px solid var(--border-strong); transition: background-color var(--t-fast), border-color var(--t-fast); }
+.tile[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-tint); }
+.tile[aria-pressed="true"]::after { border-color: var(--accent); background: var(--accent); }
+.tile[aria-pressed="true"] .label { color: var(--accent); }
+.tile .name { font-weight: 600; font-size: calc(18px * var(--type-scale)); line-height: 1.3; }
 
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: var(--s-4); flex-wrap: wrap; margin-bottom: var(--s-4); }
 .table-wrap { overflow-x: auto; container-type: inline-size; border: 1px solid var(--border); background: var(--bg-elev); }
@@ -500,7 +510,7 @@ table.src td.areas-pos-cell { width: 1%; }
 
 <div class="proto-strip">
   <span>PROTOTYPE · sample data ·</span>
-  <a href="#system">system</a><a href="#archive">archive</a><a href="#digest">digest</a><a href="#raw">raw</a><a href="#settings/model">settings</a><a href="#onboarding">onboarding</a><a href="#onboarding/votes">onboarding votes</a><a href="#onboarding/first-issue">onboarding first issue</a>
+  <a href="#system">system</a><a href="#archive">archive</a><a href="#digest">digest</a><a href="#raw">raw</a><a href="#settings/model">settings</a><a href="#onboarding">onboarding</a><a href="#onboarding/feeds">onboarding feeds</a><a href="#onboarding/votes">onboarding votes</a><a href="#onboarding/first-issue">onboarding first issue</a>
   <label><input type="checkbox" id="authorized" checked> signed in (shows Settings, votes, List/Triage; off shows Sign in)</label>
 </div>
 
@@ -772,6 +782,10 @@ table.src td.areas-pos-cell { width: 1%; }
           <div class="seg" role="group" aria-label="Example filter"><button type="button" aria-pressed="false">All</button><button type="button" aria-pressed="true">RSS</button><button type="button" aria-pressed="false">Newsletter</button></div>
         </div>
         <div class="demo">
+          <span class="label" id="demo-tiles">Toggle tiles</span>
+          <div class="tiles" role="group" aria-labelledby="demo-tiles"><button class="tile" type="button" aria-pressed="true"><span class="name">Technology</span><span class="label">8 feeds</span></button><button class="tile" type="button" aria-pressed="false"><span class="name">World</span><span class="label">12 feeds</span></button></div>
+        </div>
+        <div class="demo">
           <span class="label">Fields</span>
           <div class="field"><label class="label" for="demo-a">Model</label><input class="input" id="demo-a" type="text" placeholder="Empty uses the default"></div>
           <div class="field"><label class="label" for="demo-b">Focused</label><input class="input fake-focus" id="demo-b" type="text" value="gemini-2.5-pro"></div>
@@ -827,12 +841,14 @@ table.src td.areas-pos-cell { width: 1%; }
 
 <!-- ============ ONBOARDING ============ -->
 <!-- The guided setup of a new deployment, shown mid-way: two steps done, the
-     sources step open after a Next that added one feed and not another, three to
-     come. Its settings steps save through the settings routes and its sources step
-     through POST /api/sources; the topics and the feed list are the server's. Two
-     topics are chosen, so their feeds show under them, here three of those; the
-     added feed's own topics were chosen before and are not now, so it stays, checked,
-     under its own heading first. #onboarding/votes is the next step: the cards the server dealt from
+     sources step open on its first screen, its topics, three steps to come. Two
+     topics are chosen. #onboarding/feeds is the step's second screen, after a Next
+     that added one feed and not another: the chosen topics' feeds show under them,
+     here three of those, and the added feed's own topics were chosen before and are
+     not now, so it stays, checked, under its own heading first; the count of the
+     picks sits above the buttons. Its settings steps save through the settings
+     routes and its sources step through POST /api/sources; the topics and the feed
+     list are the server's. #onboarding/votes is the next step: the cards the server dealt from
      those feeds, one marked each way and one left alone, with the feed that gave
      no article named. #onboarding/first-issue is the last step before the morning
      hour, after a run that failed: its plan, yesterday's evening, the run's reason,
@@ -857,16 +873,48 @@ table.src td.areas-pos-cell { width: 1%; }
     <section class="step">
       <div class="step-head">
         <h2 class="heading">Sources</h2>
-        <p class="small">The feeds this deployment reads. Each one is a publisher's own feed; pick the topics you follow, then the feeds you read.</p>
+        <p class="small">The feeds this deployment reads, each a publisher's own feed. Pick the topics you follow; Next shows their feeds.</p>
       </div>
-      <fieldset class="sources-check">
-        <legend class="label">Topics</legend>
-        <label class="choice"><input type="checkbox" checked><span class="name">Technology</span><span class="label">8 feeds</span></label>
-        <label class="choice"><input type="checkbox"><span class="name">Business &amp; economy</span><span class="label">5 feeds</span></label>
-        <label class="choice"><input type="checkbox" checked><span class="name">World</span><span class="label">12 feeds</span></label>
-        <label class="choice"><input type="checkbox"><span class="name">Taiwan</span><span class="label">7 feeds</span></label>
-        <label class="choice"><input type="checkbox"><span class="name">Ideas &amp; culture</span><span class="label">3 feeds</span></label>
-      </fieldset>
+      <div class="field">
+        <span class="label" id="o-topics-label">Topics</span>
+        <div class="tiles" role="group" aria-labelledby="o-topics-label">
+          <button class="tile" type="button" aria-pressed="true"><span class="name">Technology</span><span class="label">8 feeds</span></button>
+          <button class="tile" type="button" aria-pressed="false"><span class="name">Business &amp; economy</span><span class="label">5 feeds</span></button>
+          <button class="tile" type="button" aria-pressed="true"><span class="name">World</span><span class="label">12 feeds</span></button>
+          <button class="tile" type="button" aria-pressed="false"><span class="name">Taiwan</span><span class="label">7 feeds</span></button>
+          <button class="tile" type="button" aria-pressed="false"><span class="name">Ideas &amp; culture</span><span class="label">3 feeds</span></button>
+        </div>
+      </div>
+    </section>
+
+    <div class="step-nav">
+      <button class="btn secondary" type="button">Back</button>
+      <button class="btn secondary" type="button">Skip</button>
+      <a class="btn primary" href="#onboarding/feeds">Next</a>
+    </div>
+  </main>
+
+  <main class="page narrow" data-ostep="feeds" hidden>
+    <div class="page-head">
+      <span class="label">Step 3 of 6</span>
+      <h1 class="display">Set up <em>cyris</em></h1>
+      <p class="small">Six steps to your first issue. Skip any of them: a skipped step keeps its current value, and everything here can be changed later in Settings.</p>
+    </div>
+
+    <ol class="steps">
+      <li class="label done">Language</li>
+      <li class="label done">Publish hours</li>
+      <li class="label" aria-current="step">Sources</li>
+      <li class="label">Votes</li>
+      <li class="label">Notifications</li>
+      <li class="label">First issue</li>
+    </ol>
+
+    <section class="step">
+      <div class="step-head">
+        <h2 class="heading">Sources</h2>
+        <p class="small">The feeds of the topics you picked. Check the ones you read; Back changes the topics.</p>
+      </div>
       <div>
         <fieldset class="sources-check">
           <legend class="label">Picked, outside the chosen topics</legend>
@@ -882,10 +930,11 @@ table.src td.areas-pos-cell { width: 1%; }
           <label class="choice"><input type="checkbox"><span class="name">BBC News</span><span class="label">news</span></label>
         </fieldset>
       </div>
+      <p class="small" aria-live="polite">2 feeds picked.</p>
     </section>
 
     <div class="step-nav">
-      <button class="btn secondary" type="button">Back</button>
+      <a class="btn secondary" href="#onboarding">Back</a>
       <button class="btn secondary" type="button">Skip</button>
       <button class="btn primary" type="button">Next</button>
       <div class="notice err" role="status">Added 1 of 2 feeds. This one was not added:

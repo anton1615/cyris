@@ -391,7 +391,8 @@ def test_an_unguarded_button_hover_is_reported() -> None:
 @pytest.mark.parametrize("source", BUTTON_SOURCES)
 def test_a_pressed_button_only_lowers_its_opacity(source: str) -> None:
     pressed = {key: d for key, d in _button_rules(source).items() if ":active" in key}
-    assert pressed == {f".btn{ENABLED}:active": {"opacity: .7"}}
+    # The toggle tile is pressed as a button is (ui-language.md §4); it is never disabled.
+    assert pressed == {f".btn{ENABLED}:active": {"opacity: .7"}, ".tile:active": {"opacity: .7"}}
 
 
 def test_every_website_button_lowers_its_opacity_when_pressed() -> None:

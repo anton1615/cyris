@@ -54,6 +54,7 @@ from cdp_probe import (
 from css_computed import find_browser
 
 from cyris.adapters.fetch.onboarding_cards import OnboardingArticles, draw_cards
+from cyris.adapters.fetch.rss_worker_source import POLL_CONCURRENCY, POLL_FEED_TIMEOUT_SECONDS
 from cyris.config import GRADE_D_KEYS
 from cyris.diagnostics.doctor import Check as DoctorCheck
 from cyris.domain.models import Article, ArticleState, SourceConfig, Tier
@@ -193,6 +194,9 @@ KEPT_PICK = next(entry for entry in FEEDS if len(entry["topics"]) == 1)
 # chosen topics are kept under for a reload (onboarding.js TOPICS_KEY).
 KEPT = "Picked, outside the chosen topics"
 TOPICS_KEY = "cyris-onboarding-topics"
+# How many picks the Votes step's poll fetches within a minute (onboarding.js
+# SLOW_PICKS): past it the feeds screen warns of the wait.
+SLOW_PICKS = POLL_CONCURRENCY * (60 // POLL_FEED_TIMEOUT_SECONDS)
 
 # The `cards` table: the two picks, which the fake RSS edge answers, and a
 # third feed it answers with nothing, which the step must name.
@@ -647,9 +651,10 @@ const skipTo = async (step) => {
   return onStep(step);
 };
 const marks = () => $$('.step:not([hidden]) [aria-invalid="true"]').map((el) => el.id);
-// The sources step, drawn: its topic list, or the line saying the table has
-// sources. A feed row shows only once one of its topics is chosen.
-const topicRows = () => $$("#o-topics .choice");
+// The sources step, drawn: its topic tiles, or the line saying the table has
+// sources. A feed row shows only on the feeds screen, once one of its topics
+// is chosen.
+const topicRows = () => $$("#o-topics .tile");
 const feedRows = () => $$("#o-feeds .choice");
 const feedsDrawn = () => waitFor(
   () => topicRows().length || visible($("#o-feeds-had")), "the feed list");
@@ -658,11 +663,23 @@ const rowNamed = (name) => rowIn(feedRows(), name);
 const shownFeeds = () => feedRows().filter(visible).map((row) => $(".name", row).textContent);
 const groupsShown = () => $$("#o-feeds fieldset").filter(visible)
   .map((set) => $("legend", set).textContent);
-const topicBox = (label) => $("input", rowIn(topicRows(), label));
-const topicChosen = (label) => topicBox(label).checked;
+const topicTile = (label) => rowIn(topicRows(), label);
+const topicChosen = (label) => topicTile(label).getAttribute("aria-pressed") === "true";
 // Idempotent: a topic already chosen stays chosen.
-const choose = (label) => { if (!topicChosen(label)) topicBox(label).click(); };
-const unchoose = (label) => { if (topicChosen(label)) topicBox(label).click(); };
+const choose = (label) => { if (!topicChosen(label)) topicTile(label).click(); };
+const unchoose = (label) => { if (topicChosen(label)) topicTile(label).click(); };
+// The step's two screens: the topics, then their feeds, each with its own hash.
+const topicsScreen = () => visible($("#o-topics-screen"));
+const feedsScreen = () => visible($("#o-feeds-screen"));
+const toFeeds = async () => {
+  if (!feedsScreen()) press("o-next");
+  await waitFor(feedsScreen, "the feeds screen");
+};
+const toTopics = async () => {
+  if (!topicsScreen()) press("o-back");
+  await waitFor(topicsScreen, "the topics screen");
+};
+const picked = () => $("#o-picked").textContent;
 const pick = (name) => { rowNamed(name).querySelector("input").click(); };
 // The votes step, dealt: its cards, or the line saying there is nothing to vote on.
 const cardRows = () => $$("#o-cards .vote-card");
@@ -774,11 +791,16 @@ def _choose(*topics: str) -> str:
     return "\n".join(f"choose({json.dumps(LABELS[topic])});" for topic in topics)
 
 
+def _feeds_of(*topics: str) -> str:
+    """Choose `topics` on the topics screen, then open the feeds screen."""
+    return _choose(*topics) + "\nawait toFeeds();"
+
+
 def _pick(*entries: dict) -> str:
-    """Choose each entry's first topic, so its row shows, then check the row."""
+    """Choose each entry's first topic, open the feeds screen, so its row shows, then check it."""
     topics = list(dict.fromkeys(entry["topics"][0] for entry in entries))
     return "\n".join(
-        [_choose(*topics), *(f"pick({json.dumps(entry['name'])});" for entry in entries)]
+        [_feeds_of(*topics), *(f"pick({json.dumps(entry['name'])});" for entry in entries)]
     )
 
 
@@ -1013,10 +1035,11 @@ _CHECKS: list[Check] = [
             const topics = topicRows().filter(visible).map((row) => $(".name", row).textContent);
             const wanted = {json.dumps([topic["label"] for topic in TOPICS])};
             expect(same(topics, wanted), `topics: ${{topics.join("|")}}`);
-            const chosen = topicRows().filter((row) => $("input", row).checked).length;
-            expect(chosen === 0, `${{chosen}} topics start chosen`);
+            const chosen = topicRows().filter((row) => row.getAttribute("aria-pressed") === "true");
+            expect(chosen.length === 0, `${{chosen.length}} topics start chosen`);
             expect(!shownFeeds().length, `feeds before a topic: ${{shownFeeds().join("|")}}`);
             expect(visible($("#o-feeds-hint")), "nothing says to pick a topic");
+            expect($("#o-next").disabled, "Next is live with no topic chosen");
         """,
         sabotage=_choose(ONE_TOPIC),
         receipt=_both_untouched,
@@ -1028,7 +1051,7 @@ _CHECKS: list[Check] = [
         act=f"""
             await loaded();
             await feedsDrawn();
-            {_choose(ONE_TOPIC)}
+            {_feeds_of(ONE_TOPIC)}
         """,
         script=f"""
             const wanted = {json.dumps(shown_feeds([ONE_TOPIC]), ensure_ascii=False)};
@@ -1049,7 +1072,7 @@ _CHECKS: list[Check] = [
         act=f"""
             await loaded();
             await feedsDrawn();
-            {_choose(ONE_TOPIC)}
+            {_feeds_of(ONE_TOPIC)}
         """,
         script=f"""
             const wanted = {json.dumps(shown_feeds([ONE_TOPIC]), ensure_ascii=False)};
@@ -1066,7 +1089,7 @@ _CHECKS: list[Check] = [
         act=f"""
             await loaded();
             await feedsDrawn();
-            {_choose(*TWO_TOPICS)}
+            {_feeds_of(*TWO_TOPICS)}
         """,
         script=f"""
             const wanted = {json.dumps(shown_feeds(TWO_TOPICS), ensure_ascii=False)};
@@ -1092,7 +1115,10 @@ _CHECKS: list[Check] = [
             await loaded();
             await feedsDrawn();
             {_pick(KEPT_PICK)}
+            await toTopics();
             unchoose({json.dumps(LABELS[KEPT_PICK["topics"][0]])});
+            // No topic is chosen now, yet Next opens the feeds: a pick is still checked.
+            await toFeeds();
         """,
         script=f"""
             const row = rowNamed({json.dumps(KEPT_PICK["name"], ensure_ascii=False)});
@@ -1110,23 +1136,224 @@ _CHECKS: list[Check] = [
         id="sources-step-a-reload-keeps-the-topics",
         fixture="empty",
         # The same tab twice: the second load is the reload, with this tab's
-        # sessionStorage. Only the first one chooses.
-        path=(f"{PAGE}#sources", f"{PAGE}#sources"),
+        # sessionStorage, on the feeds screen the first one left open. Only the
+        # first one chooses.
+        path=(f"{PAGE}#sources", f"{PAGE}#sources/feeds"),
         act=f"""
             await loaded();
             await feedsDrawn();
             if (!sessionStorage.getItem("probe-chose")) {{
               sessionStorage.setItem("probe-chose", "1");
-              {_choose(ONE_TOPIC)}
+              {_feeds_of(ONE_TOPIC)}
             }}
         """,
         script=f"""
+            expect(feedsScreen(), "the reload left the feeds screen");
             expect(topicChosen({json.dumps(LABELS[ONE_TOPIC])}), "the topic is not chosen");
             const wanted = {json.dumps(shown_feeds([ONE_TOPIC]), ensure_ascii=False)};
             expect(same(shownFeeds(), wanted), `listed: ${{shownFeeds().join("|")}}`);
         """,
         # After the first load's choice: what the reload reads is gone.
         sabotage=f"""sessionStorage.removeItem({json.dumps(TOPICS_KEY)});""",
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-topics-are-toggle-buttons",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(ONE_TOPIC)}
+        """,
+        script=f"""
+            const group = $("#o-topics");
+            expect(group.getAttribute("role") === "group", "the tiles are not a group");
+            const name = document.getElementById(group.getAttribute("aria-labelledby"));
+            expect(name && name.textContent === "Topics", "the group is not named Topics");
+            const odd = topicRows().filter((tile) => tile.tagName !== "BUTTON"
+              || tile.type !== "button" || !tile.hasAttribute("aria-pressed"));
+            expect(!odd.length, `${{odd.length}} tiles are not toggle buttons`);
+            const pressed = topicRows()
+              .filter((tile) => tile.getAttribute("aria-pressed") === "true")
+              .map((tile) => $(".name", tile).textContent);
+            expect(same(pressed, [{json.dumps(LABELS[ONE_TOPIC])}]), `pressed: ${{pressed}}`);
+            expect(!$("#o-topics input"), "a topic is still a checkbox");
+        """,
+        # After the act: the chosen tile no longer says it is pressed.
+        sabotage=f"""topicTile({json.dumps(LABELS[ONE_TOPIC])}).removeAttribute("aria-pressed");""",
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-a-pressed-topic-shows-it",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(ONE_TOPIC)}
+            // The colours transition; read them once that has settled.
+            await sleep(400);
+            const swatch = document.createElement("i");
+            swatch.style.color = "var(--accent)";
+            document.body.append(swatch);
+            ctx.accent = getComputedStyle(swatch).color;
+            swatch.remove();
+        """,
+        script=f"""
+            const on = topicTile({json.dumps(LABELS[ONE_TOPIC])});
+            const off = topicRows().find((tile) => tile !== on);
+            const border = getComputedStyle(on).borderTopColor;
+            expect(border === ctx.accent, `pressed border: ${{border}}, accent: ${{ctx.accent}}`);
+            // The mark, which says it without colour: filled when pressed, empty when not.
+            const mark = (tile) => getComputedStyle(tile, "::after").backgroundColor;
+            expect(mark(on) === ctx.accent, `pressed mark: ${{mark(on)}}`);
+            expect(mark(off) !== ctx.accent, `unpressed mark: ${{mark(off)}}`);
+        """,
+        sabotage=restyle(
+            '.tile[aria-pressed="true"], .tile[aria-pressed="true"]::after'
+            " { border-color: var(--border-strong) !important; background: none !important;"
+            # The tile's own transition would still be fading when the script reads.
+            " transition: none !important; }"
+        ),
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-a-topic-answers-the-keyboard",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        focused=True,
+        act="""
+            await loaded();
+            await feedsDrawn();
+            topicRows()[0].focus();
+        """,
+        # After the act: the focused tile is a copy, which carries none of its listeners.
+        sabotage="""
+            const tile = topicRows()[0], copy = tile.cloneNode(true);
+            tile.replaceWith(copy);
+            copy.focus();
+        """,
+        gestures=({"key": " "},),
+        script=f"""
+            await waitFor(() => topicChosen({json.dumps(TOPICS[0]["label"])}), "the topic chosen");
+            expect(!$("#o-next").disabled, "Next still waits for a topic");
+        """,
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-next-opens-the-feeds-screen",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(ONE_TOPIC)}
+        """,
+        sabotage=dead("o-next"),
+        gestures=({"press": "#o-next", "pointer": "mouse"}, {"release": True}),
+        script=f"""
+            await waitFor(feedsScreen, "the feeds screen");
+            expect(!topicsScreen(), "the topics screen is still shown");
+            expect(location.hash === "#sources/feeds", `hash: ${{location.hash}}`);
+            expect(same(marked(), ["sources"]), `marked: ${{marked()}}`);
+            expect(progress() === "Step 3 of 6", `progress: ${{progress()}}`);
+            const wanted = {json.dumps(shown_feeds([ONE_TOPIC]), ensure_ascii=False)};
+            expect(same(shownFeeds(), wanted), `listed: ${{shownFeeds().join("|")}}`);
+        """,
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-back-returns-to-the-topics",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_pick(KEPT_PICK)}
+        """,
+        sabotage=dead("o-back"),
+        gestures=({"press": "#o-back", "pointer": "mouse"}, {"release": True}),
+        script=f"""
+            await waitFor(topicsScreen, "the topics screen");
+            expect(!feedsScreen(), "the feeds screen is still shown");
+            expect(same(marked(), ["sources"]), `marked: ${{marked()}}`);
+            expect(topicChosen({json.dumps(LABELS[KEPT_PICK["topics"][0]])}),
+              "the topic was unchosen");
+            const row = rowNamed({json.dumps(KEPT_PICK["name"], ensure_ascii=False)});
+            expect($("input", row).checked, "the pick was unchecked");
+        """,
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-skip-on-the-topics-screen-leaves-the-step",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(ONE_TOPIC)}
+        """,
+        sabotage=dead("o-skip"),
+        gestures=({"press": "#o-skip", "pointer": "mouse"}, {"release": True}),
+        script="""
+            await onStep("votes");
+            expect(!visible(notice()), `a notice: ${notice().textContent}`);
+        """,
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-counts-the-picked-feeds",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_pick(*PICKS)}
+        """,
+        script="""
+            const line = $("#o-picked");
+            expect(visible(line), "the count is hidden");
+            expect(line.getAttribute("aria-live") === "polite", "the count is not announced");
+            expect(picked() === "2 feeds picked.", `count: ${picked()}`);
+        """,
+        # After the act: one pick is taken back, and the count must follow.
+        sabotage=f"""pick({json.dumps(PICKS[0]["name"], ensure_ascii=False)});""",
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-warns-past-twelve-picks",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(*LABELS)}
+            feedRows().slice(0, {SLOW_PICKS + 1}).forEach((row) => $("input", row).click());
+        """,
+        script=f"""
+            const text = picked();
+            expect(text.startsWith("{SLOW_PICKS + 1} feeds picked."), `count: ${{text}}`);
+            expect(text.includes("about a minute") && text.includes("longer"), `count: ${{text}}`);
+            expect(!$("#o-next").disabled, "the warning blocks Next");
+        """,
+        # After the act: back to the most the poll fetches within a minute.
+        sabotage="""$("input", feedRows()[0]).click();""",
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-twelve-picks-carry-no-warning",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(*LABELS)}
+            feedRows().slice(0, {SLOW_PICKS}).forEach((row) => $("input", row).click());
+        """,
+        script=f"""expect(picked() === "{SLOW_PICKS} feeds picked.", `count: ${{picked()}}`);""",
+        # After the act: one more pick, past what the poll fetches within a minute.
+        sabotage=f"""$("input", feedRows()[{SLOW_PICKS}]).click();""",
         receipt=_both_untouched,
     ),
     Check(
@@ -1157,7 +1384,7 @@ _CHECKS: list[Check] = [
             await loaded();
             await skipTo("sources");
             await feedsDrawn();
-            {_choose(*LABELS)}
+            {_feeds_of(*LABELS)}
         """,
         script=f"""
             const names = shownFeeds();
@@ -1231,9 +1458,10 @@ _CHECKS: list[Check] = [
         id="sources-step-with-nothing-picked-writes-nothing",
         fixture="empty",
         path=f"{PAGE}#sources",
-        act="""
+        act=f"""
             await loaded();
             await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
         """,
         # After the act, so the pick is made on the drawn list.
         sabotage=_pick(PICKS[0]),
@@ -1988,6 +2216,7 @@ _CHECKS: list[Check] = [
             expect(line.textContent.includes("under Sources in Settings"), line.textContent);
             expect(!feedRows().filter(visible).length, `${feedRows().length} feeds listed`);
             expect(!topicRows().filter(visible).length, `${topicRows().length} topics listed`);
+            expect(!$("#o-next").disabled, "Next waits for a topic no one can choose");
         """,
         sabotage="""$("#o-feeds-had").hidden = true;""",
         receipt=_both_untouched,
@@ -2035,13 +2264,30 @@ _CHECKS: list[Check] = [
         act=f"""
             await loaded();
             await feedsDrawn();
-            {_choose(*LABELS)}
+            {_feeds_of(*LABELS)}
         """,
         script="""
             const problem = overflow("onboarding");
             expect(!problem, problem);
         """,
         sabotage="""feedRows()[0].style.minWidth = "600px";""",
+    ),
+    Check(
+        id="fits-topics-375",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        width=375,
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(*LABELS)}
+        """,
+        script="""
+            expect(topicsScreen(), "the topics screen is hidden");
+            const problem = overflow("onboarding");
+            expect(!problem, problem);
+        """,
+        sabotage="""topicRows()[0].style.minWidth = "600px";""",
     ),
     Check(
         id="fits-votes-375",
@@ -2104,7 +2350,7 @@ _CHECKS: list[Check] = [
         act=f"""
             await loaded();
             await feedsDrawn();
-            {_choose(*LABELS)}
+            {_feeds_of(*LABELS)}
         """,
         script="""expectTapTargets("#o-feeds .choice");""",
         sabotage=restyle("#o-feeds .choice { padding: 0 !important; line-height: 1 !important; }"),
@@ -2118,8 +2364,11 @@ _CHECKS: list[Check] = [
             await loaded();
             await feedsDrawn();
         """,
-        script="""expectTapTargets("#o-topics .choice");""",
-        sabotage=restyle("#o-topics .choice { padding: 0 !important; line-height: 1 !important; }"),
+        script="""expectTapTargets("#o-topics .tile");""",
+        sabotage=restyle(
+            "#o-topics .tile { min-height: 0 !important; padding: 0 !important; }"
+            " #o-topics .tile .label { display: none !important; }"
+        ),
     ),
     Check(
         id="tap-steps-375",
@@ -2144,7 +2393,7 @@ _CHECKS: list[Check] = [
 _CHECKS += [
     largest_twin(check, check.id.replace("fits-", "fits-largest-"), f"{check.fixture}-largest")
     for check in _CHECKS
-    if check.id in ("fits-375", "fits-sources-375", "fits-votes-375")
+    if check.id in ("fits-375", "fits-topics-375", "fits-sources-375", "fits-votes-375")
 ]
 
 CHECKS = _CHECKS
