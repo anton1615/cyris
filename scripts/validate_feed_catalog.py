@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import json
 import subprocess
 import sys
@@ -111,7 +112,8 @@ def _recent_count(dates: list[datetime], now: datetime) -> int:
 
 def parse_with_feedparser(content: bytes) -> list[datetime]:
     """Dates feedparser can read, the same way `RssSource._entry_published` reads them."""
-    parsed = feedparser.parse(content)
+    # As a stream: bare bytes that name a path are opened as that local file.
+    parsed = feedparser.parse(io.BytesIO(content))
     dates: list[datetime] = []
     for entry in parsed.entries:
         for key in ("published_parsed", "updated_parsed"):

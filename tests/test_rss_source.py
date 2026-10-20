@@ -150,3 +150,21 @@ async def test_email_only_sources_are_ignored():
 
     assert articles == []
     http.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_body_naming_a_local_file_is_parsed_as_text_not_opened(tmp_path):
+    """feedparser opens bare bytes that name a path, so a feed server could make a run read it."""
+    local = tmp_path / "local.xml"
+    local.write_bytes(
+        _feed(_item("From disk", "https://a.test/1", "Tue, 18 Mar 2026 10:00:00 GMT"))
+    )
+    source = RssSource(_http_returning(str(local).encode()))
+
+    articles = await source.fetch_articles(
+        after=AFTER,
+        before=BEFORE,
+        sources={"F": SourceConfig(name="F", url="https://a.test/feed", tier=Tier.SUMMARIZE)},
+    )
+
+    assert articles == []
