@@ -829,8 +829,10 @@ table.src td.areas-pos-cell { width: 1%; }
 <!-- The guided setup of a new deployment, shown mid-way: two steps done, the
      sources step open after a Next that added one feed and not another, three to
      come. Its settings steps save through the settings routes and its sources step
-     through POST /api/sources; the feed list is the server's, here four of its
-     entries. #onboarding/votes is the next step: the cards the server dealt from
+     through POST /api/sources; the topics and the feed list are the server's. Two
+     topics are chosen, so their feeds show under them, here three of those; the
+     added feed's own topics were chosen before and are not now, so it stays, checked,
+     under its own heading first. #onboarding/votes is the next step: the cards the server dealt from
      those feeds, one marked each way and one left alone, with the feed that gave
      no article named. #onboarding/first-issue is the last step before the morning
      hour, after a run that failed: its plan, yesterday's evening, the run's reason,
@@ -855,15 +857,31 @@ table.src td.areas-pos-cell { width: 1%; }
     <section class="step">
       <div class="step-head">
         <h2 class="heading">Sources</h2>
-        <p class="small">The feeds this deployment reads. Each one is a publisher's own feed; pick the ones you read.</p>
+        <p class="small">The feeds this deployment reads. Each one is a publisher's own feed; pick the topics you follow, then the feeds you read.</p>
       </div>
       <fieldset class="sources-check">
-        <legend class="label">Feeds</legend>
-        <label class="choice unavailable"><input type="checkbox" checked disabled><span class="name">報導者</span><span class="label">Added · news · investigative</span></label>
-        <label class="choice"><input type="checkbox" checked aria-invalid="true"><span class="name">iThome</span><span class="label">Not added · tech</span></label>
-        <label class="choice"><input type="checkbox"><span class="name">BBC News</span><span class="label">news</span></label>
-        <label class="choice"><input type="checkbox"><span class="name">The Verge</span><span class="label">tech</span></label>
+        <legend class="label">Topics</legend>
+        <label class="choice"><input type="checkbox" checked><span class="name">Technology</span><span class="label">8 feeds</span></label>
+        <label class="choice"><input type="checkbox"><span class="name">Business &amp; economy</span><span class="label">5 feeds</span></label>
+        <label class="choice"><input type="checkbox" checked><span class="name">World</span><span class="label">12 feeds</span></label>
+        <label class="choice"><input type="checkbox"><span class="name">Taiwan</span><span class="label">7 feeds</span></label>
+        <label class="choice"><input type="checkbox"><span class="name">Ideas &amp; culture</span><span class="label">3 feeds</span></label>
       </fieldset>
+      <div>
+        <fieldset class="sources-check">
+          <legend class="label">Picked, outside the chosen topics</legend>
+          <label class="choice unavailable"><input type="checkbox" checked disabled><span class="name">報導者</span><span class="label">Added · news · investigative</span></label>
+        </fieldset>
+        <fieldset class="sources-check">
+          <legend class="label">Technology</legend>
+          <label class="choice"><input type="checkbox" checked aria-invalid="true"><span class="name">iThome</span><span class="label">Not added · tech</span></label>
+          <label class="choice"><input type="checkbox"><span class="name">The Verge</span><span class="label">tech</span></label>
+        </fieldset>
+        <fieldset class="sources-check">
+          <legend class="label">World</legend>
+          <label class="choice"><input type="checkbox"><span class="name">BBC News</span><span class="label">news</span></label>
+        </fieldset>
+      </div>
     </section>
 
     <div class="step-nav">

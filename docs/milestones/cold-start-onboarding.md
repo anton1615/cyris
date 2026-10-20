@@ -40,6 +40,7 @@ depends: []
   - Google News 和 Yahoo 奇摩是聚合 feed，會破壞以 URL 去重。
 - 實際收錄前要再驗一次。
 - 標 `news` 的例子：中央社各分類、公視、自由時報、RTHK，以及照 owner 本機 `sources.yaml` 標法的報導者。不標的例子：iThome、科技新報、INSIDE、The Verge、Ars Technica。
+- **清單依主題分組（owner 2026-10-20 決定）。** 挑來源那步先讓讀者選主題（可複選），再從選中的主題裡挑來源。主題是內容的題材，不是形式，新聞、專欄、部落格混在各主題裡。清單頂層有一張有序的主題表（`id`、`label`），每個 feed 標 1 到 2 個主題 id。`topics` 是清單自己的欄位，不是 `SourceConfig` 的，送 `POST /api/sources` 前拿掉；`tags` 照舊進 pipeline，不拿來當主題。依語言分組不採用：`SourceConfig.language` 除了預設值合併以外沒有地方讀它（`src/cyris/config.py:564-565`），依輸出語言篩選又會藏掉讀者會看的 feed。主題表與每個 feed 的主題目前是暫定分配，由研究清單內容的另一條線換掉。
 
 **onboarding 精靈**
 - **頁面照 `/labels` 的做法。** 在容器裡掛一條路由和一個模板（`src/cyris/entrypoints/triage_server.py:221-222`），並把 `/onboarding` 加進 app Worker 的 `PROTECTED`（`workers/app/src/router.js:16-22`）。
@@ -85,7 +86,6 @@ depends: []
 ## 還沒決定、實作時再定的事
 
 - **feed 的粒度。** 每家媒體收一個總 feed，還是收分類 feed。分類 feed 能讓主題偏好直接進第一期，但會更快用掉 12 個 feed 的等待預算。
-- **清單怎麼分組。** `SourceConfig.language` 除了預設值合併以外，沒有任何地方讀它（`src/cyris/config.py:564-565`），所以依語言分組不會影響 pipeline。依輸出語言篩選會藏掉讀者會看的 feed。
 - **分群用哪個成員代表。** 預設是最高分的成員，要用真實資料比較其他算法。
 - **Clef 的負擔。** `preference_source=clef` 時，送進 Clef 的成員數要不要設上限，看 60 秒上限內的實測（`vote_order.py:26-28`）。
 - **可調參數。** 每個來源抽幾張卡，最少要投幾票。

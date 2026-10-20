@@ -1,194 +1,228 @@
 {
-  "_comment": "Onboarding's feed picker (docs/milestones/cold-start-onboarding.md, decided 2026-10-18). Collected by the project, not a reader: only a publisher's own feed (a self-chosen host such as CNA's feedburner counts), never an RSS hub or an aggregator (Google News, Yahoo). One exception, kept by the owner on 2026-10-20: Hacker News through hnrss.org, a third-party feed of HN's front page, because HN is mainstream reading with no feed of its own. Every entry here passed both parsers (workers/rss/src/parse.js and feedparser, scripts/validate_feed_catalog.py) with at least one article inside 8 days when the validator last ran (2026-10-20). A wire service or breaking-news outlet carries the `news` tag (it routes into cluster_news, src/cyris/domain/tags.py); an analysis or tech-trade outlet does not. Read once at onboarding by the wizard's sources step, through GET /api/onboarding/feeds; after that a deployment's feeds live in its own `sources` (D1) or `sources.yaml`, and adding one is the existing single-source form, not this file.",
+  "_comment": "Onboarding's feed picker (docs/milestones/cold-start-onboarding.md, decided 2026-10-18). Collected by the project, not a reader: only a publisher's own feed (a self-chosen host such as CNA's feedburner counts), never an RSS hub or an aggregator (Google News, Yahoo). One exception, kept by the owner on 2026-10-20: Hacker News through hnrss.org, a third-party feed of HN's front page, because HN is mainstream reading with no feed of its own. Every entry here passed both parsers (workers/rss/src/parse.js and feedparser, scripts/validate_feed_catalog.py) with at least one article inside 8 days when the validator last ran (2026-10-20). A wire service or breaking-news outlet carries the `news` tag (it routes into cluster_news, src/cyris/domain/tags.py); an analysis or tech-trade outlet does not. `topics` is the list's own grouping, not a `SourceConfig` field: the ordered table at the top names each subject (what a feed is about, never its form, so news, columns and blogs mix within one), and each feed names one or two of its ids. The wizard shows the topics first and only the chosen topics' feeds, and strips `topics` from an entry before posting it; `tags` still go into the pipeline and are never a topic. The assignment here is provisional (2026-10-20), until the list's own research replaces it. Read once at onboarding by the wizard's sources step, through GET /api/onboarding/feeds; after that a deployment's feeds live in its own `sources` (D1) or `sources.yaml`, and adding one is the existing single-source form, not this file.",
+  "topics": [
+    {"id": "tech", "label": "Technology"},
+    {"id": "business", "label": "Business & economy"},
+    {"id": "world", "label": "World"},
+    {"id": "taiwan", "label": "Taiwan"},
+    {"id": "ideas", "label": "Ideas & culture"}
+  ],
   "feeds": [
     {
       "name": "中央社即時新聞 政治新聞",
       "url": "https://feeds.feedburner.com/rsscna/politics",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["taiwan"]
     },
     {
       "name": "中央社即時新聞 科技新聞",
       "url": "https://feeds.feedburner.com/rsscna/technology",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["tech", "taiwan"]
     },
     {
       "name": "報導者",
       "url": "https://www.twreporter.org/a/rss2.xml",
       "tier": "filter",
-      "tags": ["news", "investigative"],
-      "language": "zh"
+      "tags": ["investigative"],
+      "language": "zh",
+      "topics": ["taiwan", "ideas"]
     },
     {
       "name": "公視新聞網",
       "url": "https://news.pts.org.tw/xml/newsfeed.xml",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["taiwan"]
     },
     {
       "name": "自由時報",
       "url": "https://news.ltn.com.tw/rss/all.xml",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["taiwan"]
     },
     {
       "name": "關鍵評論網",
       "url": "https://feeds.feedburner.com/TheNewsLens",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["taiwan", "ideas"]
     },
     {
       "name": "iThome",
       "url": "https://www.ithome.com.tw/rss",
       "tier": "filter",
       "tags": ["tech"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["tech"]
     },
     {
       "name": "科技新報",
       "url": "https://technews.tw/feed/",
       "tier": "filter",
       "tags": ["tech"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["tech"]
     },
     {
       "name": "INSIDE",
       "url": "https://feeds.feedburner.com/inside-blog-taiwan",
       "tier": "filter",
       "tags": ["tech", "startup"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["tech", "business"]
     },
     {
       "name": "BBC中文網 繁體",
       "url": "https://www.bbc.com/zhongwen/trad/index.xml",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["world"]
     },
     {
       "name": "紐約時報中文網 繁體",
       "url": "https://cn.nytimes.com/rss/zh-hant/",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["world"]
     },
     {
       "name": "RFI 法國國際廣播電台 繁體",
       "url": "https://www.rfi.fr/tw/rss",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["world"]
     },
     {
       "name": "明報新聞網",
       "url": "https://news.mingpao.com/rss/ins/s00001.xml",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["world"]
     },
     {
       "name": "RTHK 香港電台",
       "url": "https://rthk9.rthk.hk/rthk/news/rss/c_expressnews_clocal.xml",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["world"]
     },
     {
       "name": "經濟日報",
       "url": "https://money.udn.com/rssfeed/news/1001/5591",
       "tier": "filter",
       "tags": ["news"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["business", "taiwan"]
     },
     {
       "name": "換日線",
       "url": "https://crossing.cw.com.tw/rss",
       "tier": "filter",
       "tags": ["opinion"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["ideas", "world"]
     },
     {
       "name": "電腦王阿達",
       "url": "https://www.kocpc.com.tw/feed",
       "tier": "filter",
       "tags": ["tech"],
-      "language": "zh"
+      "language": "zh",
+      "topics": ["tech"]
     },
     {
       "name": "BBC News",
       "url": "https://feeds.bbci.co.uk/news/rss.xml",
       "tier": "filter",
       "tags": ["news"],
-      "language": "en"
+      "language": "en",
+      "topics": ["world"]
     },
     {
       "name": "The New York Times",
       "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
       "tier": "filter",
       "tags": ["news"],
-      "language": "en"
+      "language": "en",
+      "topics": ["world"]
     },
     {
       "name": "The Guardian",
       "url": "https://www.theguardian.com/world/rss",
       "tier": "filter",
       "tags": ["news"],
-      "language": "en"
+      "language": "en",
+      "topics": ["world"]
     },
     {
       "name": "NPR",
       "url": "https://feeds.npr.org/1001/rss.xml",
       "tier": "filter",
       "tags": ["news"],
-      "language": "en"
+      "language": "en",
+      "topics": ["world"]
     },
     {
       "name": "The Verge",
       "url": "https://www.theverge.com/rss/index.xml",
       "tier": "filter",
       "tags": ["tech"],
-      "language": "en"
+      "language": "en",
+      "topics": ["tech"]
     },
     {
       "name": "Ars Technica",
       "url": "https://feeds.arstechnica.com/arstechnica/index",
       "tier": "filter",
       "tags": ["tech"],
-      "language": "en"
+      "language": "en",
+      "topics": ["tech"]
     },
     {
       "name": "The Economist",
       "url": "https://www.economist.com/the-world-this-week/rss.xml",
       "tier": "filter",
       "tags": ["analysis"],
-      "language": "en"
+      "language": "en",
+      "topics": ["world", "business"]
     },
     {
       "name": "Financial Times",
       "url": "https://www.ft.com/rss/home",
       "tier": "filter",
       "tags": ["news"],
-      "language": "en"
+      "language": "en",
+      "topics": ["business", "world"]
     },
     {
       "name": "Bloomberg",
       "url": "https://feeds.bloomberg.com/markets/news.rss",
       "tier": "filter",
       "tags": ["news"],
-      "language": "en"
+      "language": "en",
+      "topics": ["business"]
     },
     {
       "name": "Hacker News",
       "url": "https://hnrss.org/frontpage",
       "tier": "filter",
       "tags": ["tech"],
-      "language": "en"
+      "language": "en",
+      "topics": ["tech"]
     }
   ]
 }

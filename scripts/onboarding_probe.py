@@ -57,7 +57,11 @@ from cyris.adapters.fetch.onboarding_cards import OnboardingArticles, draw_cards
 from cyris.config import GRADE_D_KEYS
 from cyris.diagnostics.doctor import Check as DoctorCheck
 from cyris.domain.models import Article, ArticleState, SourceConfig, Tier
-from cyris.entrypoints.triage_server import TriageServer, load_onboarding_feeds
+from cyris.entrypoints.triage_server import (
+    TriageServer,
+    load_onboarding_feeds,
+    load_onboarding_topics,
+)
 
 PAGE = "/onboarding"
 SETTINGS = "/settings"
@@ -121,14 +125,56 @@ PROBE_VALUES = {key: _VALUES[key] for key in GRADE_D_KEYS}
 
 A_SOURCE = SourceConfig(name="Simon Willison", url="https://simonwillison.net/atom/everything/")
 
-# The feed list the server offers, and the two the reader picks: each carries two
-# tags, so a body that lost one, or its order, is told from the list's own.
+# The feed list the server offers, and the two the reader picks: those with the
+# most tags, so a body that lost one, or its order, is told from the list's own.
+# Ranked rather than filtered, so a list with one multi-tag entry still gives two,
+# and kept in the list's order, which is the order the page posts them in.
 FEEDS = load_onboarding_feeds()
-PICKS = [entry for entry in FEEDS if len(entry["tags"]) > 1][:2]
+TOPICS = load_onboarding_topics()
+LABELS = {topic["id"]: topic["label"] for topic in TOPICS}
+_MOST_TAGS = sorted(FEEDS, key=lambda entry: -len(entry["tags"]))[:2]
+PICKS = [entry for entry in FEEDS if entry in _MOST_TAGS]
 # The feed the `refuses-one` table turns down once, and the one it takes beside it.
 REFUSED, TAKEN = FEEDS[1], FEEDS[0]
 REFUSAL = "D1 is busy; try again"
 MISNAMED = f"Added 1 of 2 feeds. {TAKEN['name']}: {REFUSAL}"
+
+
+def as_posted(entry: dict) -> dict:
+    """What the page posts for a picked entry: the entry without the list's own `topics`."""
+    return {key: value for key, value in entry.items() if key != "topics"}
+
+
+def shown_feeds(chosen: list[str]) -> list[str]:
+    """The feed names the step shows with `chosen` topics, in its order.
+
+    One checklist per chosen topic, in the topic list's order; a feed sits under
+    the first of its own topics that is chosen, so it shows once.
+    """
+    order = [topic["id"] for topic in TOPICS if topic["id"] in chosen]
+    home = {e["name"]: next((t for t in e["topics"] if t in chosen), None) for e in FEEDS}
+    return [e["name"] for topic in order for e in FEEDS if home[e["name"]] == topic]
+
+
+# The topic checks: one topic alone, and the first two topics in the list's order
+# that share a feed, which must then show once.
+ONE_TOPIC = TOPICS[0]["id"]
+OTHER_TOPIC = next(
+    t["id"] for t in TOPICS if set(shown_feeds([t["id"]])) - set(shown_feeds([ONE_TOPIC]))
+)
+TWO_TOPICS, SHARED = next(
+    ([a["id"], b["id"]], e["name"])
+    for i, a in enumerate(TOPICS)
+    for b in TOPICS[i + 1 :]
+    for e in FEEDS
+    if {a["id"], b["id"]} <= set(e["topics"])
+)
+# The pick kept when its topic is dropped: one feed with a single topic.
+KEPT_PICK = next(entry for entry in FEEDS if len(entry["topics"]) == 1)
+# The step's heading over such picks (onboarding.js KEPT), and the key the
+# chosen topics are kept under for a reload (onboarding.js TOPICS_KEY).
+KEPT = "Picked, outside the chosen topics"
+TOPICS_KEY = "cyris-onboarding-topics"
 
 # The `cards` table: the two picks, which the fake RSS edge answers, and a
 # third feed it answers with nothing, which the step must name.
@@ -325,6 +371,8 @@ class Fixture:
     articles: FakeArticleStore | None = None
     # The period of each POST /run, in order.
     runs: list[str] = field(default_factory=list)
+    # The body of each POST /api/sources, as the page sent it, in order.
+    posted: list[dict] = field(default_factory=list)
 
 
 def build_fixture(kind: str) -> Fixture:
@@ -374,6 +422,16 @@ def build_fixture(kind: str) -> Fixture:
 
     server._app.router.add_get("/api/vote", signed_in)
     fixture = Fixture(server._app, settings, settings.calls, store, articles)
+
+    # Each source body as it arrived, before the route reads it as a
+    # `SourceConfig`, which would drop a field the page should not have sent.
+    @web.middleware
+    async def record_posts(request: web.Request, handler):
+        if request.method == "POST" and request.path == "/api/sources":
+            fixture.posted.append(await request.json())
+        return await handler(request)
+
+    server._app.middlewares.append(record_posts)
     ends = list(RUN_ENDS.get(kind, []))
 
     # The app Worker's `POST /run?period=&date=`, which the container does not
@@ -475,6 +533,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
 # The wizard's way out, kept on the page: a press on Finish records where it leads
 # in `window.__left` instead of leaving, so the check can read it afterwards.
+# Storage the browser refuses, as with site data blocked: every write throws.
+NO_STORAGE = """{
+Storage.prototype.setItem = () => { throw new DOMException("blocked", "SecurityError"); };
+}"""
+
 STAY = """{
 document.addEventListener("click", (e) => {
   const finish = e.target.closest && e.target.closest("#o-finish");
@@ -549,11 +612,22 @@ const skipTo = async (step) => {
   return onStep(step);
 };
 const marks = () => $$('.step:not([hidden]) [aria-invalid="true"]').map((el) => el.id);
-// The sources step, drawn: its list, or the line saying the table has sources.
+// The sources step, drawn: its topic list, or the line saying the table has
+// sources. A feed row shows only once one of its topics is chosen.
+const topicRows = () => $$("#o-topics .choice");
 const feedRows = () => $$("#o-feeds .choice");
 const feedsDrawn = () => waitFor(
-  () => feedRows().length || visible($("#o-feeds-had")), "the feed list");
-const rowNamed = (name) => feedRows().find((row) => $(".name", row).textContent === name);
+  () => topicRows().length || visible($("#o-feeds-had")), "the feed list");
+const rowIn = (rows, name) => rows.find((row) => $(".name", row).textContent === name);
+const rowNamed = (name) => rowIn(feedRows(), name);
+const shownFeeds = () => feedRows().filter(visible).map((row) => $(".name", row).textContent);
+const groupsShown = () => $$("#o-feeds fieldset").filter(visible)
+  .map((set) => $("legend", set).textContent);
+const topicBox = (label) => $("input", rowIn(topicRows(), label));
+const topicChosen = (label) => topicBox(label).checked;
+// Idempotent: a topic already chosen stays chosen.
+const choose = (label) => { if (!topicChosen(label)) topicBox(label).click(); };
+const unchoose = (label) => { if (topicChosen(label)) topicBox(label).click(); };
 const pick = (name) => { rowNamed(name).querySelector("input").click(); };
 // The votes step, dealt: its cards, or the line saying there is nothing to vote on.
 const cardRows = () => $$("#o-cards .vote-card");
@@ -581,9 +655,11 @@ def _calls(*wanted: dict) -> Callable[[Fixture], str | None]:
 def _sources(*wanted: dict) -> Callable[[Fixture], str | None]:
     """A receipt: the table stored exactly these list entries, field for field, in order.
 
-    Each stored row is read back in the entry's own fields, so a tag or a tier
-    the page changed shows, and with no area, which the list cannot know.
+    Each stored row is read back in the entry's own fields but `topics`, which
+    is the list's and not a source's, so a tag or a tier the page changed shows,
+    and with no area, which the list cannot know.
     """
+    wanted = tuple(as_posted(entry) for entry in wanted)
 
     def receipt(fixture: Fixture) -> str | None:
         rows = fixture.sources.writes
@@ -598,6 +674,22 @@ def _sources(*wanted: dict) -> Callable[[Fixture], str | None]:
                 return None
         dumped = [row.model_dump(mode="json") for row in rows]
         return f"sources: {dumped}, settings: {fixture.calls}"
+
+    return receipt
+
+
+def _posted(*entries: dict) -> Callable[[Fixture], str | None]:
+    """A receipt: each POST /api/sources body was its entry less `topics`, and the table took them.
+
+    Read from the bodies as sent: the route reads a body as a `SourceConfig`,
+    which drops `topics`, so the stored rows alone could not tell.
+    """
+    stored = _sources(*entries)
+
+    def receipt(fixture: Fixture) -> str | None:
+        if fixture.posted != [as_posted(entry) for entry in entries]:
+            return f"posted: {fixture.posted}"
+        return stored(fixture)
 
     return receipt
 
@@ -643,8 +735,16 @@ def _runs(*keys: tuple[str, str | None]) -> Callable[[Fixture], str | None]:
     return receipt
 
 
+def _choose(*topics: str) -> str:
+    return "\n".join(f"choose({json.dumps(LABELS[topic])});" for topic in topics)
+
+
 def _pick(*entries: dict) -> str:
-    return "\n".join(f"pick({json.dumps(entry['name'])});" for entry in entries)
+    """Choose each entry's first topic, so its row shows, then check the row."""
+    topics = list(dict.fromkeys(entry["topics"][0] for entry in entries))
+    return "\n".join(
+        [_choose(*topics), *(f"pick({json.dumps(entry['name'])});" for entry in entries)]
+    )
 
 
 # Typing into one step, by the step it belongs to.
@@ -866,7 +966,7 @@ _CHECKS: list[Check] = [
         receipt=_runs(),
     ),
     Check(
-        id="sources-step-lists-every-entry",
+        id="sources-step-shows-no-feed-before-a-topic",
         fixture="empty",
         path=PAGE,
         act="""
@@ -875,9 +975,160 @@ _CHECKS: list[Check] = [
             await feedsDrawn();
         """,
         script=f"""
-            const names = feedRows().filter(visible).map((row) => $(".name", row).textContent);
-            const wanted = {json.dumps([entry["name"] for entry in FEEDS], ensure_ascii=False)};
+            const topics = topicRows().filter(visible).map((row) => $(".name", row).textContent);
+            const wanted = {json.dumps([topic["label"] for topic in TOPICS])};
+            expect(same(topics, wanted), `topics: ${{topics.join("|")}}`);
+            const chosen = topicRows().filter((row) => $("input", row).checked).length;
+            expect(chosen === 0, `${{chosen}} topics start chosen`);
+            expect(!shownFeeds().length, `feeds before a topic: ${{shownFeeds().join("|")}}`);
+            expect(visible($("#o-feeds-hint")), "nothing says to pick a topic");
+        """,
+        sabotage=_choose(ONE_TOPIC),
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-one-topic-lists-its-feeds",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(ONE_TOPIC)}
+        """,
+        script=f"""
+            const wanted = {json.dumps(shown_feeds([ONE_TOPIC]), ensure_ascii=False)};
+            expect(same(shownFeeds(), wanted), `listed: ${{shownFeeds().join("|")}}`);
+            expect(same(groupsShown(), [{json.dumps(LABELS[ONE_TOPIC])}]),
+              `groups: ${{groupsShown().join("|")}}`);
+            expect(!visible($("#o-feeds-hint")), "the pick-a-topic line outlived the choice");
+        """,
+        # After the act: a second topic is chosen, and its own feeds show too.
+        sabotage=_choose(OTHER_TOPIC),
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-lists-feeds-when-storage-refuses-the-topics",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        preload=NO_STORAGE,
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(ONE_TOPIC)}
+        """,
+        script=f"""
+            const wanted = {json.dumps(shown_feeds([ONE_TOPIC]), ensure_ascii=False)};
+            expect(same(shownFeeds(), wanted), `listed: ${{shownFeeds().join("|")}}`);
+        """,
+        # After the act: the redraw a throwing save would have stopped is undone.
+        sabotage='$("#o-feeds").replaceChildren();',
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-two-topics-list-a-shared-feed-once",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(*TWO_TOPICS)}
+        """,
+        script=f"""
+            const wanted = {json.dumps(shown_feeds(TWO_TOPICS), ensure_ascii=False)};
+            expect(same(shownFeeds(), wanted), `listed: ${{shownFeeds().join("|")}}`);
+            const shared = {json.dumps(SHARED, ensure_ascii=False)};
+            const times = shownFeeds().filter((name) => name === shared).length;
+            expect(times === 1, `${{shared}} shows ${{times}} times`);
+            const groups = {json.dumps([LABELS[topic] for topic in TWO_TOPICS])};
+            expect(same(groupsShown(), groups), `groups: ${{groupsShown().join("|")}}`);
+        """,
+        # The shared feed shows under its second topic as well.
+        sabotage=f"""
+            $$("#o-feeds fieldset").pop()
+              .append(rowNamed({json.dumps(SHARED, ensure_ascii=False)}).cloneNode(true));
+        """,
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-keeps-a-pick-when-its-topic-is-dropped",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_pick(KEPT_PICK)}
+            unchoose({json.dumps(LABELS[KEPT_PICK["topics"][0]])});
+        """,
+        script=f"""
+            const row = rowNamed({json.dumps(KEPT_PICK["name"], ensure_ascii=False)});
+            expect(row && visible(row), "the pick left the page with its topic");
+            expect($("input", row).checked, "the pick was unchecked with its topic");
+            const legend = $("legend", row.closest("fieldset")).textContent;
+            expect(legend === {json.dumps(KEPT)}, `it sits under ${{legend}}`);
+            expect(same(shownFeeds(), [{json.dumps(KEPT_PICK["name"], ensure_ascii=False)}]),
+              `listed: ${{shownFeeds().join("|")}}`);
+        """,
+        sabotage=f"""rowNamed({json.dumps(KEPT_PICK["name"], ensure_ascii=False)}).remove();""",
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-a-reload-keeps-the-topics",
+        fixture="empty",
+        # The same tab twice: the second load is the reload, with this tab's
+        # sessionStorage. Only the first one chooses.
+        path=(f"{PAGE}#sources", f"{PAGE}#sources"),
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            if (!sessionStorage.getItem("probe-chose")) {{
+              sessionStorage.setItem("probe-chose", "1");
+              {_choose(ONE_TOPIC)}
+            }}
+        """,
+        script=f"""
+            expect(topicChosen({json.dumps(LABELS[ONE_TOPIC])}), "the topic is not chosen");
+            const wanted = {json.dumps(shown_feeds([ONE_TOPIC]), ensure_ascii=False)};
+            expect(same(shownFeeds(), wanted), `listed: ${{shownFeeds().join("|")}}`);
+        """,
+        # After the first load's choice: what the reload reads is gone.
+        sabotage=f"""sessionStorage.removeItem({json.dumps(TOPICS_KEY)});""",
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="sources-step-posts-no-topics",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_pick(*PICKS)}
+            press("o-next");
+            await onStep("votes");
+            await waitFor(settled, "the result notice");
+        """,
+        script="""
+            expect(!notice().classList.contains("err"), `an error: ${notice().textContent}`);
+        """,
+        sabotage_preload=rewrite_post(
+            "/api/sources", f"body.topics = {json.dumps(PICKS[0]['topics'])};"
+        ),
+        receipt=_posted(*PICKS),
+    ),
+    Check(
+        id="sources-step-lists-every-entry",
+        fixture="empty",
+        path=PAGE,
+        act=f"""
+            await loaded();
+            await skipTo("sources");
+            await feedsDrawn();
+            {_choose(*LABELS)}
+        """,
+        script=f"""
+            const names = shownFeeds();
+            const wanted = {json.dumps(shown_feeds(list(LABELS)), ensure_ascii=False)};
             expect(same(names, wanted), `listed: ${{names.join("|")}}`);
+            expect(new Set(names).size === {len(FEEDS)}, `${{new Set(names).size}} feeds listed`);
             const picked = feedRows().filter((row) => $("input", row).checked).length;
             expect(picked === 0, `${{picked}} feeds start picked`);
             expect(!visible($("#o-feeds-had")), "the has-sources line shows over the list");
@@ -1557,6 +1808,7 @@ _CHECKS: list[Check] = [
             expect(visible(line), "the line saying this deployment has sources is hidden");
             expect(line.textContent.includes("under Sources in Settings"), line.textContent);
             expect(!feedRows().filter(visible).length, `${feedRows().length} feeds listed`);
+            expect(!topicRows().filter(visible).length, `${topicRows().length} topics listed`);
         """,
         sabotage="""$("#o-feeds-had").hidden = true;""",
         receipt=_both_untouched,
@@ -1601,9 +1853,10 @@ _CHECKS: list[Check] = [
         fixture="empty",
         path=f"{PAGE}#sources",
         width=375,
-        act="""
+        act=f"""
             await loaded();
             await feedsDrawn();
+            {_choose(*LABELS)}
         """,
         script="""
             const problem = overflow("onboarding");
@@ -1669,12 +1922,25 @@ _CHECKS: list[Check] = [
         fixture="empty",
         path=f"{PAGE}#sources",
         width=375,
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_choose(*LABELS)}
+        """,
+        script="""expectTapTargets("#o-feeds .choice");""",
+        sabotage=restyle("#o-feeds .choice { padding: 0 !important; line-height: 1 !important; }"),
+    ),
+    Check(
+        id="tap-topics-375",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        width=375,
         act="""
             await loaded();
             await feedsDrawn();
         """,
-        script="""expectTapTargets("#o-feeds .choice");""",
-        sabotage=restyle("#o-feeds .choice { padding: 0 !important; line-height: 1 !important; }"),
+        script="""expectTapTargets("#o-topics .choice");""",
+        sabotage=restyle("#o-topics .choice { padding: 0 !important; line-height: 1 !important; }"),
     ),
     Check(
         id="tap-steps-375",

@@ -53,6 +53,7 @@ from settings_probe import (  # noqa: E402
     probe_environment,
 )
 
+import cyris.entrypoints  # noqa: E402
 from cyris.config import GRADE_D_KEYS  # noqa: E402
 
 pytestmark = pytest.mark.integration
@@ -1249,8 +1250,10 @@ def test_the_labels_probe_runs_on_the_shared_core():
 
 
 # The checks `scripts/onboarding_probe.py` must carry: the frame walks, each
-# settings step writes what it was given, the sources step lists the feed list
-# and stores each pick as listed, the votes step deals its cards, names a feed
+# settings step writes what it was given, the sources step shows its topics
+# first and only the chosen topics' feeds, each once, keeps a pick whose topic is
+# dropped and the topics over a reload, and stores each pick as listed with no
+# `topics` in its body, the votes step deals its cards, names a feed
 # with none, shows the wait and writes only the marked cards and vote
 # similarity, the first-issue step starts one run for the key it picked, today's
 # or yesterday's evening, shows it while it is out, says where its issue is or
@@ -1275,6 +1278,13 @@ EXPECTED_ONBOARDING_IDS = {
     "notify-step-left-empty-writes-nothing",
     "finish-leaves-for-settings",
     "an-empty-deployment-is-sent-from-settings-to-the-wizard",
+    "sources-step-shows-no-feed-before-a-topic",
+    "sources-step-one-topic-lists-its-feeds",
+    "sources-step-lists-feeds-when-storage-refuses-the-topics",
+    "sources-step-two-topics-list-a-shared-feed-once",
+    "sources-step-keeps-a-pick-when-its-topic-is-dropped",
+    "sources-step-a-reload-keeps-the-topics",
+    "sources-step-posts-no-topics",
     "sources-step-lists-every-entry",
     "sources-step-stores-the-picked-entries",
     "sources-step-stores-the-listed-tier",
@@ -1304,6 +1314,7 @@ EXPECTED_ONBOARDING_IDS = {
     "fits-largest-votes-375",
     "tap-votes-375",
     "tap-feeds-375",
+    "tap-topics-375",
     "tap-steps-375",
     "first-issue-starts-a-run-no-later-tick-replaces",
     "first-issue-says-where-to-read-it",
@@ -1395,6 +1406,34 @@ async def test_the_onboarding_probe_fixture_records_each_source_it_stored():
     assert onboarding_probe._sources()(fixture) is not None
 
 
+async def test_the_onboarding_probe_fixture_records_each_body_as_posted():
+    """The bodies are read before the route drops `topics`, so one sent with them shows."""
+    fixture = onboarding_probe.build_fixture("empty")
+    pick = onboarding_probe.PICKS[0]
+    status, _ = await _get_json(fixture, "/api/sources", "POST", pick)
+    assert status == 200
+    assert fixture.posted == [pick]
+    assert onboarding_probe._posted(pick)(fixture) is not None
+    assert onboarding_probe._sources(pick)(fixture) is None
+
+
+def test_the_onboarding_probe_topic_fixtures_hold_what_their_checks_need():
+    """Each topic check's fixture holds: two topics differ, two share a feed, a pick has one."""
+    probe = onboarding_probe
+    one = probe.shown_feeds([probe.ONE_TOPIC])
+    assert set(probe.shown_feeds([probe.OTHER_TOPIC])) - set(one)
+    both = probe.shown_feeds(probe.TWO_TOPICS)
+    assert both.count(probe.SHARED) == 1
+    assert len(both) == len(set(both))
+    assert len(probe.KEPT_PICK["topics"]) == 1
+    every = probe.shown_feeds([topic["id"] for topic in probe.TOPICS])
+    assert sorted(every) == sorted(entry["name"] for entry in probe.FEEDS)
+    assert all("topics" not in probe.as_posted(entry) for entry in probe.FEEDS)
+    script = (Path(cyris.entrypoints.__file__).parent / "static" / "onboarding.js").read_text()
+    assert f"const KEPT = {json.dumps(probe.KEPT)};" in script
+    assert f"const TOPICS_KEY = {json.dumps(probe.TOPICS_KEY)};" in script
+
+
 async def test_the_onboarding_probe_refusing_table_turns_its_feed_down_once():
     fixture = onboarding_probe.build_fixture("refuses-one")
     refused = onboarding_probe.REFUSED
@@ -1405,9 +1444,10 @@ async def test_the_onboarding_probe_refusing_table_turns_its_feed_down_once():
 
 
 def test_the_onboarding_probe_picks_carry_more_than_one_tag():
-    """A body that lost a tag must differ from the entry it was sent for."""
+    """A body that lost a tag, or reordered two, must differ from the entry it was sent for."""
     assert len(onboarding_probe.PICKS) == 2
-    assert all(len(entry["tags"]) > 1 for entry in onboarding_probe.PICKS)
+    assert all(entry["tags"] for entry in onboarding_probe.PICKS)
+    assert any(len(entry["tags"]) > 1 for entry in onboarding_probe.PICKS)
     assert onboarding_probe.REFUSED != onboarding_probe.TAKEN
 
 

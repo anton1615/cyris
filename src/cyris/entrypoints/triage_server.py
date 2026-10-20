@@ -149,14 +149,24 @@ ONBOARDING_EXIT_MARK = ("from", "onboarding")
 VOTES = ("up", "down")
 
 
+def _onboarding_catalog() -> dict[str, Any]:
+    raw = (files("cyris") / "onboarding_feeds.json").read_text(encoding="utf-8")
+    return json.loads(raw)
+
+
 def load_onboarding_feeds() -> list[dict[str, Any]]:
     """The feed picker's entries, as `onboarding_feeds.json` holds them (grade A).
 
-    Sent to the page as written: each entry is a `SourceConfig` body, so a
-    picked one is posted to `POST /api/sources` unchanged, tags and tier included.
+    Sent to the page as written: each entry is a `SourceConfig` body plus the
+    list's own `topics`, which the page strips before posting the rest to
+    `POST /api/sources` unchanged, tags and tier included.
     """
-    raw = (files("cyris") / "onboarding_feeds.json").read_text(encoding="utf-8")
-    return json.loads(raw)["feeds"]
+    return _onboarding_catalog()["feeds"]
+
+
+def load_onboarding_topics() -> list[dict[str, str]]:
+    """The topics the feed picker groups its entries by, in the order it shows them."""
+    return _onboarding_catalog()["topics"]
 
 
 class TriageServer:
@@ -811,10 +821,11 @@ class TriageServer:
         """The wizard's feed list, offered only while the `sources` table is empty.
 
         Once a deployment has a source, more are added one at a time under
-        Sources in /settings, so `feeds` is empty and the step says so instead.
+        Sources in /settings, so `topics` and `feeds` are empty and the step
+        says so instead.
         """
         if self._source_store is None:
-            return web.json_response({"awaiting": False, "feeds": []})
+            return web.json_response({"awaiting": False, "topics": [], "feeds": []})
         # Read here rather than through _awaiting_onboarding(), which reads a
         # failure as "not waiting": the page would then claim sources that do not exist.
         try:
@@ -823,7 +834,11 @@ class TriageServer:
             logger.warning("Could not read the sources table for onboarding", exc_info=True)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
         return web.json_response(
-            {"awaiting": awaiting, "feeds": load_onboarding_feeds() if awaiting else []}
+            {
+                "awaiting": awaiting,
+                "topics": load_onboarding_topics() if awaiting else [],
+                "feeds": load_onboarding_feeds() if awaiting else [],
+            }
         )
 
     def _no_card_reader(self) -> web.Response | None:
