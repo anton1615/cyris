@@ -149,8 +149,11 @@ It walks the output language and timezone, the publish hours, your sources and t
 notifications, and saves each through the same routes `/settings` does; every step can be
 skipped, and a skipped setting keeps the value it has. The sources step lists the feeds the
 project collected and adds the ones you check; skip it to add your own later on
-`/settings` → Sources. `Finish` opens `/settings`, where the categories below are filled
-in. The steps that take your first votes and build the first issue are still placeholders.
+`/settings` → Sources. The votes step then fetches a few older articles from those feeds,
+which can take a minute or two; mark the ones you would and would not read, and `Next`
+records them as your first votes and turns vote similarity on. `Finish` opens `/settings`,
+where the categories below are filled in. The step that builds the first issue is still a
+placeholder.
 
 The first request after a deploy starts the container, so the page can take a minute;
 right after the very first deploy, container routes can fail for several minutes

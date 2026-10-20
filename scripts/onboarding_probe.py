@@ -5,8 +5,11 @@ pytest holds the wizard's markup, its redirects and the shape of the bodies it
 sends, but not what its script does in a browser: which step a press opens, what
 a Next on a changed step writes, that a Skip writes nothing, and whether the page
 fits a phone. This runs those checks against a real `TriageServer` whose settings
-home and `sources` table are in memory, so what a step wrote can be read back
-afterwards, with the Discord probe and the mail send answered offline.
+home, `sources` table and article store are in memory, so what a step wrote can
+be read back afterwards, with the Discord probe, the embedder probe and the mail
+send answered offline. The votes step's cards come from the real card reader
+and draw over a fake RSS edge, which answers each feed in the table with the
+same articles every time, as a buffer read again would.
 
 Every check carries a sabotage that breaks the thing it reads. `--self-test`
 runs each check clean, where it must pass, and sabotaged, where it must fail,
@@ -28,6 +31,7 @@ import os
 import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 
@@ -45,15 +49,25 @@ from cdp_probe import (
 )
 from css_computed import find_browser
 
+from cyris.adapters.fetch.onboarding_cards import OnboardingArticles, draw_cards
 from cyris.config import GRADE_D_KEYS
 from cyris.diagnostics.doctor import Check as DoctorCheck
-from cyris.domain.models import SourceConfig
+from cyris.domain.models import Article, ArticleState, SourceConfig, Tier
 from cyris.entrypoints.triage_server import TriageServer, load_onboarding_feeds
 
 PAGE = "/onboarding"
 SETTINGS = "/settings"
 
-KINDS = ("empty", "empty-largest", "refuses-one", "has-sources", "json")
+KINDS = (
+    "empty",
+    "empty-largest",
+    "refuses-one",
+    "has-sources",
+    "json",
+    "cards",
+    "cards-largest",
+    "cards-slow",
+)
 
 # What the reader types, and what each step must then store.
 NEW_LANGUAGE = "en"
@@ -108,6 +122,46 @@ REFUSED, TAKEN = FEEDS[1], FEEDS[0]
 REFUSAL = "D1 is busy; try again"
 MISNAMED = f"Added 1 of 2 feeds. {TAKEN['name']}: {REFUSAL}"
 
+# The `cards` table: the two picks, which the fake RSS edge answers, and a
+# third feed it answers with nothing, which the step must name.
+QUIET = next(entry for entry in FEEDS if entry not in PICKS)
+CARDS_TABLE = {entry["name"]: SourceConfig.model_validate(entry) for entry in [*PICKS, QUIET]}
+ARTICLES_PER_FEED = 6
+# How long the `cards-slow` read takes: long enough to look at the wait.
+SLOW_SECONDS = 3
+_NOW = datetime.now(UTC)
+
+
+def feed_articles(name: str) -> list[Article]:
+    """What the fake RSS edge answers for one feed: the n-th article (n + 1) * 6 hours old."""
+    slug = "".join(char for char in name.lower() if char.isalnum()) or "feed"
+    return [
+        Article(
+            id=f"{slug}-{n}",
+            title=f"{name}: story {n}",
+            url=f"https://cards.test/{slug}/{n}",
+            content=f"<p>What story {n} is about.</p>",
+            published_at=_NOW - timedelta(hours=6 * (n + 1)),
+            source_name=name,
+            source_tier=Tier.FILTER,
+        )
+        for n in range(ARTICLES_PER_FEED)
+    ]
+
+
+def _answered(sources: dict[str, SourceConfig]) -> list[Article]:
+    return [a for name in sources if name != QUIET["name"] for a in feed_articles(name)]
+
+
+# The cards the `cards` fixture deals, in the order the page shows them.
+CARDS = draw_cards(_answered(CARDS_TABLE), CARDS_TABLE).cards
+VOTE_SIMILARITY_ON = {
+    "vote_similarity.enabled": True,
+    "vote_similarity.provider": PROBE_VALUES["vote_similarity.provider"],
+    "vote_similarity.model": PROBE_VALUES["vote_similarity.model"],
+    "vote_similarity.max_seeds": PROBE_VALUES["vote_similarity.max_seeds"],
+}
+
 
 class FakeSettings:
     """Stands in for `D1Settings` and records every write a step makes."""
@@ -142,6 +196,52 @@ class FakeSourceStore:
         self.sources[source.name] = source
 
 
+class FakeArticleStore:
+    """Stands in for `D1ArticleStore`, keeping each row's state and stamp by URL.
+
+    As D1 does, `save` inserts only a URL not held yet, and a verdict or a stamp
+    lands only on a row that exists, so a vote sent before its save leaves no trace.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+
+    def save(self, articles: list[Article], now: datetime | None = None) -> None:
+        for article in articles:
+            self.rows.setdefault(
+                article.url, {"state": ArticleState.PENDING.value, "triaged_at": None}
+            )
+
+    def _set(self, urls: list[str], **values) -> int:
+        held = [url for url in urls if url in self.rows]
+        for url in held:
+            self.rows[url].update(values)
+        return len(held)
+
+    def accept(self, urls: list[str]) -> int:
+        return self._set(urls, state=ArticleState.ACCEPTED.value)
+
+    def reject(self, urls: list[str], reason: str) -> int:
+        return self._set(urls, state=ArticleState.REJECTED.value)
+
+    def update_triage_timestamp(self, urls: list[str], triaged_at: datetime) -> int:
+        return self._set(urls, triaged_at=triaged_at.isoformat())
+
+
+class FakeRssEdge:
+    """The run's RSS `FetchSource`, answering each feed it is asked for but `QUIET`."""
+
+    def __init__(self, delay: float = 0) -> None:
+        self.delay = delay
+
+    async def fetch_articles(self, after, before, sources) -> list[Article]:
+        await asyncio.sleep(self.delay)
+        return _answered(sources)
+
+    async def health_check(self) -> bool:
+        return True
+
+
 @dataclass
 class Fixture:
     """One server and the in-memory homes a check reads its receipt from."""
@@ -151,6 +251,8 @@ class Fixture:
     calls: list[dict] = field(default_factory=list)
     # Every source the table stored, in order; None on a `json` deployment.
     sources: FakeSourceStore | None = None
+    # The article rows the votes step wrote; None on a `json` deployment.
+    articles: FakeArticleStore | None = None
 
 
 def build_fixture(kind: str) -> Fixture:
@@ -161,16 +263,28 @@ def build_fixture(kind: str) -> Fixture:
     `refuses-one` is that table turning `REFUSED` down once. `has-sources` has
     one source, so the wizard opens without the feed list, and `json` has no
     writable table at all, which is a `backend = "json"` deployment: it has no
-    wizard.
+    wizard. `cards` holds `CARDS_TABLE`, so the votes step deals `CARDS` and
+    names `QUIET`; `cards-largest` is it at the largest type size, and
+    `cards-slow` takes `SLOW_SECONDS` to read its feeds.
     """
     if kind not in KINDS:
         raise ValueError(f"unknown fixture {kind!r}")
     settings = FakeSettings()
     table = {"Simon Willison": A_SOURCE} if kind == "has-sources" else {}
+    if kind.startswith("cards"):
+        table = dict(CARDS_TABLE)
     refuse = {REFUSED["name"]} if kind == "refuses-one" else set()
     store = None if kind == "json" else FakeSourceStore(table, refuse)
-    server = TriageServer(settings=settings, values=PROBE_VALUES, source_store=store)
-    if kind == "empty-largest":
+    articles = None if kind == "json" else FakeArticleStore()
+    edge = FakeRssEdge(SLOW_SECONDS if kind == "cards-slow" else 0)
+    server = TriageServer(
+        settings=settings,
+        values=PROBE_VALUES,
+        source_store=store,
+        article_store=articles,
+        onboarding_articles=None if kind == "json" else OnboardingArticles(edge),
+    )
+    if kind.endswith("-largest"):
         server._onboarding_page = at_largest_type_scale(server._onboarding_page)
 
     # The app Worker's own route, which the container does not serve: without it
@@ -179,19 +293,20 @@ def build_fixture(kind: str) -> Fixture:
         return web.json_response({"authorized": True})
 
     server._app.router.add_get("/api/vote", signed_in)
-    return Fixture(server._app, settings, settings.calls, store)
+    return Fixture(server._app, settings, settings.calls, store, articles)
 
 
 @contextlib.contextmanager
 def probe_environment() -> Iterator[SimpleNamespace]:
-    """Answer the Discord probe and the mail send offline, from an empty directory.
+    """Answer the Discord and embedder probes and the mail send offline, from an empty directory.
 
-    Both routes reach a third party on a real save, and the mail route also
+    Each route reaches a third party on a real save, and the mail route also
     needs this deployment's Cloudflare credentials to get that far. Yields the
     patched edges so a caller can see they were the ones answering.
     """
     offline = DoctorCheck(name="probe", status="ok", detail=OFFLINE_DETAIL)
     discord = mock.AsyncMock(return_value=offline)
+    embedder = mock.AsyncMock(return_value=offline)
     mail = mock.AsyncMock(return_value="delivered")
     present = {
         "CLOUDFLARE_ACCOUNT_ID": "cyris-probe-account",
@@ -202,9 +317,10 @@ def probe_environment() -> Iterator[SimpleNamespace]:
         contextlib.chdir(home),
         mock.patch.dict(os.environ, present),
         mock.patch("cyris.entrypoints.triage_server.probe_discord", discord),
+        mock.patch("cyris.entrypoints.triage_server.probe_embedder", embedder),
         mock.patch("cyris.adapters.mail.send_mail", mail),
     ):
-        yield SimpleNamespace(discord=discord, mail=mail)
+        yield SimpleNamespace(discord=discord, embedder=embedder, mail=mail)
 
 
 def rewrite_post(path: str, mutation: str) -> str:
@@ -222,6 +338,20 @@ window.fetch = (input, init) => {{
 }};
 }}
 """
+
+
+# The second card dealt carries a URL no feed holds, as one a feed rotated out
+# after the cards were dealt: the votes route then finds no such article.
+GONE_CARD = """{
+const realFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const response = await realFetch(input, init);
+  if (!String(input).endsWith("/api/onboarding/cards")) return response;
+  const body = await response.json();
+  body.cards[1].url = "https://gone.test/rolled-off";
+  return new Response(JSON.stringify(body), {status: response.status});
+};
+}"""
 
 
 # A sabotage: Skip presses Next, so a step the reader skipped is saved after all.
@@ -271,6 +401,13 @@ const feedsDrawn = () => waitFor(
   () => feedRows().length || visible($("#o-feeds-had")), "the feed list");
 const rowNamed = (name) => feedRows().find((row) => $(".name", row).textContent === name);
 const pick = (name) => { rowNamed(name).querySelector("input").click(); };
+// The votes step, dealt: its cards, or the line saying there is nothing to vote on.
+const cardRows = () => $$("#o-cards .vote-card");
+const cardsDrawn = () => waitFor(
+  () => cardRows().length || visible($("#o-cards-none")), "the cards");
+const cardTitle = (row) => $(".title", row).textContent;
+const cardSource = (row) => $(".label", row).textContent;
+const vote = (index, answer) => { $(`button[data-vote="${answer}"]`, cardRows()[index]).click(); };
 """
 )
 
@@ -307,6 +444,31 @@ def _sources(*wanted: dict) -> Callable[[Fixture], str | None]:
 def _both_untouched(fixture: Fixture) -> str | None:
     """A receipt: neither the settings home nor the table took a write."""
     return _sources()(fixture)
+
+
+def _votes(*, up: tuple[int, ...] = (), down: tuple[int, ...] = ()) -> Callable:
+    """A receipt: exactly these `CARDS` were stored, each with its verdict and a stamp.
+
+    A vote turns vote similarity on, so a receipt with any vote also wants that
+    one settings write and no other; with none it wants nothing written at all.
+    """
+    wanted = {CARDS[i].url: ArticleState.ACCEPTED.value for i in up}
+    wanted |= {CARDS[i].url: ArticleState.REJECTED.value for i in down}
+    settings = [VOTE_SIMILARITY_ON] if wanted else []
+
+    def receipt(fixture: Fixture) -> str | None:
+        rows = fixture.articles.rows
+        stored = {url: row["state"] for url, row in rows.items()}
+        stamped = all(row["triaged_at"] for row in rows.values())
+        no_source = fixture.sources.writes == []
+        if stored == wanted and stamped and fixture.calls == settings and no_source:
+            return None
+        return f"articles: {rows}, settings: {fixture.calls}, sources: {fixture.sources.writes}"
+
+    return receipt
+
+
+_NOTHING_VOTED = _votes()
 
 
 def _pick(*entries: dict) -> str:
@@ -369,14 +531,14 @@ _CHECKS: list[Check] = [
         path=PAGE,
         act="""
             await loaded();
-            await skipTo("votes");
+            await skipTo("first-issue");
         """,
         script="""
-            const text = $('.step[data-step="votes"]').textContent;
-            expect(text.includes("Coming next"), `the votes step says: ${text}`);
+            const text = $('.step[data-step="first-issue"]').textContent;
+            expect(text.includes("Coming next"), `the first-issue step says: ${text}`);
             expect(!$$(".step:not([hidden]) input").length, "the placeholder has a field");
         """,
-        sabotage="""$('.step[data-step="votes"] .small').textContent = "Vote on a few cards";""",
+        sabotage="""$('.step[data-step="first-issue"] .small').textContent = "Run it now";""",
         receipt=_both_untouched,
     ),
     Check(
@@ -520,6 +682,235 @@ _CHECKS: list[Check] = [
             expect(text.includes(added), `notice: ${{text}}`);
         """,
         receipt=_sources(TAKEN, REFUSED),
+    ),
+    Check(
+        id="votes-step-deals-the-drawn-cards",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await cardsDrawn();
+        """,
+        script=f"""
+            const titles = cardRows().filter(visible).map(cardTitle);
+            const wanted = {json.dumps([card.title for card in CARDS], ensure_ascii=False)};
+            expect(same(titles, wanted), `cards: ${{titles.join("|")}}`);
+            const links = cardRows().map((row) => $(".title", row).getAttribute("href"));
+            const urls = {json.dumps([card.url for card in CARDS])};
+            expect(same(links, urls), `links: ${{links.join("|")}}`);
+            for (const row of cardRows()) {{
+              const answers = $$("button", row)
+                .map((b) => [b.textContent, b.getAttribute("aria-pressed")]);
+              expect(same(answers, [["Interested", "false"], ["Not interested", "false"]]),
+                `a card's answers: ${{JSON.stringify(answers)}}`);
+            }}
+            expect(!visible($("#o-cards-loading")), "the loading line outlived the cards");
+        """,
+        sabotage="""cardRows()[1].remove();""",
+        receipt=_NOTHING_VOTED,
+    ),
+    Check(
+        id="votes-step-names-a-feed-with-no-article",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await cardsDrawn();
+        """,
+        script=f"""
+            const hint = $("#o-cards-empty");
+            expect(visible(hint), "no line names the feed that gave no article");
+            const quiet = {json.dumps(QUIET["name"], ensure_ascii=False)};
+            expect(hint.textContent.includes(`this feed: ${{quiet}}.`),
+              `it says: ${{hint.textContent}}`);
+            for (const name of {json.dumps([p["name"] for p in PICKS], ensure_ascii=False)}) {{
+              expect(!hint.textContent.includes(name), `it names ${{name}}, which gave cards`);
+            }}
+        """,
+        sabotage="""$("#o-cards-empty").hidden = true;""",
+        receipt=_NOTHING_VOTED,
+    ),
+    Check(
+        id="votes-step-shows-the-wait",
+        fixture="cards-slow",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await waitFor(() => visible($("#o-cards-loading")), "the loading line");
+        """,
+        script="""
+            const line = $("#o-cards-loading");
+            expect(visible(line), "nothing says the cards are on their way");
+            expect(line.getAttribute("aria-busy") === "true", "the loading line is not busy");
+            expect(line.textContent.includes("a minute or two"), `it says: ${line.textContent}`);
+            expect(!cardRows().length, "cards before the read answered");
+        """,
+        sabotage="""$("#o-cards-loading").hidden = true;""",
+        receipt=_NOTHING_VOTED,
+    ),
+    Check(
+        id="votes-step-deals-the-feeds-just-added",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_pick(*PICKS)}
+            press("o-next");
+            await onStep("votes");
+            await cardsDrawn();
+        """,
+        script=f"""
+            const sources = [...new Set(cardRows().map(cardSource))];
+            const wanted = {json.dumps([p["name"] for p in PICKS], ensure_ascii=False)};
+            expect(same(sources, wanted), `cards from: ${{sources.join("|")}}`);
+        """,
+        sabotage=f"""
+            cardRows().filter((row) => cardSource(row) === {json.dumps(PICKS[1]["name"])})
+              .forEach((row) => row.remove());
+        """,
+        receipt=_sources(*PICKS),
+    ),
+    Check(
+        id="votes-step-records-the-marked-cards",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await cardsDrawn();
+            vote(0, "up");
+            vote(1, "down");
+            press("o-next");
+            await onStep("notify");
+            await waitFor(settled, "the result notice");
+        """,
+        script="""
+            const text = notice().textContent;
+            expect(!notice().classList.contains("err"), `an error: ${text}`);
+            expect(text.includes("Recorded 2 votes: 1 interested, 1 not interested."),
+              `notice: ${text}`);
+            expect(text.includes("Vote similarity is on."), `notice: ${text}`);
+        """,
+        # Each vote sent as its opposite: the rows say so, whatever the notice counts.
+        sabotage_preload=rewrite_post(
+            "/api/onboarding/votes",
+            'body.votes.forEach((v) => { v.vote = v.vote === "up" ? "down" : "up"; });',
+        ),
+        receipt=_votes(up=(0,), down=(1,)),
+    ),
+    Check(
+        id="votes-step-keeps-the-votes-when-one-article-is-gone",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        # The second card's article leaves its feed before Next: the server finds
+        # no such URL, as when a feed rotates it out after the cards were dealt.
+        preload=GONE_CARD,
+        act="""
+            await loaded();
+            await cardsDrawn();
+            vote(0, "up");
+            vote(1, "down");
+            press("o-next");
+            await onStep("notify");
+            await waitFor(settled, "the result notice");
+        """,
+        script="""
+            const text = notice().textContent;
+            expect(!notice().classList.contains("err"), `an error: ${text}`);
+            expect(text.includes("Recorded 1 vote: 1 interested, 0 not interested."),
+              `notice: ${text}`);
+            expect(text.includes("left its feed"), `notice: ${text}`);
+            const state = [...$$(".label", cardRows()[1])].pop().textContent;
+            expect(state.startsWith("No longer in the feed"), `the gone card says: ${state}`);
+        """,
+        sabotage="""
+            [...$$(".label", cardRows()[1])].pop().textContent = "Recorded · Not interested";
+        """,
+        receipt=_votes(up=(0,)),
+    ),
+    Check(
+        id="votes-step-turns-on-vote-similarity",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await cardsDrawn();
+            vote(2, "up");
+            press("o-next");
+            await onStep("notify");
+            await waitFor(settled, "the result notice");
+        """,
+        script="""
+            expect(!notice().classList.contains("err"), `an error: ${notice().textContent}`);
+        """,
+        sabotage_preload=rewrite_post("/api/settings/vote-similarity", "body.enabled = false;"),
+        receipt=_votes(up=(2,)),
+    ),
+    Check(
+        id="votes-step-skipped-writes-nothing",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await cardsDrawn();
+            vote(0, "up");
+            vote(1, "down");
+            press("o-skip");
+            await onStep("notify");
+        """,
+        script="""
+            expect(same(marked(), ["notify"]), `marked: ${marked()}`);
+            expect(!visible(notice()), `a notice: ${notice().textContent}`);
+        """,
+        sabotage_preload=SKIP_SAVES,
+        receipt=_NOTHING_VOTED,
+    ),
+    Check(
+        id="votes-step-with-no-vote-writes-nothing",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await cardsDrawn();
+        """,
+        # After the act, so the press marks a card the page dealt.
+        sabotage="""vote(0, "down");""",
+        gestures=({"press": "#o-next", "pointer": "mouse"}, {"release": True}),
+        script="""await onStep("notify");""",
+        receipt=_NOTHING_VOTED,
+    ),
+    Check(
+        id="votes-step-a-second-press-takes-the-vote-back",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await cardsDrawn();
+            vote(0, "up");
+            vote(0, "up");
+        """,
+        # After the act: the card is marked again, so Next has a vote to send.
+        sabotage="""vote(0, "up");""",
+        gestures=({"press": "#o-next", "pointer": "mouse"}, {"release": True}),
+        script="""await onStep("notify");""",
+        receipt=_NOTHING_VOTED,
+    ),
+    Check(
+        id="votes-step-with-no-feed-says-so",
+        fixture="empty",
+        path=f"{PAGE}#votes",
+        act="""
+            await loaded();
+            await cardsDrawn();
+        """,
+        script="""
+            const line = $("#o-cards-none");
+            expect(visible(line), "nothing says there is no feed to draw from");
+            expect(line.textContent.includes("no feeds to draw from"), line.textContent);
+            expect(!cardRows().length, `${cardRows().length} cards`);
+        """,
+        sabotage="""$("#o-cards-none").hidden = true;""",
+        receipt=_NOTHING_VOTED,
     ),
     Check(
         id="next-walks-to-the-next-step",
@@ -892,6 +1283,42 @@ _CHECKS: list[Check] = [
         sabotage="""feedRows()[0].style.minWidth = "600px";""",
     ),
     Check(
+        id="fits-votes-375",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        width=375,
+        act="""
+            await loaded();
+            await cardsDrawn();
+        """,
+        script="""
+            const problem = overflow("onboarding");
+            expect(!problem, problem);
+        """,
+        sabotage="""cardRows()[0].style.minWidth = "600px";""",
+    ),
+    Check(
+        id="tap-votes-375",
+        fixture="cards",
+        path=f"{PAGE}#votes",
+        width=375,
+        act="""
+            await loaded();
+            await cardsDrawn();
+        """,
+        # The control is tapped as one: `.seg` clips its buttons' outer corners to
+        # its own radius, which the per-element sampling would read as a lost tap.
+        script="""
+            expectTapTargets("#o-cards .seg");
+            const small = $$("#o-cards .seg button").filter((b) => {
+              const r = b.getBoundingClientRect();
+              return r.width < TAP || r.height < TAP;
+            });
+            expect(!small.length, `under ${TAP}px: ${small.map(named).join(", ")}`);
+        """,
+        sabotage=restyle("#o-cards .seg > * { height: 30px !important; }"),
+    ),
+    Check(
         id="tap-feeds-375",
         fixture="empty",
         path=f"{PAGE}#sources",
@@ -924,9 +1351,9 @@ _CHECKS: list[Check] = [
 ]
 # The page never scrolls sideways at the largest type size either.
 _CHECKS += [
-    largest_twin(check, check.id.replace("fits-", "fits-largest-"), "empty-largest")
+    largest_twin(check, check.id.replace("fits-", "fits-largest-"), f"{check.fixture}-largest")
     for check in _CHECKS
-    if check.id in ("fits-375", "fits-sources-375")
+    if check.id in ("fits-375", "fits-sources-375", "fits-votes-375")
 ]
 
 CHECKS = _CHECKS

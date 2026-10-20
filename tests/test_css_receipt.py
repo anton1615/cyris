@@ -1250,8 +1250,10 @@ def test_the_labels_probe_runs_on_the_shared_core():
 
 # The checks `scripts/onboarding_probe.py` must carry: the frame walks, each
 # settings step writes what it was given, the sources step lists the feed list
-# and stores each pick as listed, a skip writes nothing, only the right
-# deployment sees the wizard and its list, and the page fits a phone.
+# and stores each pick as listed, the votes step deals its cards, names a feed
+# with none, shows the wait and writes only the marked cards and vote
+# similarity, a skip writes nothing, only the right deployment sees the wizard
+# and its list, and the page fits a phone.
 EXPECTED_ONBOARDING_IDS = {
     "opens-on-the-first-step",
     "the-step-list-names-every-step",
@@ -1279,6 +1281,17 @@ EXPECTED_ONBOARDING_IDS = {
     "sources-step-with-nothing-picked-writes-nothing",
     "sources-step-names-a-feed-it-could-not-add",
     "sources-step-retries-only-what-it-could-not-add",
+    "votes-step-deals-the-drawn-cards",
+    "votes-step-names-a-feed-with-no-article",
+    "votes-step-shows-the-wait",
+    "votes-step-deals-the-feeds-just-added",
+    "votes-step-records-the-marked-cards",
+    "votes-step-keeps-the-votes-when-one-article-is-gone",
+    "votes-step-turns-on-vote-similarity",
+    "votes-step-skipped-writes-nothing",
+    "votes-step-with-no-vote-writes-nothing",
+    "votes-step-a-second-press-takes-the-vote-back",
+    "votes-step-with-no-feed-says-so",
     "has-sources-opens-the-wizard-without-the-list",
     "has-sources-keeps-the-step-a-reload-opens",
     "json-has-no-wizard",
@@ -1286,6 +1299,9 @@ EXPECTED_ONBOARDING_IDS = {
     "fits-largest-375",
     "fits-sources-375",
     "fits-largest-sources-375",
+    "fits-votes-375",
+    "fits-largest-votes-375",
+    "tap-votes-375",
     "tap-feeds-375",
     "tap-steps-375",
 }
@@ -1392,6 +1408,54 @@ async def test_the_onboarding_probe_fixture_records_what_a_step_wrote():
     )
     assert status == 200
     assert fixture.calls == [{"general.digest_schedule": ["07:00", "19:00"]}]
+
+
+class _Body:
+    """A request as an onboarding handler reads it: the JSON body alone."""
+
+    def __init__(self, body: dict) -> None:
+        self._body = body
+
+    async def json(self) -> dict:
+        return self._body
+
+
+def _onboarding_server(fixture):
+    """The `TriageServer` an onboarding fixture's app was built from, for its handlers."""
+    [route] = [
+        r for r in fixture.app.router.routes() if r.resource.canonical == "/api/onboarding/cards"
+    ]
+    return route.handler.__self__
+
+
+async def test_the_onboarding_probe_cards_fixture_deals_its_cards_and_names_the_quiet_feed():
+    server = _onboarding_server(onboarding_probe.build_fixture("cards"))
+
+    body = json.loads((await server._handle_post_onboarding_cards(_Body({}))).text)
+
+    assert [card["url"] for card in body["cards"]] == [a.url for a in onboarding_probe.CARDS]
+    assert body["empty"] == [onboarding_probe.QUIET["name"]]
+    assert len(onboarding_probe.CARDS) >= 3
+
+
+async def test_the_onboarding_probe_votes_receipt_reads_what_the_votes_wrote():
+    fixture = onboarding_probe.build_fixture("cards")
+    server = _onboarding_server(fixture)
+    cards = onboarding_probe.CARDS
+    votes = [{"url": cards[0].url, "vote": "up"}, {"url": cards[1].url, "vote": "down"}]
+    assert onboarding_probe._NOTHING_VOTED(fixture) is None
+
+    response = await server._handle_post_onboarding_votes(_Body({"votes": votes}))
+    fixture.calls.append(onboarding_probe.VOTE_SIMILARITY_ON)
+
+    assert response.status == 200
+    assert onboarding_probe._votes(up=(0,), down=(1,))(fixture) is None
+    assert onboarding_probe._votes(up=(1,), down=(0,))(fixture) is not None
+    assert onboarding_probe._NOTHING_VOTED(fixture) is not None
+
+
+def test_the_onboarding_probe_slow_fixture_outlasts_a_look_at_the_wait():
+    assert onboarding_probe.SLOW_SECONDS >= 2
 
 
 def test_the_labels_probe_fixture_refuses_an_unknown_kind():

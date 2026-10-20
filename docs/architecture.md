@@ -471,7 +471,7 @@ table `schema.sql` creates must appear in the rows below, so a new table cannot 
 
 | Datum | Today | Destination | Notes |
 |---|---|---|---|
-| Article store | **D1 `stored_articles`** | same | `url` PRIMARY KEY is the dedup key; a colliding newsletter issue is re-keyed to `newsletter:{id}` |
+| Article store | **D1 `stored_articles`** | same | `url` PRIMARY KEY is the dedup key; a colliding newsletter issue is re-keyed to `newsletter:{id}`. Besides a run's save, the onboarding votes step (§6) stores each card the reader marked and then accepts or rejects it with `triaged_at`, as a `/labels` answer is written; a card left alone gets no row and stays in the buffer for the first run |
 | Tag vocabulary | **D1 `tags`** | same | Normalized tags emitted by clustering and scoring |
 | Article tags | **D1 `article_tags`** | same | URL-keyed article membership in the tag vocabulary |
 | Stories | **D1 `stories`** | same | Pre-truncation news clusters, keyed `{date}-{period}-{urlhash}` (content-derived from member URLs), replaced per window |
@@ -587,7 +587,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Discord webhook | D | **D1 `settings`**, written by `/settings`; `cyris.toml [notify]` for a `json` deployment | done — the URL is a posting token, and D1 stores it in plaintext. Anyone who can read `settings` can post to the channel; anyone who can open `/settings` can rotate it without a redeploy. That is the trade that makes it D. It is **not** among the grade-C variables counted below; those are API tokens, which stay C. `""` means off: `/settings` stores it only through a confirmed Turn off, and an empty paste is refused. No environment variable supplies it |
 | Mail recipient + sender | D | **D1 `settings`** as `notify.email_to` and `.email_from`, written by `/settings` (Notifications); `cyris.toml [notify]` for a `json` deployment | done 2026-09-27, a prototype beside Discord — the channel-address rule the webhook set. The container sends through Cloudflare Email Service's REST API (`POST /accounts/{id}/email/sending/send`, Email Sending: Edit on `CLOUDFLARE_API_TOKEN`), no Worker in between. The recipient must be a verified Email Routing destination address, which is free on every plan and needs no onboarded sending domain; the sender must sit on a routing domain. `/settings` stores the pair only after a test message is delivered or queued, and an empty recipient turns mail off without a send. No environment variable supplies either |
 | Digest window | D | **D1 `settings`**, written by `/settings` (Pipeline); `cyris.toml [general]` for a `json` deployment | done 2026-09-19 |
-| Vote similarity on/off, `max_seeds` | D | **D1 `settings`**, written by `/settings` (Model) together with the embedder; `cyris.toml [vote_similarity]` for a `json` deployment | done 2026-09-19 — turning it on checks the embedder first |
+| Vote similarity on/off, `max_seeds` | D | **D1 `settings`**, written by `/settings` (Model) together with the embedder, and turned on by the onboarding votes step once a vote is recorded, through the same route with the embedder already stored; `cyris.toml [vote_similarity]` for a `json` deployment | done 2026-09-19 — turning it on checks the embedder first |
 | Reader type size | D | **D1 `settings`** as `digest.type_scale`, written by `/settings` (Digest); `cyris.toml [digest]` for a `json` deployment | done — how pages get it: *The reader-facing surfaces*. The mail stays at the baseline: nothing serves it, so the Worker cannot inject the size |
 | Agent vault path, HTML output dir | A | `cyris.toml` | unchanged — both address the `json` backend's fallback tree only; with D1 nothing is written there |
 | **API keys on the settings page** | **C, wanting a D-grade home** | `.env` / Worker secrets only | partly ruled: a channel-address credential such as the Discord webhook is grade D (see its row above). API keys remain undecided: writing a key into D1 `settings` puts a secret in a readable D-grade row |
@@ -932,9 +932,16 @@ the waiting-for-onboarding state (§5 *RSS + newsletter source list*), so the co
 deployment once the table has a source, because the wizard's own sources step writes one and a
 reload on a later step must not leave the wizard. A `json` deployment, whose sources live in a file
 nothing writes, never sees the wizard. The wizard writes settings through the `/api/settings/*`
-routes the settings page writes them with, and sources through `POST /api/sources`, so it adds no
-write path and no state of its own; its one read of its own, `GET /api/onboarding/feeds`, serves
-the grade-A feed list (§5).
+routes the settings page writes them with, and sources through `POST /api/sources`; its read of its
+own, `GET /api/onboarding/feeds`, serves the grade-A feed list (§5). The votes step adds two routes
+and no state of its own. `POST /api/onboarding/cards` polls the rss Worker and deals cards from the
+buffer through the run's own RSS edge (§3.1), writing nothing but the buffer; it names each feed the
+read found no article for, counted by `source_name` in the read. `POST /api/onboarding/votes` reads
+the feeds again, so it needs no memory of the deal across the container's sleep, then stores each
+marked article and votes on it in the container, through `record_votes` as `/labels` does, never
+through the promote Worker; the press is a person's, so it may stamp `triaged_at` (§4 *Article
+store*). A marked article the read no longer finds is left out and named back as `missing`; only
+when none is found does it record nothing. The step then turns vote similarity on through `/api/settings/vote-similarity`.
 
 Votes go through the Worker's same-origin `POST /api/vote`, which attaches `CYRIS_PROMOTE_TOKEN`
 server-side; no page carries the token. The vote buttons render only when a probe of
