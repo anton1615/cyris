@@ -95,3 +95,40 @@ def test_two_runs_in_one_second_read_back_the_later() -> None:
     log.record({"status": "no_pending", "period": "morning", "dry_run": False})
 
     assert log.last()["status"] == "no_pending"
+
+
+def test_newest_reads_back_the_row_recorded_last_with_its_summarys_link_and_error() -> None:
+    log = D1RunLog(SqliteD1(), "")
+    log.record({"status": "ok", "period": "morning", "dry_run": False, "digest_url": "https://x/a"})
+    log.record(
+        {
+            "status": "error",
+            "period": "evening",
+            "dry_run": False,
+            "error": "RuntimeError: the store is gone",
+            "failed_sources": ["Feed"],
+        }
+    )
+
+    newest = log.newest()
+
+    assert newest["id"] == 2
+    assert newest["status"] == "error"
+    assert newest["period"] == "evening"
+    assert newest["error"] == "RuntimeError: the store is gone"
+    assert newest["failed_sources"] == ["Feed"]
+    assert newest["digest_url"] is None
+
+
+def test_newest_skips_a_preview_and_carries_the_published_link() -> None:
+    log = D1RunLog(SqliteD1(), "")
+    log.record({"status": "ok", "period": "morning", "dry_run": False, "digest_url": "https://x/a"})
+    log.record({"status": "ok", "period": "morning", "dry_run": True})
+
+    newest = log.newest()
+
+    assert (newest["id"], newest["digest_url"], newest["error"]) == (1, "https://x/a", None)
+
+
+def test_newest_with_no_run_is_none() -> None:
+    assert D1RunLog(SqliteD1(), "").newest() is None

@@ -284,6 +284,13 @@ async def run_digest(deps: "Deps", options: RunOptions) -> RunReport:
         raise
     finally:
         summary["wall_seconds"] = round(time.monotonic() - started, 2)
+        if failure is not None:
+            # What the failure alert says, kept with the run: the onboarding's
+            # first issue tells the reader why the run it started failed.
+            try:
+                summary["error"] = failure_alert_text(failure)
+            except Exception:  # noqa: BLE001 - str() of the failure raised; its type still says something
+                summary["error"] = type(failure).__name__
         logger.info("run_summary %s", json.dumps(summary, ensure_ascii=False, default=str))
         if deps.record_run is not None:
             # Raising in `finally` would replace the run's own exception, or turn

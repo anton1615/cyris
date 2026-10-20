@@ -52,3 +52,24 @@ class D1RunLog:
         if row["failed_sources"] is not None:
             row["failed_sources"] = json.loads(row["failed_sources"])
         return row
+
+    def newest(self) -> dict | None:
+        """The newest non-preview row by insertion, with what its summary says a reader needs.
+
+        Ordered by id, not `finished_at`, so a row newer than one already seen is
+        one recorded after it. The onboarding's first issue waits on this.
+        """
+        rows = self._db.query(
+            "SELECT id, finished_at, status, period, summary FROM digest_runs "
+            "WHERE dry_run = 0 ORDER BY id DESC LIMIT 1"
+        ).rows
+        if not rows:
+            return None
+        row = dict(rows[0])
+        summary = json.loads(row.pop("summary") or "{}")
+        return {
+            **row,
+            "digest_url": summary.get("digest_url"),
+            "error": summary.get("error"),
+            "failed_sources": summary.get("failed_sources") or [],
+        }

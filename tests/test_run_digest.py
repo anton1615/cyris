@@ -1309,6 +1309,29 @@ async def test_a_run_that_raises_is_recorded_as_an_error(tmp_path: Path) -> None
     assert summary["fetched"] == 1
 
 
+async def test_a_run_that_raises_records_what_its_alert_says(tmp_path: Path) -> None:
+    """The onboarding's first issue reads why its run failed from this row."""
+    deps, _ = make_deps(tmp_path, FakeLLM(), FakeSource([_notify_article()]))
+    deps, recorded = _recording(deps)
+    _exploding_store(deps)
+
+    with pytest.raises(RuntimeError):
+        await run_digest(deps, RunOptions())
+
+    [summary] = recorded
+    assert summary["error"] == "RuntimeError: the store is gone"
+
+
+async def test_a_run_that_ends_records_no_error(tmp_path: Path) -> None:
+    deps, _ = make_deps(tmp_path, FakeLLM(), FakeSource([_notify_article()]))
+    deps, recorded = _recording(deps)
+
+    await run_digest(deps, RunOptions())
+
+    [summary] = recorded
+    assert "error" not in summary
+
+
 async def test_a_run_stopped_by_sigterm_is_recorded_as_an_error(tmp_path: Path) -> None:
     # `cyris run` answers SIGTERM by cancelling the task, and CancelledError is not
     # an Exception: only a `finally` still records the run it cut short.
