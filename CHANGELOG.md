@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **A new deployment is set up by a wizard.** While its source list is empty,
+  `/settings` opens `/onboarding`: six steps, of which this release fills three —
+  the output language and timezone, the publish hours, and the notifications.
+  Each step saves what `/settings` would have saved, every step can be skipped
+  with the setting left as it is, and `Finish` returns to `/settings`. The steps
+  that pick sources from a list, take your first votes and build the first issue
+  say `Coming next` until they land. A deployment that already has a source, and
+  one on the `json` backend, go straight to `/settings` as before.
 - Your votes can order each issue. With **Order by your votes** on (`/settings`,
   Digest) and vote similarity on, the headlines and Features closest to what you
   voted up come first, and when an issue is full the headline closer to an

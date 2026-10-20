@@ -113,6 +113,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ---- page ---- */
 .page { max-width: 960px; margin: 0 auto; padding: var(--s-12) var(--s-4) var(--s-20); }
 .page.wide { max-width: 1240px; }
+.page.narrow { max-width: var(--measure); }
 .page-head { display: grid; gap: var(--s-4); margin-bottom: var(--s-12); }
 
 /* ---- issue bar ---- */
@@ -313,6 +314,17 @@ details.more summary::after { content: ""; position: absolute; inset: calc(-1 * 
 .settings-nav a.missing .missing-dot { visibility: visible; }
 .tab-head { display: grid; gap: var(--s-2); margin-bottom: var(--s-8); max-width: var(--measure); }
 
+/* ---- onboarding (the wizard's own layout; its steps are marks, not links) ---- */
+.steps { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-8); padding: 0; list-style: none; }
+.steps li { display: flex; align-items: center; gap: var(--s-2); }
+.steps li::before { content: ""; width: 6px; height: 6px; border: 1px solid var(--border-strong); border-radius: 50%; }
+.steps li.done::before { background: var(--text-dim); border-color: var(--text-dim); }
+.steps li[aria-current="step"] { color: var(--accent); }
+.steps li[aria-current="step"]::before { background: var(--accent); border-color: var(--accent); }
+.step { display: grid; gap: var(--s-6); }
+.step-head { display: grid; gap: var(--s-2); }
+.step-nav { display: flex; align-items: center; gap: var(--s-4); flex-wrap: wrap; margin-top: var(--s-8); }
+
 .form { display: grid; gap: var(--s-6); max-width: var(--measure); }
 .field { display: grid; gap: var(--s-2); }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--s-4); }
@@ -484,7 +496,7 @@ table.src td.areas-pos-cell { width: 1%; }
 
 <div class="proto-strip">
   <span>PROTOTYPE · sample data ·</span>
-  <a href="#system">system</a><a href="#archive">archive</a><a href="#digest">digest</a><a href="#raw">raw</a><a href="#settings/model">settings</a>
+  <a href="#system">system</a><a href="#archive">archive</a><a href="#digest">digest</a><a href="#raw">raw</a><a href="#settings/model">settings</a><a href="#onboarding">onboarding</a>
   <label><input type="checkbox" id="authorized" checked> signed in (shows Settings, votes, List/Triage; off shows Sign in)</label>
 </div>
 
@@ -805,6 +817,52 @@ table.src td.areas-pos-cell { width: 1%; }
           <p>Highlights, plus this run’s articles and pending items</p>
         </li>
       </ol>
+    </div>
+  </main>
+</section>
+
+<!-- ============ ONBOARDING ============ -->
+<!-- The guided setup of a new deployment, shown mid-way: one step done, one open,
+     four to come. Its three settings steps save through the settings routes; the
+     sources, votes and first-issue steps are placeholders in the app too. -->
+<section data-view="onboarding" hidden>
+  <main class="page narrow">
+    <div class="page-head">
+      <span class="label">Step 2 of 6</span>
+      <h1 class="display">Set up <em>cyris</em></h1>
+      <p class="small">Six steps to your first issue. Skip any of them: a skipped step keeps its current value, and everything here can be changed later in Settings.</p>
+    </div>
+
+    <ol class="steps">
+      <li class="label done">Language</li>
+      <li class="label" aria-current="step">Publish hours</li>
+      <li class="label">Sources</li>
+      <li class="label">Votes</li>
+      <li class="label">Notifications</li>
+      <li class="label">First issue</li>
+    </ol>
+
+    <section class="step">
+      <div class="step-head">
+        <h2 class="heading">Publish hours</h2>
+        <p class="small">When each day's two issues are published.</p>
+      </div>
+      <div class="field">
+        <label class="label" for="o-morning">Morning</label>
+        <input class="input" id="o-morning" type="number" min="0" max="23" value="8">
+      </div>
+      <div class="field">
+        <label class="label" for="o-evening">Evening</label>
+        <input class="input" id="o-evening" type="number" min="0" max="23" value="20">
+        <details class="more"><summary>More</summary><p class="small">Whole hours in the timezone of the step before. The tick is hourly, so half hours are refused rather than rounded down.</p></details>
+      </div>
+    </section>
+
+    <div class="step-nav">
+      <button class="btn secondary" type="button">Back</button>
+      <button class="btn secondary" type="button">Skip</button>
+      <button class="btn primary" type="button">Next</button>
+      <div class="notice" role="status">Output language: en, Timezone: Europe/Lisbon. Effective next run.</div>
     </div>
   </main>
 </section>

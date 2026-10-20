@@ -7,12 +7,13 @@ updated: 2026-10-08
 # cyris UI design spec
 
 Every change that touches a reader-facing page follows this spec: `src/cyris/adapters/output/templates/`
-(archive, digest, raw), `src/cyris/entrypoints/templates/` (settings, labels), `src/cyris/entrypoints/static/`
-(the settings and labels scripts and `style.css`), and any page added later.
+(archive, digest, raw), `src/cyris/entrypoints/templates/` (settings, labels, onboarding),
+`src/cyris/entrypoints/static/` (the settings, labels and onboarding scripts and `style.css`), and any
+page added later.
 
 - **This document is the spec.** `docs/design/prototype.html` is its reference implementation; open it
   directly in a browser. `#system` is the overview of tokens and components, and `#archive`, `#digest`,
-  `#raw` (with the triage view) and `#settings/model` are the pages. When the two disagree, this document
+  `#raw` (with the triage view), `#settings/model` and `#onboarding` are the pages. When the two disagree, this document
   wins, and the prototype is fixed in the same change.
 - **Every §8 step has landed.** Where a component still differs from the spec, restyle it to the spec
   when you touch it, and do not write another copy of the old style.
@@ -237,6 +238,7 @@ Archive (/) ──► an issue ─┬─ Digest       ◄── the Discord noti
                           └─ All articles (raw) ─┬─ List (default)
                                                  └─ Triage (appears only when authorized)
 Settings (/settings): on the site bar, appears only when authorized
+     └─ Onboarding (/onboarding): where /settings sends a deployment with no source
 Sign in (/login): on the site bar in Settings' place, when the app Worker answers signed out
 Labels (/labels): reached by its URL alone, behind the same sign-in as Settings; not on the site bar
 ```
@@ -450,6 +452,41 @@ the Worker's `PROTECTED` only matches a path exactly equal to `/settings` (`work
 - Every notice that reports a save, a retire or a load is a polite live region (`role="status"`), so a
   screen reader reads its result out.
 - The prototype governs the fields' names, help text and `More` text.
+
+### onboarding
+
+`/onboarding` is the guided setup of a new deployment. An empty `sources` table is the
+waiting-for-onboarding state (`docs/architecture.md` §5), so /settings sends such a deployment here,
+and this page sends every other one back to /settings. A `backend = "json"` deployment, whose sources
+live in a file the app never writes, has no wizard at all. The same container serves it as serves
+settings, behind the same sign-in.
+
+- **Six steps, in order:** language and timezone, publish hours, sources, votes, notifications, first
+  issue. The step a hash opens is the step shown, as settings' categories are, so a reload keeps the
+  place: the Worker's `PROTECTED` matches `/onboarding` exactly, and a hash never leaves the browser.
+- The page is `--measure` wide, one column, with settings' gutters. Below the page head (the label
+  `Step N of 6`, the display title and a small description) the step list names every step in order,
+  each with a 6px dot: `--accent` dot and `--accent` text for the step open now, a `--text-dim` dot
+  for one already passed, and a 1px `--border-strong` ring for one still to come. The list is a
+  progress mark rather than navigation — it takes no taps, and the three buttons below it are what
+  move the wizard.
+- Each step is a heading, a one-sentence description and the fields of the settings it writes, in the
+  field component (§4), with the same names, help text and `More` text as the settings category it
+  shares them with. A step writes through the route `/settings` saves those fields with, so the store
+  cannot tell the two pages apart.
+- **Back, Skip and Next** sit below the step in that order, two secondary buttons and one primary.
+  `Next` saves what changed on this step and moves on; `Skip` moves on and saves nothing, so a
+  skipped setting keeps the value it had. `Back` is left out on the first step. On the last step
+  `Next` and `Skip` are gone and a primary `Finish` link leads to `/settings?from=onboarding` — the
+  mark that lets a deployment whose table is still empty through, rather than sending it back here.
+  The site bar's `Settings` link carries the same mark on this page, so it leaves the wizard too.
+- One notice sits beside the buttons (`role="status"`): what a save is doing while it is out, then
+  its result, shown on the step the reader has moved to. A refusal keeps the reader on the step, says
+  why in `--warn`, and marks the field it is about as failed validation, as settings does; an empty
+  publish hour is refused on the page, because padded it would reach the server as `00:00`.
+- The steps that pick sources, vote on cards and build the first issue say `Coming next` and what to
+  do meanwhile. They carry no field and write nothing until their own tickets land, so `Next` on them
+  only moves on.
 
 ### email
 

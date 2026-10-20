@@ -723,7 +723,7 @@ Cloudflare
 ├── Worker: newsletter → KV
 ├── Worker: promote    → KV
 ├── Worker: app        → Container ─┬─ cron  0 * * * *  →  CYRIS_ROLE=run  (one pass, then exits)
-│     <your custom domain>         └─ any request      →  CYRIS_ROLE=ui   (/settings, /labels; asleep after 5 min)
+│     <your custom domain>         └─ any request      →  CYRIS_ROLE=ui   (/settings, /onboarding, /labels; asleep after 5 min)
 ├── D1: every table in src/cyris/adapters/store/schema.sql, each with its §4 row
 ├── Pages: cyris-digest, and cyris-site (website/, outside the pipeline)
 └── Workers Logs: the container's stdout, 7 days
@@ -912,9 +912,16 @@ digest stays static is [ADR-0010](decisions/0010-the-digest-stays-static-behind-
 /                         digest index  ─┐ public unless CYRIS_PRIVATE_ARCHIVE is "true"
 /2026-08-30-evening.html  one digest    ─┘ (then the cookie too): the Worker proxies Pages
 /triage*                                   404
-/settings · /labels · /api/* · /static/*   CYRIS_UI_TOKEN cookie; Access too if
-                                           CYRIS_UI_ACCESS_HOST matches this host
+/settings · /onboarding · /labels          CYRIS_UI_TOKEN cookie; Access too if
+/api/* · /static/*                         CYRIS_UI_ACCESS_HOST matches this host
 ```
+
+`/settings` and `/onboarding` are two views of one deployment's state: an empty `sources` table is
+the waiting-for-onboarding state (§5 *RSS + newsletter source list*), so the container sends
+`/settings` to the guided setup while the table is empty and `/onboarding` back to `/settings` once
+it is not. A `json` deployment, whose sources live in a file nothing writes, never sees the wizard.
+The wizard writes settings through the `/api/settings/*` routes the settings page writes them with,
+so it adds no write path and no state of its own.
 
 Votes go through the Worker's same-origin `POST /api/vote`, which attaches `CYRIS_PROMOTE_TOKEN`
 server-side; no page carries the token. The vote buttons render only when a probe of

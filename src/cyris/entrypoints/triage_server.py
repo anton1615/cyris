@@ -129,12 +129,23 @@ def render_labels_page() -> str:
     return _render_page("labels.html.j2")
 
 
+def render_onboarding_page() -> str:
+    return _render_page("onboarding.html.j2")
+
+
 # The answers /labels takes; a skip is kept on the sample alone.
 LABELS = ("up", "down", "skip")
 
+# Where the onboarding wizard leaves, and the mark its own exit carries. Until
+# the wizard's pick-sources step lands, a deployment that walked it through has
+# the same empty `sources` table it started with, and /settings would send it
+# straight back; this marker is what lets it through once.
+ONBOARDING_PATH = "/onboarding"
+ONBOARDING_EXIT_MARK = ("from", "onboarding")
+
 
 class TriageServer:
-    """Serves /settings, /labels and the settings, sources, labels and build APIs."""
+    """Serves /settings, /onboarding, /labels and the settings, sources, labels and build APIs."""
 
     def __init__(
         self,
@@ -189,6 +200,7 @@ class TriageServer:
         self._llm_factory = llm_factory
         self._settings_page = render_settings_page()
         self._labels_page = render_labels_page()
+        self._onboarding_page = render_onboarding_page()
         self._app = web.Application()
         self._app.router.add_get("/api/build", self._handle_build)
         self._app.router.add_get("/api/settings", self._handle_get_settings)
@@ -219,6 +231,7 @@ class TriageServer:
         self._app.router.add_get("/api/labels", self._handle_get_labels)
         self._app.router.add_post("/api/labels", self._handle_post_label)
         self._app.router.add_get("/settings", self._handle_settings_page)
+        self._app.router.add_get("/onboarding", self._handle_onboarding_page)
         self._app.router.add_get("/labels", self._handle_labels_page)
         # Production never reaches this: the app Worker sends /favicon.svg to Pages.
         # A local `cyris triage-ui` has no Pages behind it.
@@ -1403,8 +1416,32 @@ class TriageServer:
     async def _handle_labels_page(self, request: web.Request) -> web.Response:
         return web.Response(text=self._labels_page, content_type="text/html")
 
+    def _awaiting_onboarding(self) -> bool:
+        """Whether this deployment is one the wizard is for: a writable, empty source table.
+
+        A `backend = "json"` deployment has no writable table, so it has no
+        wizard: its sources live in `sources.yaml`, which the app never writes.
+        """
+        if self._source_store is None:
+            return False
+        try:
+            return not self._effective_sources()
+        except Exception:  # noqa: BLE001 - /settings must load while D1 fails; its own reads say why
+            logger.warning("Could not read the sources table to route onboarding", exc_info=True)
+            return False
+
     async def _handle_settings_page(self, request: web.Request) -> web.Response:
+        """The settings page, or the wizard while this deployment is waiting for onboarding."""
+        key, value = ONBOARDING_EXIT_MARK
+        if self._awaiting_onboarding() and request.query.get(key) != value:
+            raise web.HTTPFound(ONBOARDING_PATH)
         return web.Response(text=self._settings_page, content_type="text/html")
+
+    async def _handle_onboarding_page(self, request: web.Request) -> web.Response:
+        """The wizard, only while this deployment is waiting for onboarding."""
+        if not self._awaiting_onboarding():
+            raise web.HTTPFound("/settings")
+        return web.Response(text=self._onboarding_page, content_type="text/html")
 
     async def _handle_favicon(self, request: web.Request) -> web.Response:
         return web.Response(body=html_digest.FAVICON.read_bytes(), content_type="image/svg+xml")
