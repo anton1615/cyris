@@ -45,6 +45,11 @@ rather than after several bad ones.
   `/settings` sends it to `/onboarding`.
 * The feed list is read only by the onboarding step, only while `sources` is empty. Once the
   reader has picked, the deployment's feeds live in its own D1 `sources` like any other.
+* The wizard's last step starts the first issue at once, whatever the hour, under a key no
+  scheduled run that day takes: today's latest publish hour already begun, or yesterday's
+  evening while both of today's are still to come. For that, a manual run may name its issue's
+  date (`POST /run?period=&date=`, `cyris run --date`), today or yesterday only. The owner
+  chose yesterday's evening on 2026-10-20 over leaving the first issue to the morning's tick.
 
 ### Consequences
 
@@ -55,6 +60,14 @@ rather than after several bad ones.
   they add a feed on `/settings`. Every run says so in its log; none raises an alert.
 * Bad, because a `json` deployment, which has no wizard, now has to write its own
   `sources.yaml` before its first run produces anything.
+* Bad, because a first issue built before the morning hour is dated yesterday: its archive
+  row, its page's URL, and its Discord message's and mail's subjects all carry yesterday's
+  date, for an issue the reader has just made. Known and accepted: the alternative is waiting
+  for the morning's tick, or a key a tick would overwrite.
+* Neutral, because a manual run can now name a date, which only the onboarding step uses. The
+  app Worker takes only today or yesterday, and when it cannot read the deployment's time zone
+  from D1 it refuses the dated run with 503 rather than take a date it cannot check, so the
+  first issue waits for D1 to answer.
 * Neutral, because the list is now part of the product: a stale entry costs a new reader one
   empty pick, and the milestone's "清單失效得比發版快" is the trigger for publishing it
   outside the release instead.
