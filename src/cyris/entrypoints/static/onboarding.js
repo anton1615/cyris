@@ -4,7 +4,8 @@
 // settings form would have stored. The sources step shows the feed list's
 // topics on one screen, then the chosen topics' feeds on the next, and writes
 // each picked feed through POST /api/sources, the route the settings form adds
-// a source with. The
+// a source with; a feed the list lacks is checked by its address first
+// (POST /api/onboarding/feed-check) and then posted with the picks. The
 // votes step deals cards from those feeds (POST /api/onboarding/cards) and
 // writes the marked ones as votes (POST /api/onboarding/votes), then turns vote
 // similarity on through /api/settings/vote-similarity, the Model form's route.
@@ -133,6 +134,7 @@ async function post(url, body) {
     "Try again; if it keeps failing, check the server log.");
   // The setting the refusal is about, for the page to mark its field.
   err.field = data.field;
+  err.data = data;
   throw err;
 }
 
@@ -227,6 +229,10 @@ async function saveNotify() {
 // server offered none.
 let TOPICS = [];
 let FEEDS = [];
+// The feeds the reader added by address, in the order added, rows like the
+// list's: each one's entry is the checked feed, with no tags and no topics.
+let OWN = [];
+const OWN_LEGEND = "Your feeds";
 
 // The topics chosen, kept for this tab so a reload opens the step on the same
 // feeds. A feed's own pick is not kept: a reload starts it unchecked, as before.
@@ -238,7 +244,7 @@ const TOPICS_KEY = "cyris-onboarding-topics";
 const SLOW_PICKS = 12;
 
 const chosenTopics = () => TOPICS.filter((row) => row.chosen).map((row) => row.topic.id);
-const pickedFeeds = () => FEEDS.filter((row) => row.box.checked);
+const pickedFeeds = () => [...FEEDS, ...OWN].filter((row) => row.box.checked);
 
 function storedTopics() {
   try {
@@ -414,12 +420,98 @@ function renderFeeds(data) {
   $("o-feeds-loading").remove();
 }
 
+// The reader's own feeds, under the list's: none until one is added.
+function drawOwn() {
+  $("o-own").replaceChildren(...(OWN.length ? [checklist(OWN_LEGEND, OWN)] : []));
+  drawPicked();
+  drawScreen();
+}
+
+// The add field's own notice, beside its button, as the step's is beside Next.
+function showOwn(kind, text) {
+  const el = $("o-own-result");
+  el.className = kind === "err" ? "notice err" : "notice";
+  if (kind === "busy") el.setAttribute("aria-busy", "true");
+  else el.removeAttribute("aria-busy");
+  el.textContent = text;
+  el.hidden = false;
+}
+
+// A checked feed, as a row of the list: checked, since the reader asked for it,
+// and posted as a source with its name and address, no tags and the default tier.
+function ownRow({name, url}) {
+  const entry = {name, url, tags: [], topics: []};
+  const row = {entry, source: {name, url, tags: []}, ...checklistRow(name)};
+  row.box.checked = true;
+  row.box.addEventListener("change", () => {
+    if (row.state === "Not added") setState(row, "");
+    drawPicked();
+  });
+  setState(row, "");
+  return row;
+}
+
+// Checks the address, then lists the feed under Your feeds. A feed already
+// listed is not added twice: a row of the list is checked instead, under its
+// topic or with the picks kept outside them.
+async function addOwnFeed() {
+  const input = $("o-own-url");
+  const url = input.value.trim();
+  unmark(["o-own-url"]);
+  if (!url) {
+    mark(["o-own-url"]);
+    showOwn("err", "Paste a feed's address, or a site's home page, first.");
+    return;
+  }
+  const rows = [...FEEDS, ...OWN];
+  $("o-own-add").disabled = true;
+  showOwn("busy", `Checking ${url}…`);
+  try {
+    const data = await post("/api/onboarding/feed-check", {
+      url,
+      taken: rows.map((row) => ({name: row.entry.name, url: row.entry.url ?? ""})),
+    });
+    OWN.push(ownRow(data));
+    drawOwn();
+    input.value = "";
+    showOwn("ok", `${data.name} is under ${OWN_LEGEND}, checked: Next adds it with the others.`);
+  } catch (err) {
+    const listed = rows.find((row) => row.entry.name === err.data?.name);
+    if (listed) {
+      listed.box.checked = true;
+      drawFeeds();
+      drawOwn();
+      input.value = "";
+      showOwn("ok", `${listed.entry.name} is already listed, and is checked there.`);
+      return;
+    }
+    mark(["o-own-url"]);
+    showOwn("err", err.message);
+  } finally {
+    $("o-own-add").disabled = false;
+  }
+}
+
+// Next waits for a check still out, so the feed it adds is among the picks it saves.
+let checking = Promise.resolve();
+function startCheck() {
+  checking = addOwnFeed();
+}
+
+$("o-own-add").addEventListener("click", startCheck);
+$("o-own-url").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !$("o-own-add").disabled) startCheck();
+});
+$("o-own-url").addEventListener("input", () => unmark(["o-own-url"]));
+
 // One POST /api/sources per picked feed, each body the entry as listed less its
-// topics, so the source stored is the list's own, tags and tier included. A feed
+// topics, so the source stored is the list's own, tags and tier included; an own
+// feed's body is its name and address. A feed
 // already added is not sent again: Next after a partial failure retries only the
 // ones that failed. Every picked feed is on the page, so none is sent unseen.
 async function saveSources() {
-  const picked = FEEDS.filter((row) => row.box.checked && !row.box.disabled);
+  await checking;
+  const picked = [...FEEDS, ...OWN].filter((row) => row.box.checked && !row.box.disabled);
   if (!picked.length) return "";
   const added = [], failed = [];
   let note = "";

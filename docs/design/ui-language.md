@@ -526,6 +526,24 @@ sources live in a file the app never writes, has no wizard at all: this page sen
     Votes step fetches every picked feed before it deals cards, which takes about a minute for 12
     and longer for more. It warns and blocks nothing; 12 is what the poll's wait holds to a minute
     (`docs/architecture.md` §5, *Onboarding poll wait*).
+  - **Add your own feed** sits below the checklists on the feeds screen, for a feed the list lacks:
+    a field (§4) labelled `Add your own feed`, its URL input and a secondary `Add` button side by
+    side and wrapping one under the other when the row is too narrow, one small help line, and a
+    notice of its own below them (`role="status"`), beside the button it reports on. The reader
+    pastes a feed's address or a site's home page; `Add`, or Enter in the input, asks the server
+    (`POST /api/onboarding/feed-check`), which follows a home page to the first RSS or Atom feed it
+    links and names the feed by its own title. While it asks, `Add` is disabled and the notice,
+    marked `aria-busy`, says `Checking <address>…`. A feed that passes joins a checklist legended
+    `Your feeds` right below the field, checked, and counts in `N feeds picked`; the input empties
+    and the notice says `Next` adds it with the others. A refusal says why in `--warn`, in the
+    server's words (unreachable, the HTTP status, not a feed, a home page that links none, a feed
+    with no article), marks the input as failed validation, and adds nothing. A feed the list
+    already holds is not added twice: its row is checked instead, under its topic or under
+    `Picked, outside the chosen topics`, and the notice says so. A name another listed or stored
+    source has takes the feed's host after it, in parentheses. An own feed unchecked keeps its row.
+    `Next` posts each checked own feed with the list's picks, one `POST /api/sources` each, its
+    body `{name, url, tags: []}` with the tier left to a source's default, and its row takes the
+    same `Added` and `Not added` states. Own feeds are not kept across a reload.
   - The chosen topics are kept for the tab (`sessionStorage`), so a reload opens the step on the
     same topics and feeds; a feed's own check is not kept, so a reload on the feeds screen with no
     topic kept opens the topics screen.
