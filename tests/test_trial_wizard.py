@@ -67,6 +67,9 @@ esac
 """
 
 FAKE_QUIET = '#!/bin/bash\necho "$(basename "$0") $*" >> "$CALLS"\n'
+# pbcopy reads what is piped to it, as the real one does. Exiting unread would
+# race the pipe's writer, which dies of SIGPIPE under the wizard's pipefail.
+FAKE_PBCOPY = FAKE_QUIET + "cat > /dev/null\n"
 
 EXAMPLE_CONFIG = """[llm_provider]
 provider = "anthropic"
@@ -156,8 +159,9 @@ def rig(tmp_path: Path):
         fakes = tmp_path / "bin"
         fakes.mkdir()
         scripts = {"uv": FAKE_UV, "curl": FAKE_CURL, "bunx": FAKE_BUNX}
-        for name in ("git", "gh", "open", "xdg-open", "pbcopy"):
+        for name in ("git", "gh", "open", "xdg-open"):
             scripts[name] = FAKE_QUIET
+        scripts["pbcopy"] = FAKE_PBCOPY
         for name, body in scripts.items():
             (fakes / name).write_text(body)
             (fakes / name).chmod(0o755)
