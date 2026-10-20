@@ -411,6 +411,17 @@ def build_onboarding_articles(cfg: Config) -> Any:
     return OnboardingArticles(source, poll=poll)
 
 
+def build_feed_checker() -> Any:
+    """The onboarding wizard's check of a feed the reader pastes, over public addresses only.
+
+    It reads no setting and no store: one fetch of the address, and one more
+    when that is a home page linking its feed.
+    """
+    from cyris.adapters.fetch.feed_check import FeedChecker
+
+    return FeedChecker()
+
+
 def build_deps(
     cfg: Config, on_progress: Callable[[str], None] | None = None, dry_run: bool = False
 ) -> Deps:
