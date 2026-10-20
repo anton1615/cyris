@@ -258,6 +258,14 @@ Each poll also upserts every polled feed's outcome into `feed_health` (§4), aft
 never at their expense: a feed that keeps failing used to be a `console.warn` per hour, gone with
 Workers Logs after 7 days, and on 2026-09-28 one had stored no article ever behind an hourly HTTP 503.
 
+One reader outside the run reads this edge: the onboarding wizard's vote cards (§6). It asks the
+Worker for a `POST /poll` out of the cron, so the feeds a reader picked a moment ago are in the buffer,
+then reads the buffer's whole 8 days through the same `CloudflareRssSource` a run reads it with, or
+through `RssSource` on a deployment without the Worker. `bootstrap.build_rss_source` picks that edge
+for both `build_deps` and `build_onboarding_articles`, so a card's URL is the URL the first run reads:
+a vote lands on its row by URL, and a second parser would spell some URLs differently. The poll
+writes only the buffer, as the cron's would.
+
 Why a buffer rather than a poll at digest time, and why it has no ack:
 [ADR-0001](decisions/0001-rss-arrives-through-an-hourly-buffer.md). `RssSource` (direct polling)
 remains as the no-Worker fallback and is correct only for slow feeds.
@@ -463,7 +471,7 @@ table `schema.sql` creates must appear in the rows below, so a new table cannot 
 
 | Datum | Today | Destination | Notes |
 |---|---|---|---|
-| Article store | **D1 `stored_articles`** | same | `url` PRIMARY KEY is the dedup key; a colliding newsletter issue is re-keyed to `newsletter:{id}` |
+| Article store | **D1 `stored_articles`** | same | `url` PRIMARY KEY is the dedup key; a colliding newsletter issue is re-keyed to `newsletter:{id}`. Besides a run's save, the onboarding votes step (§6) stores each card the reader marked and then accepts or rejects it with `triaged_at`, as a `/labels` answer is written; a card left alone gets no row and stays in the buffer for the first run |
 | Tag vocabulary | **D1 `tags`** | same | Normalized tags emitted by clustering and scoring |
 | Article tags | **D1 `article_tags`** | same | URL-keyed article membership in the tag vocabulary |
 | Stories | **D1 `stories`** | same | Pre-truncation news clusters, keyed `{date}-{period}-{urlhash}` (content-derived from member URLs), replaced per window |
@@ -538,6 +546,8 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | `cyris config show` registry: the rows it lists beyond `settings_fields.json` and `B_GRADE_ENV_VARS`, and every label it prints | A | `src/cyris/diagnostics/config_show.json` | done 2026-10-08 — the image ships `src/` only, so `.env.example` cannot be read at runtime; `tests/test_deploy_inputs.py` holds the secret list to it, and each code constant is named as `module:attribute` so the value shown is the one the code runs with |
 | Mail vocabulary: forward/reply subject prefixes, "view in browser" markers | A | `adapters/fetch/keywords.json`, loaded by `keywords.py` | unchanged — data so a new locale is not a code edit; the regex structure around the tokens stays in code |
 | Onboarding's feed picker: name, url, tier, tags, language per entry | A | `src/cyris/onboarding_feeds.json` | catalog added 2026-10-20, read by the onboarding picker ([cold-start-onboarding.md](milestones/cold-start-onboarding.md)) — the image ships `src/` only, so it sits beside `keywords.json` rather than in a `.example` file outside it. Collected by the project, not a reader: each entry is a publisher's own feed (never an RSS hub or an aggregator, except Hacker News through hnrss.org, which has no feed of its own), reads as a `SourceConfig` at `tier: filter`, and passed both parsers (`workers/rss/src/parse.js` and feedparser) with an article inside 8 days when `scripts/validate_feed_catalog.py` last ran for real. The container reads it for `GET /api/onboarding/feeds`, which sends the entries as written only while `sources` is empty, and the wizard's sources step writes each of the reader's picks, unchanged, through the existing `POST /api/sources`; after that a deployment's feeds live only in its own `sources` (D1) or `sources.yaml`, same as any other source, so a stale catalog entry costs nothing beyond onboarding. `tests/test_onboarding_feeds.py` holds every entry to the shape; `scripts/validate_feed_catalog.py` is a reviewer-run gate on real feeds, not a test, because it asks about the network rather than the code |
+| Onboarding vote cards: `CARDS_PER_SOURCE` = 3, drawn from the oldest half of each feed's articles inside `BUFFER_DAYS` = 8 | A | `adapters/fetch/onboarding_cards.py` | added 2026-10-20 ([cold-start-onboarding.md](milestones/cold-start-onboarding.md)) — each card asks the reader for a decision, and the poll's wait budget allows 12 feeds, so three keeps a full pick at 36 cards, enough to say what a source is about without turning the step into a triage session. The older half only, because a voted article leaves the first issue's candidates and the newest are what that issue is for; 8 days is the rss Worker's `RETENTION_DAYS`, the buffer's depth. `tests/test_onboarding_cards.py` holds the count to this row and the reach to the Worker's |
+| Onboarding poll wait: `POLL_CONCURRENCY` 4 and `POLL_FEED_TIMEOUT_SECONDS` 20 per batch, plus `POLL_WRITE_MARGIN_SECONDS` 30 | A | `adapters/fetch/rss_worker_source.py` | added 2026-10-20 — a mirror of the Worker's `CONCURRENCY` and `FETCH_TIMEOUT_MS`, which bound a `POST /poll` at ceil(N / 4) × 20 seconds for N feeds (60 for 12), with the margin for its buffer writes; `tests/test_onboarding_cards.py` holds the two equal. A poll that outlasts it, or fails, still deals what the buffer already held, and the step says the poll failed |
 | Project link and favicon on the rendered pages | A | `PROJECT_URL` and `FAVICON` in `adapters/output/html_digest.py` | done 2026-10-02 — the upstream project's site, not this deployment's: a fork's pages still credit where they came from, so neither a deployment nor a reader setting changes it. The favicon is a copy of `website/assets/favicon.svg`, because the image ships `src/` only; `tests/test_ui_spec.py` holds the two copies equal, and every publish deploys it, on the manifest path and the local-directory path alike |
 | Image's build commit | A | `GIT_SHA` build arg, baked as `CYRIS_GIT_SHA` by the `Dockerfile` | unchanged — the release workflow supplies it; a local `docker build` legitimately leaves it empty |
 | Container placement regions | A | `[containers.constraints] regions` in `wrangler.toml` (`WNAM`, `ENAM`) | unchanged — Gemini and OpenAI refuse by egress location, and unconstrained placement landed in one of theirs; `tests/test_deploy_inputs.py` keeps `APAC` out |
@@ -577,7 +587,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Discord webhook | D | **D1 `settings`**, written by `/settings`; `cyris.toml [notify]` for a `json` deployment | done — the URL is a posting token, and D1 stores it in plaintext. Anyone who can read `settings` can post to the channel; anyone who can open `/settings` can rotate it without a redeploy. That is the trade that makes it D. It is **not** among the grade-C variables counted below; those are API tokens, which stay C. `""` means off: `/settings` stores it only through a confirmed Turn off, and an empty paste is refused. No environment variable supplies it |
 | Mail recipient + sender | D | **D1 `settings`** as `notify.email_to` and `.email_from`, written by `/settings` (Notifications); `cyris.toml [notify]` for a `json` deployment | done 2026-09-27, a prototype beside Discord — the channel-address rule the webhook set. The container sends through Cloudflare Email Service's REST API (`POST /accounts/{id}/email/sending/send`, Email Sending: Edit on `CLOUDFLARE_API_TOKEN`), no Worker in between. The recipient must be a verified Email Routing destination address, which is free on every plan and needs no onboarded sending domain; the sender must sit on a routing domain. `/settings` stores the pair only after a test message is delivered or queued, and an empty recipient turns mail off without a send. No environment variable supplies either |
 | Digest window | D | **D1 `settings`**, written by `/settings` (Pipeline); `cyris.toml [general]` for a `json` deployment | done 2026-09-19 |
-| Vote similarity on/off, `max_seeds` | D | **D1 `settings`**, written by `/settings` (Model) together with the embedder; `cyris.toml [vote_similarity]` for a `json` deployment | done 2026-09-19 — turning it on checks the embedder first |
+| Vote similarity on/off, `max_seeds` | D | **D1 `settings`**, written by `/settings` (Model) together with the embedder, and turned on by the onboarding votes step once a vote is recorded, through the same route with the embedder already stored; `cyris.toml [vote_similarity]` for a `json` deployment | done 2026-09-19 — turning it on checks the embedder first |
 | Reader type size | D | **D1 `settings`** as `digest.type_scale`, written by `/settings` (Digest); `cyris.toml [digest]` for a `json` deployment | done — how pages get it: *The reader-facing surfaces*. The mail stays at the baseline: nothing serves it, so the Worker cannot inject the size |
 | Agent vault path, HTML output dir | A | `cyris.toml` | unchanged — both address the `json` backend's fallback tree only; with D1 nothing is written there |
 | **API keys on the settings page** | **C, wanting a D-grade home** | `.env` / Worker secrets only | partly ruled: a channel-address credential such as the Discord webhook is grade D (see its row above). API keys remain undecided: writing a key into D1 `settings` puts a secret in a readable D-grade row |
@@ -922,9 +932,16 @@ the waiting-for-onboarding state (§5 *RSS + newsletter source list*), so the co
 deployment once the table has a source, because the wizard's own sources step writes one and a
 reload on a later step must not leave the wizard. A `json` deployment, whose sources live in a file
 nothing writes, never sees the wizard. The wizard writes settings through the `/api/settings/*`
-routes the settings page writes them with, and sources through `POST /api/sources`, so it adds no
-write path and no state of its own; its one read of its own, `GET /api/onboarding/feeds`, serves
-the grade-A feed list (§5).
+routes the settings page writes them with, and sources through `POST /api/sources`; its read of its
+own, `GET /api/onboarding/feeds`, serves the grade-A feed list (§5). The votes step adds two routes
+and no state of its own. `POST /api/onboarding/cards` polls the rss Worker and deals cards from the
+buffer through the run's own RSS edge (§3.1), writing nothing but the buffer; it names each feed the
+read found no article for, counted by `source_name` in the read. `POST /api/onboarding/votes` reads
+the feeds again, so it needs no memory of the deal across the container's sleep, then stores each
+marked article and votes on it in the container, through `record_votes` as `/labels` does, never
+through the promote Worker; the press is a person's, so it may stamp `triaged_at` (§4 *Article
+store*). A marked article the read no longer finds is left out and named back as `missing`; only
+when none is found does it record nothing. The step then turns vote similarity on through `/api/settings/vote-similarity`.
 
 Votes go through the Worker's same-origin `POST /api/vote`, which attaches `CYRIS_PROMOTE_TOKEN`
 server-side; no page carries the token. The vote buttons render only when a probe of

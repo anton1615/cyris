@@ -1,11 +1,13 @@
-"""/onboarding: who is sent to the wizard, its six steps, and what its four saves write.
+"""/onboarding: who is sent to the wizard, its six steps, and what its five saves write.
 
-The wizard adds no write path of its own: each settings step posts the body the
-settings form posts, to the route `settings_fields.json` names for that field,
-and the sources step posts each picked feed to `POST /api/sources` as the list
-holds it. What a browser actually sends is checked by `scripts/onboarding_probe.py`;
-here the shapes of those bodies are held to the settings page's own, and the
-stored sources to the list's entries.
+Each settings step posts the body the settings form posts, to the route
+`settings_fields.json` names for that field, and the sources step posts each
+picked feed to `POST /api/sources` as the list holds it. The votes step's own
+two routes are `tests/test_onboarding_votes.py`'s; here it is held to sending
+only marked cards, and to turning vote similarity on with the Model form's body.
+What a browser actually sends is checked by `scripts/onboarding_probe.py`; here
+the shapes of those bodies are held to the settings page's own, and the stored
+sources to the list's entries.
 """
 
 import json
@@ -33,9 +35,10 @@ SETTINGS_JS = (STATIC / "settings.js").read_text()
 CATALOG = json.loads((Path(cyris.__file__).parent / "onboarding_feeds.json").read_text())["feeds"]
 
 # The six steps, in the order the milestone sets: the three that write settings,
-# the one that writes sources, and the two the later tickets fill in.
+# the one that writes sources, the one that writes votes, and the one a later
+# ticket fills in.
 STEPS = ["language", "schedule", "sources", "votes", "notify", "first-issue"]
-COMING_NEXT = ["votes", "first-issue"]
+COMING_NEXT = ["first-issue"]
 
 
 class FakeSettings:
@@ -257,6 +260,24 @@ def _body_keys(script: str) -> dict[str, list[set[str]]]:
     return bodies
 
 
+def _settings_bodies() -> dict[str, list[set[str]]]:
+    """The settings page's bodies, its vote-similarity one included.
+
+    That one is built as `const body = {...}` and posted by name, which the
+    literal reader cannot see, so it is read from the declaration the post sends.
+    """
+    bodies = _body_keys(SETTINGS_JS)
+    sent = re.search(
+        r"const body = \{(.*?)\};\s*show\([^;]*\);\s*try \{\s*"
+        r'const data = await post\("/api/settings/vote-similarity", body\)',
+        SETTINGS_JS,
+        re.S,
+    )
+    assert sent, "no vote-similarity body in settings.js"
+    declared = _body_keys(f'post("/api/settings/vote-similarity", {{{sent[1]}}})')
+    return {**bodies, **declared}
+
+
 # Each field the wizard writes, by the key it writes it under, and the route
 # `settings_fields.json` gives that key.
 WRITTEN = {
@@ -266,6 +287,10 @@ WRITTEN = {
     "notify.discord_webhook_url": "notify",
     "notify.email_to": "email",
     "notify.email_from": "email",
+    "vote_similarity.enabled": "vote",
+    "vote_similarity.provider": "vote",
+    "vote_similarity.model": "vote",
+    "vote_similarity.max_seeds": "vote",
 }
 
 
@@ -275,20 +300,30 @@ class TestItWritesWhatTheSettingsFormWrites:
 
         assert _body_keys(script) == {"/api/settings/email": [{"email_to", "email_from"}]}
 
-    def test_the_wizard_posts_to_no_route_the_settings_page_does_not(self) -> None:
-        assert set(_body_keys(ONBOARDING_JS)) <= set(_body_keys(SETTINGS_JS))
+    def test_the_settings_reader_finds_the_vote_similarity_body(self) -> None:
+        assert _settings_bodies()["/api/settings/vote-similarity"] == [
+            {"enabled", "provider", "model", "max_seeds"}
+        ]
 
-    def test_the_wizard_posts_a_source_only_as_the_settings_page_does(self) -> None:
-        """Besides the settings routes, the one write is `POST /api/sources`, the form's own."""
+    def test_the_wizard_posts_to_no_route_the_settings_page_does_not(self) -> None:
+        assert set(_body_keys(ONBOARDING_JS)) <= set(_settings_bodies())
+
+    def test_the_wizard_writes_sources_and_votes_only_through_its_own_routes(self) -> None:
+        """Besides the settings routes: the form's `POST /api/sources`, and the votes step's two."""
         routes = set(re.findall(r'post\(\s*"([^"]+)"', ONBOARDING_JS))
 
-        assert routes - set(_body_keys(ONBOARDING_JS)) == {"/api/sources"}
+        assert routes - set(_body_keys(ONBOARDING_JS)) == {
+            "/api/sources",
+            "/api/onboarding/cards",
+            "/api/onboarding/votes",
+        }
         assert "/api/sources" in SETTINGS_JS
 
-    def test_the_wizard_posts_only_the_four_settings_routes(self) -> None:
+    def test_the_wizard_posts_only_the_five_settings_routes(self) -> None:
         assert set(_body_keys(ONBOARDING_JS)) == {
             "/api/settings/values",
             "/api/settings/schedule",
+            "/api/settings/vote-similarity",
             "/api/settings/notify",
             "/api/settings/email",
         }
@@ -297,7 +332,7 @@ class TestItWritesWhatTheSettingsFormWrites:
     def test_each_body_is_one_the_settings_page_sends_too(self, route: str) -> None:
         """Same route, same field names: the store cannot tell the two pages apart."""
         wizard = _body_keys(ONBOARDING_JS)[route]
-        form = _body_keys(SETTINGS_JS)[route]
+        form = _settings_bodies()[route]
 
         assert [keys for keys in wizard if keys not in form] == []
 
@@ -319,6 +354,44 @@ class TestItWritesWhatTheSettingsFormWrites:
         assert handler, "no Skip handler"
 
         assert "post(" not in handler[1] and "fetch(" not in handler[1]
+
+
+class TestTheVotesStep:
+    """What the votes step's Next sends, read from the script; the browser walk is the probe's."""
+
+    @pytest.fixture
+    def save_votes(self) -> str:
+        body = re.search(r"async function saveVotes\(\) \{(.*?)\n\}\n", ONBOARDING_JS, re.S)
+        assert body, "no saveVotes in onboarding.js"
+        return body[1]
+
+    def test_next_on_the_votes_step_saves_the_votes(self) -> None:
+        assert "votes: saveVotes," in ONBOARDING_JS
+
+    def test_only_a_marked_card_not_yet_recorded_is_sent(self, save_votes: str) -> None:
+        """An untouched card is no signal, and a recorded one is already the reader's."""
+        assert "CARDS.filter((card) => card.vote && !card.recorded && !card.gone)" in save_votes
+
+    def test_vote_similarity_is_turned_on_only_once_a_vote_is_recorded(
+        self, save_votes: str
+    ) -> None:
+        guard = save_votes.index("if (!CARDS.some((card) => card.recorded)")
+
+        assert guard < save_votes.index('post("/api/settings/vote-similarity"')
+        assert "enabled: true," in save_votes
+
+    def test_vote_similarity_is_turned_on_with_the_stored_embedder(self, save_votes: str) -> None:
+        """Which model embeds is the deployer's, under Model; the wizard does not choose one."""
+        for key in ("provider", "model", "max_seeds"):
+            assert f'VALUES["vote_similarity.{key}"]' in save_votes
+
+    def test_the_cards_are_dealt_when_the_step_opens(self) -> None:
+        assert 'if (step === "votes") loadCards();' in ONBOARDING_JS
+
+    def test_the_step_has_a_loading_line_for_the_wait(self) -> None:
+        page = render_onboarding_page()
+
+        assert '<p class="small" id="o-cards-loading" aria-busy="true" hidden>' in page
 
 
 class TestTheStepsWriteThroughTheExistingApi:

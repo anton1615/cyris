@@ -144,6 +144,9 @@ LABELS = ("up", "down", "skip")
 # straight back; this marker is what lets it through once.
 ONBOARDING_PATH = "/onboarding"
 ONBOARDING_EXIT_MARK = ("from", "onboarding")
+# A vote card's two answers, as the digest's own votes name them: "up" is
+# Interested and is written accepted, "down" is Not interested, rejected.
+VOTES = ("up", "down")
 
 
 def load_onboarding_feeds() -> list[dict[str, Any]]:
@@ -176,6 +179,7 @@ class TriageServer:
         area_store=None,
         source_titles=None,
         llm_factory=None,
+        onboarding_articles=None,
     ) -> None:
         self._host = host
         self._port = port
@@ -210,6 +214,10 @@ class TriageServer:
         self._source_titles = source_titles
         # Called with the grade-D values for an LLM client; None when no LLM can be built.
         self._llm_factory = llm_factory
+        # The wizard's card reader, over the run's own RSS edge
+        # (`bootstrap.build_onboarding_articles`); absent on a `backend = "json"`
+        # deployment, which has no wizard.
+        self._onboarding_articles = onboarding_articles
         self._settings_page = render_settings_page()
         self._labels_page = render_labels_page()
         self._onboarding_page = render_onboarding_page()
@@ -227,6 +235,8 @@ class TriageServer:
         self._app.router.add_post("/api/sources", self._handle_post_source)
         self._app.router.add_delete("/api/sources/{name}", self._handle_delete_source)
         self._app.router.add_get("/api/onboarding/feeds", self._handle_get_onboarding_feeds)
+        self._app.router.add_post("/api/onboarding/cards", self._handle_post_onboarding_cards)
+        self._app.router.add_post("/api/onboarding/votes", self._handle_post_onboarding_votes)
         self._app.router.add_get("/api/topics", self._handle_get_topics)
         self._app.router.add_post("/api/topics", self._handle_post_topic)
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
@@ -803,6 +813,138 @@ class TriageServer:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
         return web.json_response(
             {"awaiting": awaiting, "feeds": load_onboarding_feeds() if awaiting else []}
+        )
+
+    def _no_card_reader(self) -> web.Response | None:
+        """The refusal of a deployment the vote cards cannot read or write for, else None."""
+        if self._onboarding_articles is None or self._article_store is None:
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": "This deployment has no article store to vote into "
+                    "(store backend is not D1).",
+                },
+                status=409,
+            )
+        return None
+
+    async def _handle_post_onboarding_cards(self, request: web.Request) -> web.Response:
+        """Fetch the reader's feeds now and deal the vote cards; writes nothing of its own.
+
+        A POST because, with the rss Worker, it polls first, which fills the
+        buffer the first run reads. `empty` names each RSS source the read found
+        no article for, counted by `source_name` in the read itself.
+        """
+        from cyris.adapters.fetch.onboarding_cards import draw_cards, rss_sources
+        from cyris.service_layer.degrade import excerpt
+
+        if (refused := self._no_card_reader()) is not None:
+            return refused
+        try:
+            feeds = rss_sources(self._effective_sources())
+            read = await self._onboarding_articles.refresh(feeds, lambda: datetime.now(UTC))
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            logger.warning("Onboarding cards could not be read", exc_info=True)
+            return web.json_response(
+                {"ok": False, "error": f"Could not read the feeds: {e}"}, status=502
+            )
+        draw = draw_cards(read.articles, feeds)
+        return web.json_response(
+            {
+                "ok": True,
+                "sources": len(feeds),
+                "cards": [
+                    {
+                        "url": a.url,
+                        "title": a.title,
+                        "source": a.source_name,
+                        "excerpt": excerpt(a.content),
+                        "published_at": a.published_at.isoformat(),
+                    }
+                    for a in draw.cards
+                ],
+                "empty": draw.empty,
+                "poll_error": read.poll_error,
+            }
+        )
+
+    async def _handle_post_onboarding_votes(self, request: web.Request) -> web.Response:
+        """Write the cards the reader marked, as `/labels` writes an answer: in the container.
+
+        Each voted article is read again through the same RSS edge the cards
+        came from, stored as fetched, and only then voted on, because `accept`
+        and `reject` update existing rows only. `record_votes` stamps
+        `triaged_at`: the press was a person's. A card left alone is not sent,
+        so nothing of it is written, and it stays a candidate for the first run.
+        """
+        from cyris.adapters.fetch.onboarding_cards import rss_sources
+        from cyris.adapters.promotions import record_votes
+
+        if (refused := self._no_card_reader()) is not None:
+            return refused
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        votes = body.get("votes") if isinstance(body, dict) else None
+        if (
+            not isinstance(votes, list)
+            or not votes
+            or not all(
+                isinstance(v, dict) and isinstance(v.get("url"), str) and v.get("vote") in VOTES
+                for v in votes
+            )
+        ):
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": 'votes is a non-empty list of {"url", "vote"}, '
+                    f"vote one of {', '.join(VOTES)}",
+                },
+                status=400,
+            )
+        by_url = {v["url"]: v["vote"] for v in votes}
+        if len(by_url) != len(votes):
+            return web.json_response(
+                {"ok": False, "error": "Each article is voted on once."}, status=400
+            )
+
+        now = datetime.now(UTC)
+        try:
+            feeds = rss_sources(self._effective_sources())
+            read = await self._onboarding_articles.read(feeds, now)
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            return web.json_response(
+                {"ok": False, "error": f"Could not read the feeds: {e}"}, status=502
+            )
+        found = {a.url: a for a in read}
+        missing = [url for url in by_url if url not in found]
+        # A card that left its feed since it was dealt (the cards are each feed's
+        # oldest) drops alone: the reader's other votes still count.
+        by_url = {url: vote for url, vote in by_url.items() if url in found}
+        if not by_url:
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": "These articles are no longer in the feeds, so no vote was "
+                    "recorded. Reload the page for fresh cards.",
+                    "missing": missing,
+                },
+                status=409,
+            )
+
+        accepted = [url for url, vote in by_url.items() if vote == "up"]
+        rejected = [url for url, vote in by_url.items() if vote == "down"]
+        try:
+            self._article_store.save([found[url] for url in by_url], now)
+            record_votes(self._article_store, accepted=accepted, rejected=rejected, at=now)
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            logger.warning("Onboarding votes failed", exc_info=True)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        logger.info("Onboarding votes: %d up, %d down", len(accepted), len(rejected))
+        return web.json_response(
+            {"ok": True, "accepted": accepted, "rejected": rejected, "missing": missing}
         )
 
     async def _handle_delete_source(self, request: web.Request) -> web.Response:

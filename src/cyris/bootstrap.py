@@ -379,6 +379,38 @@ def build_promotion_sync(
     return partial(sync_promotions, promote.worker_url, promote.token, store)
 
 
+def build_rss_source(cfg: Config) -> FetchSource:
+    """The run's RSS edge: the Worker's hourly D1 buffer, else direct polling.
+
+    Direct polling is the fallback — correct only for feeds whose snapshot
+    outlives the window (measured: a digest-time poll missed 141 of 317
+    articles). See docs/decisions/0001-rss-arrives-through-an-hourly-buffer.md.
+    """
+    if cfg.app.rss.worker_url and cfg.app.rss.token:
+        from cyris.adapters.fetch.rss_worker_source import CloudflareRssSource
+
+        return CloudflareRssSource(cfg.app.rss.worker_url, cfg.app.rss.token)
+
+    from cyris.adapters.fetch.rss_source import RssSource
+
+    return RssSource()
+
+
+def build_onboarding_articles(cfg: Config) -> Any:
+    """The onboarding wizard's card reader, over the very RSS edge a run reads.
+
+    Built from `build_rss_source`, so a card's URL comes through the parser and
+    the URL normalisation the first run's fetch uses. With the Worker it polls
+    first, since the feeds were picked a moment ago and the cron may be an hour off.
+    """
+    from cyris.adapters.fetch.onboarding_cards import OnboardingArticles
+    from cyris.adapters.fetch.rss_worker_source import CloudflareRssSource
+
+    source = build_rss_source(cfg)
+    poll = source.poll if isinstance(source, CloudflareRssSource) else None
+    return OnboardingArticles(source, poll=poll)
+
+
 def build_deps(
     cfg: Config, on_progress: Callable[[str], None] | None = None, dry_run: bool = False
 ) -> Deps:
@@ -441,18 +473,7 @@ def build_deps(
             )
         )
 
-    # RSS comes from the Worker's hourly D1 buffer. Without it, direct polling is
-    # the fallback — correct only for feeds whose snapshot outlives the window
-    # (measured: a digest-time poll missed 141 of 317 articles). See
-    # docs/decisions/0001-rss-arrives-through-an-hourly-buffer.md.
-    if cfg.app.rss.worker_url and cfg.app.rss.token:
-        from cyris.adapters.fetch.rss_worker_source import CloudflareRssSource
-
-        fetch_sources.append(CloudflareRssSource(cfg.app.rss.worker_url, cfg.app.rss.token))
-    else:
-        from cyris.adapters.fetch.rss_source import RssSource
-
-        fetch_sources.append(RssSource())
+    fetch_sources.append(build_rss_source(cfg))
 
     html_writer = None
     publish = None

@@ -946,7 +946,12 @@ def triage_ui(
     from cyris.adapters.store.source_store import D1SourceStore
     from cyris.adapters.store.source_titles import D1SourceTitles
     from cyris.adapters.store.tracked_topics import D1TrackedTopicStore
-    from cyris.bootstrap import build_d1_client, build_settings, load_effective_config
+    from cyris.bootstrap import (
+        build_d1_client,
+        build_onboarding_articles,
+        build_settings,
+        load_effective_config,
+    )
     from cyris.entrypoints.triage_server import TriageServer
 
     try:
@@ -973,6 +978,7 @@ def triage_ui(
             area_store=D1AreaStore(d1) if d1 else None,
             source_titles=D1SourceTitles(d1) if d1 else None,
             llm_factory=_llm_from_values,
+            onboarding_articles=build_onboarding_articles(cfg) if d1 else None,
         )
         await server.start()
         typer.echo(f"Settings:  http://{host}:{port}/settings")

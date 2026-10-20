@@ -3,8 +3,11 @@
 // route /settings saves that field with, so what lands in the store is what the
 // settings form would have stored. The sources step writes each picked feed
 // through POST /api/sources, the route the settings form adds a source with. The
-// votes and first-issue steps are placeholders until their own tickets land
-// (onboarding.html.j2): they write nothing, so Next on them only moves on.
+// votes step deals cards from those feeds (POST /api/onboarding/cards) and
+// writes the marked ones as votes (POST /api/onboarding/votes), then turns vote
+// similarity on through /api/settings/vote-similarity, the Model form's route.
+// The first-issue step is a placeholder until its own ticket lands
+// (onboarding.html.j2): it writes nothing, so Next on it only moves on.
 const $ = (id) => document.getElementById(id);
 
 // The six steps, in order. Each one's hash opens it, so a reload keeps the place.
@@ -34,6 +37,9 @@ let pending = null;
 // Each setting's registry entry, by key, from GET /api/settings: a notice names
 // a field by the same label /settings gives it.
 let REGISTRY = {};
+// The stored values GET /api/settings answered; null until it has. The votes
+// step turns vote similarity on with the embedder stored here.
+let VALUES = null;
 
 const stepOf = () => {
   const hash = location.hash.slice(1);
@@ -75,6 +81,7 @@ function route() {
   if (pending) show("ok", pending);
   pending = null;
   window.scrollTo(0, 0);
+  if (step === "votes") loadCards();
 }
 
 addEventListener("hashchange", route);
@@ -278,12 +285,199 @@ async function saveSources() {
       "Press Next to try again, or Skip to go on without them.",
     ].join("\n"));
   }
+  // The cards were dealt from the feeds there were; these are new.
+  if (added.length) cardsDealt = false;
   const feeds = added.length === 1 ? "feed" : "feeds";
   return `Added ${added.length} ${feeds}: ${added.join(", ")}. ${note}`;
 }
 
+// The vote cards, one per card POST /api/onboarding/cards dealt, in its order.
+// A card's `vote` is "up", "down" or null, the untouched card; `recorded` is
+// set once the server has written its vote, and the card no longer changes.
+let CARDS = [];
+// Whether the cards on the page are dealt from the feeds the table holds now;
+// a sources save that adds a feed clears it, and the next visit deals again.
+let cardsDealt = false;
+let dealing = false;
+
+const VOTE_WORDS = {up: "Interested", down: "Not interested"};
+
+function setVote(card, vote) {
+  card.vote = vote;
+  for (const [value, button] of Object.entries(card.buttons)) {
+    button.setAttribute("aria-pressed", String(value === vote));
+  }
+}
+
+// A recorded card shows what was written in place of its buttons, which would
+// otherwise offer to change a vote that is already stamped as the reader's.
+function setRecorded(card) {
+  card.recorded = true;
+  card.seg.hidden = true;
+  card.state.textContent = `Recorded · ${VOTE_WORDS[card.vote]}`;
+  card.state.hidden = false;
+}
+
+// A card whose article left its feed before Next: nothing to record it on, so
+// it is not sent again.
+function setGone(card) {
+  card.gone = true;
+  card.seg.hidden = true;
+  card.state.textContent = "No longer in the feed · not recorded";
+  card.state.hidden = false;
+}
+
+function cardRow(card) {
+  const row = document.createElement("div");
+  row.className = "list-row vote-card";
+  const source = document.createElement("span");
+  source.className = "label";
+  source.textContent = card.source;
+  // The feed's own words, in the feed's own language.
+  const title = document.createElement("a");
+  title.className = "title";
+  title.lang = "";
+  title.textContent = card.title || card.url;
+  // A feed decides this URL, so only a web address becomes a link.
+  if (/^https?:\/\//i.test(card.url)) {
+    title.href = card.url;
+    title.target = "_blank";
+    title.rel = "noopener";
+  }
+  row.append(source, title);
+  if (card.excerpt) {
+    const text = document.createElement("p");
+    text.className = "small";
+    text.lang = "";
+    text.textContent = card.excerpt;
+    row.append(text);
+  }
+  const seg = document.createElement("div");
+  seg.className = "seg";
+  seg.setAttribute("role", "group");
+  seg.setAttribute("aria-label", `Vote on ${card.title || card.url}`);
+  const state = document.createElement("span");
+  state.className = "label";
+  state.hidden = true;
+  const entry = {card, row, seg, state, buttons: {}, vote: null, recorded: false};
+  for (const [vote, word] of Object.entries(VOTE_WORDS)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.vote = vote;
+    button.textContent = word;
+    // A second press on the pressed answer takes it back: the card is untouched again.
+    button.addEventListener("click", () => setVote(entry, entry.vote === vote ? null : vote));
+    entry.buttons[vote] = button;
+    seg.append(button);
+  }
+  setVote(entry, null);
+  row.append(seg, state);
+  return entry;
+}
+
+// Each source the read found nothing for, named, and why the poll before it
+// failed when it did: both say why a feed the reader picked shows no card.
+function renderCards(data) {
+  CARDS = data.cards.map(cardRow);
+  $("o-cards").replaceChildren(...CARDS.map((card) => card.row));
+  $("o-cards").hidden = !CARDS.length;
+  const problems = [];
+  if (data.empty.length) {
+    const which = data.empty.length === 1 ? "this feed" : `these ${data.empty.length} feeds`;
+    problems.push(`No articles came back from ${which}: ${data.empty.join(", ")}. ` +
+      "They stay in your sources and the first issue reads them again; " +
+      "check them under Sources in Settings.");
+  }
+  if (data.poll_error) {
+    problems.push(`The feeds could not be fetched just now (${data.poll_error}), ` +
+      "so these cards are only what had been fetched before.");
+  }
+  $("o-cards-empty").textContent = problems.join("\n");
+  $("o-cards-empty").hidden = !problems.length;
+  let none = "";
+  if (!data.sources) {
+    none = "There are no feeds to draw from yet. Press Back to pick some, or Next to go on.";
+  } else if (!CARDS.length) {
+    none = "There is no article to vote on yet. Press Next to go on: the first issue works without votes.";
+  }
+  $("o-cards-none").textContent = none;
+  $("o-cards-none").hidden = !none;
+}
+
+// Deals once per set of feeds: a reload or a visit after new feeds deals
+// again, a Back and Next over the same feeds keeps the marks made.
+async function loadCards() {
+  if (cardsDealt || dealing) return;
+  dealing = true;
+  const loading = $("o-cards-loading");
+  loading.textContent = "Fetching the latest articles from your feeds. This can take a minute or two…";
+  loading.setAttribute("aria-busy", "true");
+  loading.hidden = false;
+  try {
+    renderCards(await post("/api/onboarding/cards", {}));
+    cardsDealt = true;
+    loading.hidden = true;
+  } catch (err) {
+    loading.removeAttribute("aria-busy");
+    loading.textContent = `${err.message} Press Skip to go on without votes, or reload the page to try again.`;
+  } finally {
+    dealing = false;
+  }
+}
+
+// The marked cards not yet written, then vote similarity, without which the
+// votes change nothing. A card left alone is not sent. Nothing marked and
+// nothing recorded is a Next that writes nothing, as a Skip is.
+async function saveVotes() {
+  const marked = CARDS.filter((card) => card.vote && !card.recorded && !card.gone);
+  const lines = [];
+  if (marked.length) {
+    show("busy", `Recording ${marked.length} ${marked.length === 1 ? "vote" : "votes"}…`);
+    const data = await post("/api/onboarding/votes", {
+      votes: marked.map((card) => ({url: card.card.url, vote: card.vote})),
+    });
+    const gone = new Set(data.missing);
+    marked.forEach((card) => (gone.has(card.card.url) ? setGone : setRecorded)(card));
+    const kept = data.accepted.length + data.rejected.length;
+    lines.push(`Recorded ${kept} ${kept === 1 ? "vote" : "votes"}: ` +
+      `${data.accepted.length} interested, ${data.rejected.length} not interested.`);
+    if (gone.size) {
+      lines.push(`${gone.size} ${gone.size === 1 ? "article has" : "articles have"} left ` +
+        "its feed since the cards were dealt, so that vote was not recorded.");
+    }
+  }
+  if (!CARDS.some((card) => card.recorded) || VALUES?.["vote_similarity.enabled"] === true) {
+    return lines.join("\n");
+  }
+  try {
+    if (!VALUES) throw new Error("The settings did not load. Reload the page.");
+    show("busy", "Turning on vote similarity: checking the embedder…");
+    // The embedder this deployment already names: which model it embeds with is
+    // the deployer's choice, under Model in Settings, and the wizard leaves it.
+    const data = await post("/api/settings/vote-similarity", {
+      enabled: true,
+      provider: VALUES["vote_similarity.provider"],
+      model: VALUES["vote_similarity.model"] ?? "",
+      max_seeds: VALUES["vote_similarity.max_seeds"],
+    });
+    Object.assign(VALUES, data.values);
+    lines.push(`Vote similarity is on. ${data.detail} ${data.note}`);
+  } catch (err) {
+    throw new Error([
+      ...lines,
+      `Vote similarity is still off, so the votes have no effect yet: ${err.message}`,
+      "Press Next to try again, or Skip and turn it on under Model in Settings.",
+    ].join("\n"));
+  }
+  return lines.join("\n");
+}
+
 const SAVES = {
-  language: saveLanguage, schedule: saveSchedule, sources: saveSources, notify: saveNotify,
+  language: saveLanguage,
+  schedule: saveSchedule,
+  sources: saveSources,
+  votes: saveVotes,
+  notify: saveNotify,
 };
 
 // Only ever called from a step that has one after it: the last step shows
@@ -331,6 +525,7 @@ for (const id of FIELDS) {
 
 function render(state) {
   const values = state.values;
+  VALUES = values;
   REGISTRY = state.fields;
   $("o-languages").replaceChildren(...state.languages.map((tag) => new Option("", tag)));
   if (values["digest.output_language"] != null) {
