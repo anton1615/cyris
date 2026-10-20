@@ -1139,6 +1139,27 @@ _CHECKS: list[Check] = [
         receipt=_both_untouched,
     ),
     Check(
+        id="own-feed-needs-no-topic",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            press("o-next");
+            await waitFor(() => visible($("#o-own-url")), "the feeds screen");
+            await addOwn({json.dumps(OWN_HOME)});
+        """,
+        script=f"""
+            expect(location.hash === "#sources/feeds", `on ${{location.hash}}`);
+            expect(!shownFeeds().length, `listed feeds with no topic: ${{shownFeeds().join("|")}}`);
+            const names = ownRows().map((row) => $(".name", row).textContent);
+            expect(same(names, [{json.dumps(OWN_NAME)}]), `own feeds: ${{names.join("|")}}`);
+        """,
+        # After the act: the own feed's row is gone, as if the screen had turned it away.
+        sabotage='$("#o-own").replaceChildren();',
+        receipt=_both_untouched,
+    ),
+    Check(
         id="own-feed-is-posted-by-next",
         fixture="empty",
         path=f"{PAGE}#sources",
@@ -1265,7 +1286,8 @@ _CHECKS: list[Check] = [
             expect(chosen.length === 0, `${{chosen.length}} topics start chosen`);
             expect(!shownFeeds().length, `feeds before a topic: ${{shownFeeds().join("|")}}`);
             expect(visible($("#o-feeds-hint")), "nothing says to pick a topic");
-            expect($("#o-next").disabled, "Next is live with no topic chosen");
+            // The feeds screen also takes the reader's own feed, which needs no topic.
+            expect(!$("#o-next").disabled, "Next waits for a topic");
         """,
         sabotage=_choose(ONE_TOPIC),
         receipt=_both_untouched,

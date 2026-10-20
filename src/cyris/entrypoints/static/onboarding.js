@@ -346,21 +346,15 @@ function drawPicked() {
 const FEEDS_SCREEN = "sources/feeds";
 const onFeeds = () => location.hash.slice(1) === FEEDS_SCREEN;
 
-// Shows the screen the hash names, once the list is drawn. The feeds screen
-// with nothing to show, as after a reload whose topics were not kept, gives
-// way to the topics screen. Next on the topics screen waits for a topic, or
-// for a feed picked before, which only the feeds screen shows.
+// Shows the screen the hash names, once the list is drawn. Next on the topics
+// screen never waits for a topic: the feeds screen also holds the reader's own
+// feed, which needs none.
 function drawScreen() {
   if (stepOf() !== "sources" || !TOPICS.length) return;
-  if (onFeeds() && !chosenTopics().length && !pickedFeeds().length) {
-    location.replace("#sources");
-    return;
-  }
   const screen = onFeeds() ? "feeds" : "topics";
   document.querySelectorAll('.step[data-step="sources"] [data-screen]').forEach((el) => {
     el.hidden = el.dataset.screen !== screen;
   });
-  $("o-next").disabled = screen === "topics" && !chosenTopics().length && !pickedFeeds().length;
 }
 
 // A row's state, shown on its right before its tags. An added feed's checkbox
