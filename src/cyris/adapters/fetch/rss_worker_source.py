@@ -8,6 +8,7 @@ crashed digest simply reads the same window again.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import UTC, datetime
 
 import httpx
@@ -24,6 +25,21 @@ TIMEOUT_SECONDS = 30
 # applies after the store so no row is lost unstored. Sent by value because the
 # Worker's default without one is lower.
 WORKER_ROW_CEILING = 2000
+
+# The Worker's own poll shape (`CONCURRENCY` and `FETCH_TIMEOUT_MS` in
+# `workers/rss/src/index.js`): feeds are fetched four at a time, each batch
+# waiting at most 20 seconds, so a poll of N feeds takes at most
+# ceil(N / 4) * 20 seconds of fetching. The margin is the buffer writes and the
+# prune after them, which run once per poll rather than per feed.
+POLL_CONCURRENCY = 4
+POLL_FEED_TIMEOUT_SECONDS = 20
+POLL_WRITE_MARGIN_SECONDS = 30
+
+
+def poll_timeout_seconds(feeds: int) -> float:
+    """How long a `POST /poll` over `feeds` feeds may take before it is given up."""
+    batches = max(1, math.ceil(feeds / POLL_CONCURRENCY))
+    return batches * POLL_FEED_TIMEOUT_SECONDS + POLL_WRITE_MARGIN_SECONDS
 
 
 def _worker_bound(value: datetime) -> str:
@@ -92,6 +108,22 @@ class CloudflareRssSource:
 
         logger.info("Read %d buffered entries from the RSS worker", len(articles))
         return articles
+
+    async def poll(self, feeds: int) -> None:
+        """Ask the Worker to poll every feed in `sources` now, outside its hourly cron.
+
+        The onboarding wizard's vote cards need the feeds a reader just picked,
+        and the next cron tick can be an hour away. `feeds` is how many the
+        Worker will poll, which bounds how long it may take. Raises on a failed
+        or timed-out poll; the rows a poll stored stay, whatever the caller does.
+        """
+        async with httpx.AsyncClient(timeout=poll_timeout_seconds(feeds)) as client:
+            resp = await client.post(
+                f"{self._worker_url}/poll",
+                headers={"Authorization": f"Bearer {self._token}"},
+            )
+        resp.raise_for_status()
+        logger.info("RSS worker polled: %s", resp.json())
 
     async def health_check(self) -> bool:
         try:
