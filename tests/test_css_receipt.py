@@ -6,6 +6,7 @@ a test. Its verification is a hand-run receipt. What is tested is the part that
 needs no browser -- the probe set it ships and the breakpoints it samples.
 `scripts/settings_probe.py` is the same kind of gate, so the same holds: its
 fixtures and its registry of checks are tested here, its browser run is not.
+The raw, digest, labels and onboarding probes are held to the same shape.
 """
 
 import io
@@ -27,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import cdp_probe  # noqa: E402
 import digest_probe  # noqa: E402
 import labels_probe  # noqa: E402
+import onboarding_probe  # noqa: E402
 import raw_probe  # noqa: E402
 import settings_probe  # noqa: E402
 from css_computed import (  # noqa: E402
@@ -50,6 +52,8 @@ from settings_probe import (  # noqa: E402
     build_fixture,
     probe_environment,
 )
+
+from cyris.config import GRADE_D_KEYS  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
@@ -1242,6 +1246,102 @@ def test_every_labels_probe_check_is_named_once_and_can_be_sabotaged():
 
 def test_the_labels_probe_runs_on_the_shared_core():
     assert labels_probe.Check is cdp_probe.Check
+
+
+# The checks `scripts/onboarding_probe.py` must carry: the frame walks, each
+# settings step writes what it was given, a skip writes nothing, only the right
+# deployment sees the wizard, and the page fits a phone.
+EXPECTED_ONBOARDING_IDS = {
+    "opens-on-the-first-step",
+    "the-step-list-names-every-step",
+    "a-step-still-to-come-says-so",
+    "next-walks-to-the-next-step",
+    "back-returns-to-the-previous-step",
+    "skip-walks-to-the-last-step",
+    "skip-writes-nothing",
+    "an-untouched-step-writes-nothing",
+    "language-step-saves-both-values",
+    "language-step-sends-only-what-changed",
+    "hours-step-saves-the-schedule",
+    "hours-step-refuses-an-empty-hour",
+    "a-refused-value-is-marked-in-its-own-field",
+    "notify-step-saves-the-webhook",
+    "notify-step-saves-the-mail-pair",
+    "notify-step-left-empty-writes-nothing",
+    "finish-leaves-for-settings",
+    "an-empty-deployment-is-sent-from-settings-to-the-wizard",
+    "has-sources-has-no-wizard",
+    "json-has-no-wizard",
+    "fits-375",
+    "fits-largest-375",
+    "tap-steps-375",
+}
+
+
+def test_every_onboarding_probe_check_is_named_once_and_can_be_sabotaged():
+    assert cdp_probe.registry_problems(onboarding_probe.CHECKS, onboarding_probe.KINDS) == []
+    assert {check.id for check in onboarding_probe.CHECKS} >= EXPECTED_ONBOARDING_IDS
+
+
+def test_the_onboarding_probe_runs_on_the_shared_core():
+    assert onboarding_probe.Check is cdp_probe.Check
+
+
+def test_the_onboarding_probe_fixture_refuses_an_unknown_kind():
+    with pytest.raises(ValueError):
+        onboarding_probe.build_fixture("bogus")
+
+
+def test_the_onboarding_probe_sets_every_runtime_setting():
+    """No step may meet a missing-value marker it did not ask for."""
+    assert set(onboarding_probe.PROBE_VALUES) == set(GRADE_D_KEYS)
+    assert onboarding_probe.PROBE_VALUES["notify.discord_webhook_url"] == ""
+
+
+async def test_the_onboarding_probe_serves_the_real_wizard_and_its_script():
+    fixture = onboarding_probe.build_fixture("empty")
+    client = TestClient(TestServer(fixture.app))
+    await client.start_server()
+    try:
+        page = await (await client.get(onboarding_probe.PAGE)).text()
+        script = await client.get("/static/onboarding.js")
+        probe = await (await client.get("/api/vote")).json()
+    finally:
+        await client.close()
+    assert 'id="o-steps"' in page
+    assert script.status == 200
+    # The app Worker's route, which the site bar's links wait on.
+    assert probe == {"authorized": True}
+
+
+@pytest.mark.parametrize(
+    ("kind", "path", "location"),
+    [
+        ("empty", "/settings", "/onboarding"),
+        ("has-sources", "/onboarding", "/settings"),
+        ("json", "/onboarding", "/settings"),
+    ],
+)
+async def test_the_onboarding_probe_fixtures_redirect_as_the_container_does(
+    kind: str, path: str, location: str
+):
+    fixture = onboarding_probe.build_fixture(kind)
+    client = TestClient(TestServer(fixture.app))
+    await client.start_server()
+    try:
+        response = await client.get(path, allow_redirects=False)
+    finally:
+        await client.close()
+    assert (response.status, response.headers["Location"]) == (302, location)
+
+
+async def test_the_onboarding_probe_fixture_records_what_a_step_wrote():
+    fixture = onboarding_probe.build_fixture("empty")
+    status, _ = await _get_json(
+        fixture, "/api/settings/schedule", "POST", {"times": ["07:00", "19:00"]}
+    )
+    assert status == 200
+    assert fixture.calls == [{"general.digest_schedule": ["07:00", "19:00"]}]
 
 
 def test_the_labels_probe_fixture_refuses_an_unknown_kind():
