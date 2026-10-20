@@ -1,10 +1,11 @@
 {
-  "_comment": "Onboarding's feed picker (docs/milestones/cold-start-onboarding.md, decided 2026-10-18). Collected by the project, not a reader: only a publisher's own feed (a self-chosen host such as CNA's feedburner counts), never an RSS hub or an aggregator (Google News, Yahoo). One exception, kept by the owner on 2026-10-20: Hacker News through hnrss.org, a third-party feed of HN's front page, because HN is mainstream reading with no feed of its own. Every entry here passed both parsers (workers/rss/src/parse.js and feedparser, scripts/validate_feed_catalog.py) with at least one article inside 8 days when the validator last ran (2026-10-20). A wire service or breaking-news outlet carries the `news` tag (it routes into cluster_news, src/cyris/domain/tags.py); an analysis or tech-trade outlet does not. `topics` is the list's own grouping, not a `SourceConfig` field: the ordered table at the top names each subject (what a feed is about, never its form, so news, columns and blogs mix within one), and each feed names one or two of its ids. The wizard shows the topics first and only the chosen topics' feeds, and strips `topics` from an entry before posting it; `tags` still go into the pipeline and are never a topic. The assignment here is provisional (2026-10-20), until the list's own research replaces it. Read once at onboarding by the wizard's sources step, through GET /api/onboarding/feeds; after that a deployment's feeds live in its own `sources` (D1) or `sources.yaml`, and adding one is the existing single-source form, not this file.",
+  "_comment": "Onboarding's feed picker (docs/milestones/cold-start-onboarding.md, decided 2026-10-18). Collected by the project, not a reader: only a publisher's own feed (a self-chosen host such as CNA's feedburner counts), never an RSS hub or an aggregator (Google News, Yahoo). One exception, kept by the owner on 2026-10-20: Hacker News through hnrss.org, a third-party feed of HN's front page, because HN is mainstream reading with no feed of its own. Every entry here passed both parsers (workers/rss/src/parse.js and feedparser, scripts/validate_feed_catalog.py) with at least one article inside 8 days when the validator last ran (2026-10-20). A wire service or breaking-news outlet carries the `news` tag (it routes into cluster_news, src/cyris/domain/tags.py); an analysis or tech-trade outlet does not. `topics` is the list's own grouping, not a `SourceConfig` field: the ordered table at the top names each subject (what a feed is about, never its form, so news, columns and blogs mix within one), and each feed names one or two of its ids. The wizard shows the topics first and only the chosen topics' feeds, and strips `topics` from an entry before posting it; `tags` still go into the pipeline and are never a topic. On 2026-10-20 the owner widened the list toward blogs and columns, keeping every earlier entry: the science topic and 35 feeds came from a research pass that validated them, and their tags were cut back to the pipeline's existing words (news, tech, startup, opinion, analysis, investigative), since a topic, not a tag, says what a feed is about. Read once at onboarding by the wizard's sources step, through GET /api/onboarding/feeds; after that a deployment's feeds live in its own `sources` (D1) or `sources.yaml`, and adding one is the existing single-source form, not this file.",
   "topics": [
     {"id": "tech", "label": "Technology"},
     {"id": "business", "label": "Business & economy"},
     {"id": "world", "label": "World"},
     {"id": "taiwan", "label": "Taiwan"},
+    {"id": "science", "label": "Science & health"},
     {"id": "ideas", "label": "Ideas & culture"}
   ],
   "feeds": [
@@ -223,6 +224,286 @@
       "tags": ["tech"],
       "language": "en",
       "topics": ["tech"]
+    },
+    {
+      "name": "數位時代",
+      "url": "https://rss.bnextmedia.com.tw/feed/bnext",
+      "tier": "filter",
+      "tags": ["tech", "startup"],
+      "language": "zh",
+      "topics": ["tech", "business"]
+    },
+    {
+      "name": "Gea-Suan Lin's BLOG",
+      "url": "https://blog.gslin.org/feed/",
+      "tier": "filter",
+      "tags": ["tech", "opinion"],
+      "language": "zh",
+      "topics": ["tech"]
+    },
+    {
+      "name": "Simon Willison's Weblog",
+      "url": "https://simonwillison.net/atom/everything/",
+      "tier": "filter",
+      "tags": ["tech", "opinion"],
+      "language": "en",
+      "topics": ["tech"]
+    },
+    {
+      "name": "Daring Fireball",
+      "url": "https://daringfireball.net/feeds/main",
+      "tier": "filter",
+      "tags": ["tech", "opinion"],
+      "language": "en",
+      "topics": ["tech"]
+    },
+    {
+      "name": "Stratechery",
+      "url": "https://stratechery.com/feed/",
+      "tier": "filter",
+      "tags": ["tech", "opinion"],
+      "language": "en",
+      "topics": ["tech", "business"]
+    },
+    {
+      "name": "ChinaTalk",
+      "url": "https://www.chinatalk.media/feed",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["world", "tech"]
+    },
+    {
+      "name": "市場先生",
+      "url": "https://rich01.com/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "zh",
+      "topics": ["business"]
+    },
+    {
+      "name": "股感 StockFeel",
+      "url": "https://www.stockfeel.com.tw/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "zh",
+      "topics": ["business"]
+    },
+    {
+      "name": "Marginal Revolution",
+      "url": "https://marginalrevolution.com/feed",
+      "tier": "filter",
+      "tags": ["analysis", "opinion"],
+      "language": "en",
+      "topics": ["business"]
+    },
+    {
+      "name": "Noahpinion",
+      "url": "https://www.noahpinion.blog/feed",
+      "tier": "filter",
+      "tags": ["analysis", "opinion"],
+      "language": "en",
+      "topics": ["business", "world"]
+    },
+    {
+      "name": "Paul Krugman",
+      "url": "https://paulkrugman.substack.com/feed",
+      "tier": "filter",
+      "tags": ["analysis", "opinion"],
+      "language": "en",
+      "topics": ["business"]
+    },
+    {
+      "name": "端傳媒",
+      "url": "https://theinitium.com/rss/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "zh",
+      "topics": ["world", "taiwan"]
+    },
+    {
+      "name": "Global Taiwan Institute",
+      "url": "https://globaltaiwan.org/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["taiwan", "world"]
+    },
+    {
+      "name": "台灣事實查核中心",
+      "url": "https://tfc-taiwan.org.tw/feed/",
+      "tier": "filter",
+      "tags": ["investigative"],
+      "language": "zh",
+      "topics": ["taiwan"]
+    },
+    {
+      "name": "Focus Taiwan (CNA English)",
+      "url": "https://feeds.feedburner.com/rsscna/engnews",
+      "tier": "filter",
+      "tags": ["news"],
+      "language": "en",
+      "topics": ["taiwan"]
+    },
+    {
+      "name": "Taiwan Insight",
+      "url": "https://taiwaninsight.org/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["taiwan"]
+    },
+    {
+      "name": "泛科學 PanSci",
+      "url": "https://pansci.asia/feed",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "zh",
+      "topics": ["science"]
+    },
+    {
+      "name": "CASE 報科學",
+      "url": "https://case.ntu.edu.tw/blog/?feed=rss2",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "zh",
+      "topics": ["science"]
+    },
+    {
+      "name": "Quanta Magazine",
+      "url": "https://www.quantamagazine.org/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["science"]
+    },
+    {
+      "name": "Nautilus",
+      "url": "https://nautil.us/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["science", "ideas"]
+    },
+    {
+      "name": "Aeon",
+      "url": "https://aeon.co/feed.rss",
+      "tier": "filter",
+      "tags": ["opinion"],
+      "language": "en",
+      "topics": ["ideas", "science"]
+    },
+    {
+      "name": "Readmoo 閱讀最前線",
+      "url": "https://news.readmoo.com/feed/",
+      "tier": "filter",
+      "tags": ["opinion"],
+      "language": "zh",
+      "topics": ["ideas"]
+    },
+    {
+      "name": "OKAPI 閱讀生活誌",
+      "url": "https://okapi.books.com.tw/rss",
+      "tier": "filter",
+      "tags": ["opinion"],
+      "language": "zh",
+      "topics": ["ideas"]
+    },
+    {
+      "name": "The Marginalian",
+      "url": "https://www.themarginalian.org/feed/",
+      "tier": "filter",
+      "tags": ["opinion"],
+      "language": "en",
+      "topics": ["ideas"]
+    },
+    {
+      "name": "The Atlantic Ideas",
+      "url": "https://www.theatlantic.com/feed/channel/ideas/",
+      "tier": "filter",
+      "tags": ["opinion"],
+      "language": "en",
+      "topics": ["ideas"]
+    },
+    {
+      "name": "Dezeen",
+      "url": "https://www.dezeen.com/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["ideas"]
+    },
+    {
+      "name": "Lenny's Newsletter",
+      "url": "https://www.lennysnewsletter.com/feed",
+      "tier": "filter",
+      "tags": ["tech", "opinion"],
+      "language": "en",
+      "topics": ["business", "tech"]
+    },
+    {
+      "name": "Not Boring",
+      "url": "https://www.notboring.co/feed",
+      "tier": "filter",
+      "tags": ["startup", "opinion"],
+      "language": "en",
+      "topics": ["business", "tech"]
+    },
+    {
+      "name": "Slow Boring",
+      "url": "https://www.slowboring.com/feed",
+      "tier": "filter",
+      "tags": ["opinion"],
+      "language": "en",
+      "topics": ["world"]
+    },
+    {
+      "name": "The Diplomat",
+      "url": "https://thediplomat.com/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["world"]
+    },
+    {
+      "name": "Foreign Policy",
+      "url": "https://foreignpolicy.com/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["world"]
+    },
+    {
+      "name": "Kottke",
+      "url": "https://feeds.kottke.org/main",
+      "tier": "filter",
+      "tags": ["opinion"],
+      "language": "en",
+      "topics": ["ideas"]
+    },
+    {
+      "name": "Literary Hub",
+      "url": "https://lithub.com/feed/",
+      "tier": "filter",
+      "tags": ["opinion"],
+      "language": "en",
+      "topics": ["ideas"]
+    },
+    {
+      "name": "Terence Tao",
+      "url": "https://terrytao.wordpress.com/feed/",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["science"]
+    },
+    {
+      "name": "The Conversation",
+      "url": "https://theconversation.com/global/articles.atom",
+      "tier": "filter",
+      "tags": ["analysis"],
+      "language": "en",
+      "topics": ["science", "world"]
     }
   ]
 }
