@@ -524,19 +524,19 @@ sources live in a file the app never writes, has no wizard at all: this page sen
 - **First issue** builds an issue now rather than at the next publish hour. While the server says
   which issue it would be (`GET /api/onboarding/first-issue`), a small line marked `aria-busy` says
   so, and `Back` and `Skip` show. Then one small line says what `Start the first issue`, a primary
-  button in `Next`'s place, builds: the date and period, the latest publish hour already begun today,
-  so no later issue that day replaces it. `Start` posts the app Worker's own `POST /run?period=`,
-  the route any manual run takes. With nothing to start, the line says why and `Finish` takes
-  `Skip`'s and `Start`'s place: there is no source; it is before the morning publish hour, so that
-  hour's scheduled issue, named with its time and timezone, is the first; or an issue already holds
-  that date and period. While the run is out, the notice is marked `aria-busy`, names the issue and
-  the time so far, and says the reader can leave with `Finish`, the only button left; it reads the
-  run's record again every few seconds. A run that published ends in a notice with two links,
-  `Read it` to the issue and `archive` to the archive. Any other end is an error notice saying how
-  the run ended and why, with the run's own error when it raised, and `Start` reads `Try again`
-  beside `Finish`; a run with no record after the run container's 15-minute cap is reported the
-  same way. A reload while the run is out goes on waiting for it rather than offering a second
-  run.
+  button in `Next`'s place, builds: the date and period of today's latest publish hour already
+  begun, so no later issue that day replaces it, or, while both of today's hours are still to come,
+  yesterday's evening, with the line saying it is dated yesterday and naming today's two hours and
+  the timezone. `Start` posts the app Worker's own `POST /run?period=&date=`, the route any manual
+  run takes. With nothing to start, the line says why and `Finish` takes `Skip`'s and `Start`'s
+  place: there is no source, or an issue already holds that date and period. While the run is out,
+  the notice is marked `aria-busy`, names the issue and the time so far, and says the reader can
+  leave with `Finish`, the only button left; it reads the run's record again every few seconds. A
+  run that published ends in a notice naming the issue's date and period, with two links, `Read it`
+  to the issue and `archive` to the archive. Any other end is an error notice saying how the run
+  ended and why, with the run's own error when it raised, and `Start` reads `Try again` beside
+  `Finish`; a run with no record after the run container's 15-minute cap is reported the same way.
+  A reload while the run is out goes on waiting for it rather than offering a second run.
 
 ### email
 
