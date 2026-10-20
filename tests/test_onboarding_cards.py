@@ -12,6 +12,7 @@ from cyris.adapters.fetch import onboarding_cards
 from cyris.adapters.fetch.onboarding_cards import (
     BUFFER_DAYS,
     CARDS_PER_SOURCE,
+    CARDS_TOTAL,
     OnboardingArticles,
     draw_cards,
 )
@@ -81,6 +82,14 @@ class TestTheDraw:
 
         assert [a.source_name for a in draw.cards][:4] == ["A", "B", "A", "B"]
         assert len(draw.cards) == 2 * CARDS_PER_SOURCE
+
+    def test_a_full_pick_is_cut_at_the_total_with_every_source_dealt_once(self) -> None:
+        names = [f"S{n}" for n in range(CARDS_TOTAL)]
+        sources = {name: _source(name) for name in names}
+
+        draw = draw_cards([a for name in names for a in _feed(name, 10)], sources)
+
+        assert [a.source_name for a in draw.cards] == names
 
     def test_a_source_the_read_found_nothing_for_is_named_in_the_sources_order(self) -> None:
         sources = {"C": _source("C"), **SOURCES}
@@ -222,3 +231,4 @@ class TestTheConstantsMirrorTheWorker:
 
     def test_the_card_count_is_the_one_architecture_grades(self) -> None:
         assert f"`CARDS_PER_SOURCE` = {CARDS_PER_SOURCE}" in ARCHITECTURE
+        assert f"`CARDS_TOTAL` = {CARDS_TOTAL}" in ARCHITECTURE

@@ -23,11 +23,13 @@ from cyris.service_layer.ports import FetchSource
 
 logger = logging.getLogger(__name__)
 
-# Cards drawn from each source. Grade A (docs/architecture.md §5): each card is a
-# decision the reader is asked for, and the wait budget allows 12 feeds, so three
-# keeps a full pick at 36 cards — enough to say what a source is about without
-# turning the step into a triage session. The reader may leave any card alone.
+# Cards drawn from each source, and from all of them. Grade A (docs/architecture.md
+# §5): each card is a decision the reader is asked for. Three per source says what
+# a source is about when the pick is small; the total holds a full pick of 12 feeds
+# to one card each, since 36 cards read as a triage session (owner, 2026-10-20).
+# The reader may leave any card alone.
 CARDS_PER_SOURCE = 3
+CARDS_TOTAL = 12
 
 # How far back the cards may reach: the rss Worker's `RETENTION_DAYS`, the
 # buffer's whole depth, so a direct poll offers the same span as the buffer.
@@ -50,7 +52,8 @@ class CardDraw:
 
 
 def draw_cards(articles: list[Article], sources: dict[str, SourceConfig]) -> CardDraw:
-    """Each source's oldest articles, at most `CARDS_PER_SOURCE`, interleaved across sources.
+    """Each source's oldest articles, at most `CARDS_PER_SOURCE`, interleaved across sources
+    and cut at `CARDS_TOTAL`.
 
     Only the older half of a source's articles is drawn from, by publish time:
     a voted article leaves the first issue's candidates, and the newest are
@@ -71,7 +74,7 @@ def draw_cards(articles: list[Article], sources: dict[str, SourceConfig]) -> Car
 
     cards = [
         column[row] for row in range(CARDS_PER_SOURCE) for column in drawn if row < len(column)
-    ]
+    ][:CARDS_TOTAL]
     empty = [name for name, held in by_source.items() if not held]
     return CardDraw(cards=cards, empty=empty)
 
