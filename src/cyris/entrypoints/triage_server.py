@@ -319,7 +319,12 @@ class TriageServer:
     async def _handle_get_settings(self, request: web.Request) -> web.Response:
         """Every runtime setting and which are missing, and what this machine could switch to."""
         from cyris.adapters.notify import mask_discord_webhook_url
-        from cyris.bootstrap import EMBEDDING_ENV, default_models, embedding_defaults
+        from cyris.bootstrap import (
+            EMBEDDING_ENV,
+            clef_credentials,
+            default_models,
+            embedding_defaults,
+        )
         from cyris.config import GRADE_D_KEYS, LLMProviderConfig
         from cyris.service_layer.prompts import _language_names
 
@@ -364,6 +369,8 @@ class TriageServer:
                 "may_be_empty": [key for key in GRADE_D_KEYS if _accepts_empty(key)],
                 "providers": providers,
                 "embedding_providers": embedding_providers,
+                # Whether a run could call Clef; the page disables it as a judge if not.
+                "clef_ready": clef_credentials() is not None,
                 # Each tag with the name languages.json gives it, in the file's order:
                 # the pages offer them as a select's options.
                 "languages": [

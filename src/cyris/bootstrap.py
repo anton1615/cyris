@@ -210,16 +210,28 @@ def build_send_email_alert() -> Callable[..., Any] | None:
     return partial(send_alert_mail, account_id=account_id, token=token)
 
 
-def build_ask_clef() -> AskClef | None:
-    """Clef bound to the Workers AI token, else the embedding one; None without either."""
-    from cyris.adapters.clef import ClefClient
+def clef_credentials() -> tuple[str, str] | None:
+    """The account and the Workers AI token, else the embedding one; None without either.
 
+    /settings reads it too, to disable Clef where a run could not call it.
+    """
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
     token = os.environ.get("CLOUDFLARE_AI_TOKEN", "") or os.environ.get(
         "CLOUDFLARE_EMBEDDING_API_TOKEN", ""
     )
     if not (account_id and token):
         return None
+    return account_id, token
+
+
+def build_ask_clef() -> AskClef | None:
+    """Clef bound to the Workers AI token, else the embedding one; None without either."""
+    from cyris.adapters.clef import ClefClient
+
+    credentials = clef_credentials()
+    if credentials is None:
+        return None
+    account_id, token = credentials
     return ClefClient(token, account_id).ask
 
 

@@ -262,6 +262,35 @@ class TestEveryKeyReported:
         assert by_name["gemini"]["configured"] is False
         assert by_name["gemini"]["env_var"] == "GEMINI_API_KEY"
 
+    @pytest.mark.parametrize(
+        ("env", "ready"),
+        [
+            ({"CLOUDFLARE_ACCOUNT_ID": "a", "CLOUDFLARE_AI_TOKEN": "t"}, True),
+            ({"CLOUDFLARE_ACCOUNT_ID": "a", "CLOUDFLARE_EMBEDDING_API_TOKEN": "t"}, True),
+            ({"CLOUDFLARE_AI_TOKEN": "t"}, False),
+            ({"CLOUDFLARE_ACCOUNT_ID": "a"}, False),
+        ],
+        ids=["ai-token", "embedding-token", "no-account", "no-token"],
+    )
+    async def test_clef_readiness_follows_what_a_run_would_bind(
+        self, settings, monkeypatch, env, ready
+    ):
+        """The page disables Clef as the vote-order judge where build_ask_clef binds nothing."""
+        for name in (
+            "CLOUDFLARE_ACCOUNT_ID",
+            "CLOUDFLARE_AI_TOKEN",
+            "CLOUDFLARE_EMBEDDING_API_TOKEN",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        client = await _client(settings, {})
+
+        data = await (await client.get("/api/settings")).json()
+        await client.close()
+
+        assert data["clef_ready"] is ready
+
     async def test_the_output_languages_are_offered(self, settings):
         client = await _client(settings, {})
 

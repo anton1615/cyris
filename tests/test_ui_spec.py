@@ -1217,25 +1217,20 @@ def test_the_settings_page_scales_its_text_without_a_body_gutter() -> None:
     assert [d for d in body if d.startswith("padding")] == []
 
 
-class _VisibleSmallText(HTMLParser):
-    """The text of every small paragraph a reader sees without opening a `details`."""
+class _SmallText(HTMLParser):
+    """The text of every small paragraph on a page: with no fold for help, a reader sees each."""
 
     def __init__(self) -> None:
         super().__init__()
         self.texts: list[str] = []
-        self._details = 0
         self._text: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "details":
-            self._details += 1
-        elif tag == "p" and ("class", "small") in attrs and not self._details:
+        if tag == "p" and ("class", "small") in attrs:
             self._text = []
 
     def handle_endtag(self, tag: str) -> None:
-        if tag == "details":
-            self._details -= 1
-        elif tag == "p" and self._text is not None:
+        if tag == "p" and self._text is not None:
             self.texts.append("".join(self._text).strip())
             self._text = None
 
@@ -1244,23 +1239,86 @@ class _VisibleSmallText(HTMLParser):
             self._text.append(data)
 
 
-def _longer_than_a_sentence(html: str) -> list[str]:
-    parser = _VisibleSmallText()
+def _longer_than_two_sentences(html: str) -> list[str]:
+    parser = _SmallText()
     parser.feed(html)
-    return [text for text in parser.texts if len(re.findall(r"[.!?](?:\s|$)", text)) > 1]
+    return [text for text in parser.texts if len(re.findall(r"[.!?](?:\s|$)", text)) > 2]
 
 
-def test_a_second_visible_sentence_is_reported() -> None:
+def test_a_third_sentence_is_reported() -> None:
+    planted = '<p class="small">One. Two. Three.</p><p class="small">Four. Five.</p>'
+    assert _longer_than_two_sentences(planted) == ["One. Two. Three."]
+
+
+@pytest.mark.parametrize("page", ["settings", "onboarding"])
+def test_help_is_one_or_two_sentences(page: str) -> None:
+    """§4 field: help is in view and short; the background goes to the docs."""
+    assert _longer_than_two_sentences(_source(page)) == []
+
+
+FORM_CONTROLS = {"input", "select", "textarea", "button"}
+# The one fold that holds no control: Areas' list of closed areas, which only reports.
+READ_ONLY_FOLDS = {"Closed"}
+
+
+class _Folds(HTMLParser):
+    """Each `details` on a page, as its summary's text and whether it holds a form control."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.folds: list[tuple[str, bool]] = []
+        self._open: list[dict] = []
+        self._summary: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "details":
+            self._open.append({"summary": "", "controls": False})
+        elif tag == "summary" and self._open:
+            self._summary = []
+        elif tag in FORM_CONTROLS:
+            for fold in self._open:
+                fold["controls"] = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "summary" and self._summary is not None:
+            self._open[-1]["summary"] = "".join(self._summary).strip()
+            self._summary = None
+        elif tag == "details" and self._open:
+            fold = self._open.pop()
+            self.folds.append((fold["summary"], fold["controls"]))
+
+    def handle_data(self, data: str) -> None:
+        if self._summary is not None:
+            self._summary.append(data)
+
+
+def _folds_off_spec(html: str) -> list[str]:
+    """Each fold that hides help rather than settings, or names none of them."""
+    parser = _Folds()
+    parser.feed(html)
+    return [
+        summary
+        for summary, controls in parser.folds
+        if summary not in READ_ONLY_FOLDS and (not controls or summary.casefold() == "more")
+    ]
+
+
+def test_a_fold_of_help_or_a_bare_more_is_reported() -> None:
     planted = (
-        '<p class="small">One. Two.</p><p class="small">Three.</p>'
-        '<details class="more"><summary>More</summary><p class="small">Four. Five.</p></details>'
+        '<details class="more"><summary>More</summary><p class="small">Why.</p></details>'
+        '<details class="more"><summary>More</summary><input id="a"></details>'
+        '<details class="more"><summary>Advanced: retry limits</summary>'
+        '<div class="field"><input id="b"></div></details>'
+        '<details class="more"><summary>Notes</summary><p class="small">Why.</p></details>'
+        '<details class="more"><summary>Closed</summary><ul class="small"></ul></details>'
     )
-    assert _longer_than_a_sentence(planted) == ["One. Two."]
+    assert _folds_off_spec(planted) == ["More", "More", "Notes"]
 
 
-def test_settings_says_one_sentence_in_view_and_folds_the_rest() -> None:
-    """§4 and §6: one small sentence under a heading or field, the rest under More."""
-    assert _longer_than_a_sentence(_source("settings")) == []
+@pytest.mark.parametrize("page", ["settings", "onboarding"])
+def test_a_fold_holds_settings_and_names_them(page: str) -> None:
+    """§4 settings fold: help is never folded, and no summary is a bare More."""
+    assert _folds_off_spec(_source(page)) == []
 
 
 def test_a_settings_source_name_takes_the_title_role() -> None:

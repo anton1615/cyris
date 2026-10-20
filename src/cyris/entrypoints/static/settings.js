@@ -245,6 +245,7 @@ function render() {
         "Edit cyris.toml instead.", id);
     });
   }
+  updateDependencies();
 }
 
 function chosen() {
@@ -271,6 +272,29 @@ function updateEmbeddingHint() {
   $("embedding-model-input").dataset.placeholder = p ? `Empty uses ${p.default_model}` : "";
   applyPlaceholder($("embedding-model-input"));
 }
+
+// A setting that does nothing until another holds a value is disabled until then,
+// with a line saying what it waits for (ui-language.md §4 field). The vote order
+// follows the Vote similarity select as it stands, unsaved or not; Clef's option
+// follows its token, which only the server's environment can change.
+function updateDependencies() {
+  const votes = $("vote-enabled").value === "true";
+  const rank = $("rank-by-preference");
+  rank.disabled = !votes;
+  $("rank-needs").hidden = votes;
+  describe(rank, "rank-needs", !votes);
+  // A required setting is never locked out of being stored: with no value, the
+  // order a run takes without vote similarity is shown, and Save stores it.
+  if (!votes && rank.value === "") {
+    rank.value = "false";
+    refresh($("digest-form"));
+  }
+  $("preference-source").querySelector('option[value="clef"]').disabled = !state.clef_ready;
+  $("clef-needs").hidden = !!state.clef_ready;
+  describe($("preference-source"), "clef-needs", !state.clef_ready);
+}
+
+$("vote-enabled").addEventListener("change", () => { if (state) updateDependencies(); });
 
 // A "busy" notice says what a save is doing while it is out; its result replaces it.
 function show(kind, text, target) {
@@ -302,7 +326,7 @@ function refuse(controls, text) {
   controls.forEach((el) => {
     el.classList.add("invalid");
     el.setAttribute("aria-invalid", "true");
-    el.setAttribute("aria-describedby", notice.id);
+    describe(el, notice.id, true);
   });
   show("err", text, notice);
 }
@@ -311,10 +335,22 @@ function refuseSetting(err) {
   if (FIELDS[err.field]) refuse(FIELDS[err.field].controls.map($), err.message);
 }
 
+// aria-describedby names every line that describes a control: its refusal, and the
+// reason it is disabled, which come and go apart.
+function describe(el, id, on) {
+  const ids = new Set((el.getAttribute("aria-describedby") || "").split(" ").filter(Boolean));
+  if (on) ids.add(id);
+  else ids.delete(id);
+  if (ids.size) el.setAttribute("aria-describedby", [...ids].join(" "));
+  else el.removeAttribute("aria-describedby");
+}
+
 // A setting still missing keeps the aria-invalid its missing mark gives it.
 function clearRefusal(el) {
   el.classList.remove("invalid");
-  el.removeAttribute("aria-describedby");
+  for (const id of (el.getAttribute("aria-describedby") || "").split(" ")) {
+    if (document.getElementById(id)?.hasAttribute("data-field-error")) describe(el, id, false);
+  }
   if (!isMissing(el)) el.removeAttribute("aria-invalid");
 }
 

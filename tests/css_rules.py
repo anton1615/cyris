@@ -52,6 +52,7 @@ COMPONENT_SELECTORS = frozenset(
         ".btn:disabled",
         ".input, .select",
         ".input:focus, .select:focus",
+        ".input:disabled, .select:disabled",
         ".input.invalid",
         ".select.invalid",
         '.input[aria-invalid="true"]',

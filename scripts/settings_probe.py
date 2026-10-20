@@ -3470,9 +3470,174 @@ document.addEventListener("click", (event) => {
         """,
     ),
 ]
-# Every tap target takes taps over 44 x 44 on a phone, and none covers another: a
-# `More` stays off the control above it, which the Publish hours inputs sit right on.
-MORE_AND_CONTROLS = "details.more summary, .input, .select"
+
+
+def answer_settings(mutation: str) -> str:
+    """A preload that rewrites `data`, the page's `GET /api/settings` answer, before use.
+
+    A block, so its `realFetch` does not clash with another preload's.
+    """
+    return f"""
+{{
+const realFetch = window.fetch;
+window.fetch = async (input, init) => {{
+  const res = await realFetch(input, init);
+  if (!String(input).endsWith("/api/settings") || (init && init.method)) return res;
+  const data = await res.json();
+  {mutation}
+  return new Response(JSON.stringify(data), {{status: res.status, headers: res.headers}});
+}};
+}}
+"""
+
+
+# Installed before the page loads: a change of the Vote similarity select never
+# reaches the page's own listeners, so nothing on the page follows it.
+DEAF_VOTE_SELECT = """
+addEventListener("change", (e) => {
+  if (e.target.id === "vote-enabled") e.stopImmediatePropagation();
+}, true);
+"""
+
+# The vote order waits for vote similarity, and Clef for its token (ui-language.md §4
+# field): the control is disabled with a line saying why, and follows the page's values.
+RANK_WAITS = """
+const rank = $("#rank-by-preference"), line = $("#rank-needs");
+expect(rank.disabled, "the vote order is not disabled");
+expect(visible(line), "no line says what it waits for");
+expect(line.textContent === "Needs vote similarity on, under Model.", `line: ${line.textContent}`);
+"""
+CLEF_WAITS = """
+const select = $("#preference-source"), line = $("#clef-needs");
+expect(!select.disabled, "the whole select is disabled");
+expect($('option[value="clef"]', select).disabled, "Clef is not disabled");
+expect(!$('option[value="cosine"]', select).disabled, "Title similarity is disabled");
+expect(visible(line), "no line says what Clef waits for");
+expect(line.textContent.startsWith("Clef needs a Workers AI token"), `line: ${line.textContent}`);
+"""
+CHECKS += [
+    Check(
+        id="digest-order-waits-for-vote-similarity",
+        fixture="writable",
+        path="/settings#digest",
+        act="await settingsLoaded();",
+        script=RANK_WAITS,
+        # The stored value says vote similarity is on, so a page that reads it lets the order go.
+        sabotage_preload=answer_settings('data.values["vote_similarity.enabled"] = true;'),
+    ),
+    Check(
+        id="digest-order-follows-vote-similarity",
+        fixture="writable",
+        path="/settings#model",
+        act="""
+            await settingsLoaded();
+            setValue($("#vote-enabled"), "true");
+            location.hash = "digest";
+            await waitFor(() => same(panels(), ["digest"]), "digest");
+        """,
+        script=f"""
+            const rank = $("#rank-by-preference");
+            expect(!rank.disabled, "the vote order stays disabled with vote similarity on");
+            expect(!visible($("#rank-needs")), "the line stays with vote similarity on");
+            location.hash = "model";
+            await waitFor(() => same(panels(), ["model"]), "model");
+            setValue($("#vote-enabled"), "false");
+            location.hash = "digest";
+            await waitFor(() => same(panels(), ["digest"]), "digest");
+            {{ {RANK_WAITS} }}
+        """,
+        sabotage_preload=DEAF_VOTE_SELECT,
+    ),
+    Check(
+        id="digest-order-unset-saves-off",
+        fixture="writable",
+        path="/settings#digest",
+        setup=_unset("digest.rank_by_preference"),
+        act="""
+            await settingsLoaded();
+            saveOf("digest").click();
+            await waitFor(() => settled(noticeOf("digest")) && saveOf("digest").disabled,
+              "the save");
+        """,
+        script=f"""
+            {RANK_WAITS}
+            expect(rank.value === "false", `value: ${{rank.value}}`);
+            expect(!rank.hasAttribute("aria-invalid"), "the field is still marked");
+        """,
+        sabotage_preload=rewrite_post(
+            "/api/settings/values", 'body.values["digest.rank_by_preference"] = true;'
+        ),
+        receipt=_calls([{"digest.rank_by_preference": False}]),
+    ),
+    Check(
+        id="digest-clef-waits-for-its-token",
+        fixture="writable",
+        path="/settings#digest",
+        act="await settingsLoaded();",
+        script=CLEF_WAITS,
+        sabotage_preload=answer_settings("data.clef_ready = true;"),
+    ),
+    Check(
+        id="digest-clef-offered-with-its-token",
+        fixture="writable",
+        path="/settings#digest",
+        preload=answer_settings("data.clef_ready = true;"),
+        act="""
+            await settingsLoaded();
+            setValue($("#preference-source"), "clef");
+        """,
+        script="""
+            const select = $("#preference-source");
+            expect(!$('option[value="clef"]', select).disabled, "Clef is disabled with its token");
+            expect(!visible($("#clef-needs")), "the line stays with the token set");
+            expect(select.value === "clef", `value: ${select.value}`);
+            expect(!saveOf("digest").disabled, "Save is not live after picking Clef");
+        """,
+        sabotage_preload=answer_settings("data.clef_ready = false;"),
+    ),
+    # A disabled control leaves the tab order, so its reason must be its description,
+    # read when a screen reader reaches the control.
+    Check(
+        id="digest-order-reason-describes-it",
+        fixture="writable",
+        path="/settings#digest",
+        act="await settingsLoaded();",
+        script="""
+            const rank = $("#rank-by-preference");
+            const ids = (rank.getAttribute("aria-describedby") || "").split(" ");
+            expect(ids.includes("rank-needs"), `described by: ${ids}`);
+        """,
+        sabotage="""$("#rank-by-preference").removeAttribute("aria-describedby");""",
+    ),
+    Check(
+        id="digest-clef-reason-describes-it",
+        fixture="writable",
+        path="/settings#digest",
+        act="await settingsLoaded();",
+        script="""
+            const ids = ($("#preference-source").getAttribute("aria-describedby") || "").split(" ");
+            expect(ids.includes("clef-needs"), `described by: ${ids}`);
+        """,
+        sabotage="""$("#preference-source").removeAttribute("aria-describedby");""",
+    ),
+    Check(
+        id="digest-order-reason-leaves-with-vote-similarity",
+        fixture="writable",
+        path="/settings#digest",
+        preload=answer_settings('data.values["vote_similarity.enabled"] = true;'),
+        act="await settingsLoaded();",
+        script="""
+            const rank = $("#rank-by-preference");
+            const ids = (rank.getAttribute("aria-describedby") || "").split(" ");
+            expect(!ids.includes("rank-needs"), `described by: ${ids}`);
+        """,
+        sabotage="""$("#rank-by-preference").setAttribute("aria-describedby", "rank-needs");""",
+    ),
+]
+# Every tap target takes taps over 44 x 44 on a phone, and none covers another. Help
+# is in view now, so the one fold left is Areas' `Closed`, which sits a part's gap
+# below anything else: a fold kept clear of the control above it has nothing to clear.
+FOLDS_AND_CONTROLS = "details.more summary, .input, .select"
 CHECKS += [
     Check(
         id="tap-tabs-375",
@@ -3483,29 +3648,23 @@ CHECKS += [
         script="""expectTapTargets(".settings-nav a");""",
         sabotage=restyle(".settings-nav a { min-height: 0 !important; }"),
     ),
-    *(
-        Check(
-            id=check_id,
-            fixture="writable",
-            path="/settings",
-            width=375,
-            act="await settingsLoaded();",
-            script=f"""
-                let mores = 0;
-                const problems = await eachCategory(() => {{
-                  mores += $$("details.more summary").filter(visible).length;
-                  return $$({json.dumps(MORE_AND_CONTROLS)})
-                    .filter(visible).map(tapProblem).filter(Boolean);
-                }});
-                expect(mores, "no More shows");
-                expect(!problems.length, problems.join("; "));
-            """,
-            sabotage=restyle(f"details.more summary::after {{ {rule} }}"),
-        )
-        for check_id, rule in (
-            ("tap-more-375", "content: none !important;"),
-            ("tap-more-apart-375", "inset: min(0px, calc((100% - 44px) / 2)) 0 !important;"),
-        )
+    Check(
+        id="tap-folds-375",
+        fixture="writable",
+        path="/settings",
+        width=375,
+        act="await settingsLoaded();",
+        script=f"""
+            let folds = 0;
+            const problems = await eachCategory(() => {{
+              folds += $$("details.more summary").filter(visible).length;
+              return $$({json.dumps(FOLDS_AND_CONTROLS)})
+                .filter(visible).map(tapProblem).filter(Boolean);
+            }});
+            expect(folds, "no fold shows");
+            expect(!problems.length, problems.join("; "));
+        """,
+        sabotage=restyle("details.more summary::after { content: none !important; }"),
     ),
 ]
 # Tracked topics: the Sources table and editor again, where no topic is a valid answer.
