@@ -60,6 +60,16 @@ class TestTheDeckIsNotServed:
     ) -> None:
         assert (await client.get(path)).status == 200
 
+    @pytest.mark.parametrize("path", ["/static/style.css", "/static/onboarding.js"])
+    async def test_a_static_file_is_revalidated_on_every_use(
+        self, client: TestClient, path: str
+    ) -> None:
+        # Without it a browser reuses a stylesheet older than the page by heuristic.
+        response = await client.get(path)
+
+        assert response.headers["Cache-Control"] == "no-cache"
+        assert response.headers["ETag"]
+
     async def test_the_favicon_the_settings_page_links_is_served(self, client: TestClient) -> None:
         response = await client.get("/favicon.svg")
 

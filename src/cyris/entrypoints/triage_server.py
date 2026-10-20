@@ -169,6 +169,18 @@ def load_onboarding_topics() -> list[dict[str, str]]:
     return _onboarding_catalog()["topics"]
 
 
+async def _revalidate_static(request: web.Request, response: web.StreamResponse) -> None:
+    """Make the browser ask before reusing a page's CSS or JS.
+
+    `add_static` sends an ETag and a Last-Modified but no Cache-Control, so a
+    browser falls back to heuristic freshness and pairs a new page with the
+    stylesheet it cached before the release. `no-cache` still lets it keep the
+    file: each use is a conditional request, answered 304 while the ETag holds.
+    """
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+
+
 class TriageServer:
     """Serves /settings, /onboarding, /labels and the settings, sources, labels and build APIs."""
 
@@ -281,6 +293,7 @@ class TriageServer:
         # A local `cyris triage-ui` has no Pages behind it.
         self._app.router.add_get("/favicon.svg", self._handle_favicon)
         self._app.router.add_static("/static", STATIC_DIR)
+        self._app.on_response_prepare.append(_revalidate_static)
         self._runner: web.AppRunner | None = None
 
     async def _handle_build(self, request: web.Request) -> web.Response:

@@ -938,6 +938,11 @@ POST /run?period=[&date=]                  same lock; the Worker starts the `run
                                            itself (a date: today or yesterday, §3.2)
 ```
 
+The container answers `/static/*`, the pages' CSS and JS, with `Cache-Control: no-cache`, and the
+Worker passes a non-HTML response through untouched. A browser therefore revalidates each file by
+its ETag on every use, a 304 while it holds, instead of pairing a new page with a stylesheet it
+cached by heuristic before a release.
+
 `/settings` and `/onboarding` are two views of one deployment's state: an empty `sources` table is
 the waiting-for-onboarding state (§5 *RSS + newsletter source list*), so the container sends
 `/settings` to the guided setup while the table is empty. `/onboarding` stays open on a D1
