@@ -55,6 +55,7 @@ from cyris.diagnostics.doctor import Check as DoctorCheck
 from cyris.domain.areas import Area
 from cyris.domain.models import SourceConfig, Tier, TrackedTopic
 from cyris.entrypoints.triage_server import TriageServer
+from cyris.service_layer.prompts import _language_names
 
 # Named rather than random so a leak test can look for exactly these strings.
 SENTINEL_KEY = "cyris-probe-sentinel-key"
@@ -769,7 +770,7 @@ def refuse_post(path: str, error: str, field: str) -> str:
 
 SAVE_BAD_TIMEZONE = """
 await settingsLoaded();
-setValue($("#timezone"), "Mars/Base");
+offer($("#timezone"), "Mars/Base");
 saveOf("digest").click();
 await waitFor(() => settled(noticeOf("digest")), "the refusal");
 """
@@ -945,6 +946,28 @@ RECORD_POSTS = """
 
 def _still_listed(name: str) -> Callable[[Fixture], str | None]:
     return lambda fixture: None if name in fixture.sources else f"{name} was retired"
+
+
+def _holding(values: dict) -> Callable[[Fixture], None]:
+    """A setup: the settings home holds `values` in place of what it held."""
+    return lambda fixture: fixture.values.update(values)
+
+
+# languages.json's languages, in its order, as the Output language field must offer them.
+LANGUAGES = list(_language_names().items())
+# What a deployment may hold that neither list offers: a language tag
+# languages.json does not list, which the model is still told as written, and
+# a zone no browser lists.
+UNLISTED = {"digest.output_language": "yue-Hant", "general.timezone": "Cyris/Probe"}
+# The zone the probe's browser reports as its own (`PIN_ZONE`), so a check knows
+# what a field with no stored zone opens on: not the probe's stored Asia/Taipei.
+BROWSER_ZONE = "America/Halifax"
+PIN_ZONE = f"""{{
+const realOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
+Intl.DateTimeFormat.prototype.resolvedOptions = function () {{
+  return {{...realOptions.call(this), timeZone: {json.dumps(BROWSER_ZONE)}}};
+}};
+}}"""
 
 
 def _unset(*keys: str) -> Callable[[Fixture], None]:
@@ -2279,7 +2302,7 @@ CHECKS: list[Check] = [
             swatch.remove();
         """,
         script="""
-            const field = $("#timezone");
+            const field = $("#max-featured");
             expect(field.getAttribute("aria-invalid") === "true", "the field is not marked");
             expect(field.value === "" && field.placeholder === "Not set",
               `field: ${field.value} / ${field.placeholder}`);
@@ -2296,7 +2319,7 @@ CHECKS: list[Check] = [
             const checked = $$("input[name=provider]:checked").map((input) => input.value);
             expect(checked.length === 0, `checked: ${checked}`);
         """,
-        sabotage="""$("#timezone").removeAttribute("aria-invalid");""",
+        sabotage="""$("#max-featured").removeAttribute("aria-invalid");""",
     ),
     Check(
         id="missing-clears-on-save",
@@ -2317,7 +2340,7 @@ CHECKS: list[Check] = [
             expect(!navOf("digest").classList.contains("missing"), "Digest is still marked");
             const field = $("#timezone");
             expect(!field.hasAttribute("aria-invalid"), "the field is still marked");
-            expect(field.placeholder === "UTC", `placeholder: ${field.placeholder}`);
+            expect(!visible($("#timezone-detected")), "the saved zone is still marked detected");
         """,
         sabotage="""navOf("digest").classList.add("missing");""",
         receipt=_calls([{"general.timezone": "Europe/Berlin"}]),
@@ -2351,11 +2374,11 @@ CHECKS: list[Check] = [
         id="missing-focus-visible",
         fixture="writable",
         path="/settings#digest",
-        setup=_unset("general.timezone"),
+        setup=_unset("digest.max_featured"),
         focused=True,
         act="""
             await providersLoaded();
-            $("#timezone").focus();
+            $("#max-featured").focus();
             // The border colour transitions; read it once that has settled.
             await sleep(400);
             const swatch = document.createElement("i");
@@ -2365,7 +2388,7 @@ CHECKS: list[Check] = [
             swatch.remove();
         """,
         script="""
-            const field = $("#timezone");
+            const field = $("#max-featured");
             expect(document.activeElement === field, "the field is not focused");
             expect(field.getAttribute("aria-invalid") === "true", "the field is not marked");
             const border = getComputedStyle(field).borderTopColor;
@@ -2378,6 +2401,122 @@ CHECKS: list[Check] = [
             document.head.append(style);
             await sleep(400);
         """,
+    ),
+    Check(
+        id="digest-language-offers-the-listed-languages-by-name",
+        fixture="writable",
+        path="/settings#digest",
+        act="await settingsLoaded();",
+        script=f"""
+            const field = $("#output-language");
+            expect(field.tagName === "SELECT", `the field is a ${{field.tagName}}`);
+            const wanted = {json.dumps([list(pair) for pair in LANGUAGES], ensure_ascii=False)};
+            expect(same(options(field), wanted), `options: ${{JSON.stringify(options(field))}}`);
+            expect(field.value === "zh-Hant", `selected: ${{field.value}}`);
+        """,
+        # After the act: the options lose the file's order.
+        sabotage="""
+            const field = $("#output-language");
+            field.append(field.options[0]);
+        """,
+    ),
+    Check(
+        id="digest-keeps-an-unlisted-stored-value",
+        fixture="writable",
+        path="/settings#digest",
+        setup=_holding(UNLISTED),
+        act="await settingsLoaded();",
+        script=f"""
+            const language = $("#output-language"), zone = $("#timezone");
+            const tag = {json.dumps(UNLISTED["digest.output_language"])};
+            expect(language.value === tag, `language: ${{language.value}}`);
+            expect(language.selectedOptions[0].textContent === tag,
+              `shown as ${{language.selectedOptions[0].textContent}}`);
+            expect(zone.value === {json.dumps(UNLISTED["general.timezone"])},
+              `timezone: ${{zone.value}}`);
+            expect(saveOf("digest").disabled, "Save is live over untouched values");
+        """,
+        # After the act: the stored language's option is gone, as a list-only select's would be.
+        sabotage=f"""
+            $("#output-language").querySelector(
+              'option[value={json.dumps(UNLISTED["digest.output_language"])}]').remove();
+        """,
+    ),
+    Check(
+        id="digest-save-keeps-an-unlisted-value-it-did-not-change",
+        fixture="writable",
+        path="/settings#digest",
+        setup=_holding(UNLISTED),
+        act="""
+            await settingsLoaded();
+            setValue($("#max-featured"), "7");
+            saveOf("digest").click();
+            await waitFor(() => settled(noticeOf("digest")) && saveOf("digest").disabled,
+              "the save");
+        """,
+        script="""
+            const text = noticeOf("digest").textContent;
+            expect(!noticeOf("digest").classList.contains("err"), `an error: ${text}`);
+        """,
+        # The page sends the language too, as one that lost the unlisted value would.
+        sabotage_preload=rewrite_post(
+            "/api/settings/values", 'body.values["digest.output_language"] = "en";'
+        ),
+        receipt=_calls([{"digest.max_featured": 7}]),
+    ),
+    Check(
+        id="digest-timezone-lists-the-browsers-zones-and-utc",
+        fixture="writable",
+        path="/settings#digest",
+        act="await settingsLoaded();",
+        script="""
+            const field = $("#timezone");
+            expect(field.tagName === "SELECT", `the field is a ${field.tagName}`);
+            const zones = options(field).map(([value]) => value);
+            const missing = Intl.supportedValuesOf("timeZone").filter((z) => !zones.includes(z));
+            expect(!missing.length, `missing: ${missing.slice(0, 5)}`);
+            expect(zones.includes("UTC"), "UTC is not offered");
+            expect(field.value === "Asia/Taipei", `selected: ${field.value}`);
+        """,
+        sabotage="""$('#timezone option[value="UTC"]').remove();""",
+    ),
+    Check(
+        id="digest-timezone-with-none-stored-opens-on-the-browsers",
+        fixture="writable",
+        path="/settings#digest",
+        setup=_unset("general.timezone"),
+        preload=PIN_ZONE,
+        act="await settingsLoaded();",
+        script=f"""
+            const field = $("#timezone");
+            expect(field.value === {json.dumps(BROWSER_ZONE)}, `selected: ${{field.value}}`);
+            const line = $("#timezone-detected");
+            expect(visible(line) && line.textContent.startsWith("Detected from this browser"),
+              "the zone is not marked detected");
+            expect(!saveOf("digest").disabled, "Save is not live for the detected zone");
+            expect(navOf("digest").classList.contains("dirty"), "Digest has no unsaved mark");
+        """,
+        sabotage="""$("#timezone-detected").hidden = true;""",
+    ),
+    Check(
+        id="digest-timezone-detected-is-saved-as-it-stands",
+        fixture="writable",
+        path="/settings#digest",
+        setup=_unset("general.timezone"),
+        preload=PIN_ZONE,
+        act="""
+            await settingsLoaded();
+            saveOf("digest").click();
+            await waitFor(() => settled(noticeOf("digest")) && saveOf("digest").disabled,
+              "the save");
+        """,
+        script="""
+            expect(!visible($("#timezone-detected")), "the saved zone is still marked detected");
+        """,
+        sabotage_preload=rewrite_post(
+            "/api/settings/values", 'body.values["general.timezone"] = "UTC";'
+        ),
+        receipt=_calls([{"general.timezone": BROWSER_ZONE}]),
     ),
     Check(
         id="first-boot-notify-off",
@@ -2514,7 +2653,7 @@ window.fetch = async (input, init) => {
         path="/settings#digest",
         act="""
             await settingsLoaded();
-            setValue($("#timezone"), "Mars/Base");
+            offer($("#timezone"), "Mars/Base");
             saveOf("digest").click();
             await waitFor(() => settled(noticeOf("digest")), "the notice");
         """,
@@ -2788,7 +2927,7 @@ window.fetch = async (input, init) => {
         fixture="writable",
         path="/settings#digest",
         setup=_unset("general.timezone"),
-        act=SAVE_BAD_TIMEZONE + """setValue($("#timezone"), "Europe/Berl");""",
+        act=SAVE_BAD_TIMEZONE + """setValue($("#timezone"), "Europe/Berlin");""",
         script="""
             const field = $("#timezone");
             expect(!field.classList.contains("invalid"), "the refusal is still marked");
@@ -4956,6 +5095,13 @@ const setValue = (el, value) => {
   el.dispatchEvent(new Event("input", {bubbles: true}));
   el.dispatchEvent(new Event("change", {bubbles: true}));
 };
+// A select's option, added first when it lists none: a zone the browser offers
+// that the server's own zone database may not know.
+const offer = (el, value) => {
+  if (![...el.options].some((option) => option.value === value)) el.add(new Option(value, value));
+  setValue(el, value);
+};
+const options = (el) => [...el.options].map((option) => [option.value, option.textContent]);
 const panels = () => $$(".tab").filter(visible).map((panel) => panel.dataset.tab);
 const currentTabs = () =>
   $$(".settings-nav a[aria-current]").map((link) => link.getAttribute("href"));

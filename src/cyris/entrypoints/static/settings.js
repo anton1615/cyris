@@ -108,6 +108,8 @@ function applyPlaceholder(el) {
 // stores it.
 function markMissing() {
   const missing = new Set(state.missing);
+  // A stored zone is no longer only the detected one.
+  if (!missing.has("general.timezone")) $("timezone-detected").hidden = true;
   const byTab = {};
   for (const [key, field] of Object.entries(FIELDS)) {
     const unset = missing.has(key);
@@ -136,6 +138,49 @@ function markSet(keys) {
   state.missing = state.missing.filter((key) => !keys.includes(key));
   markMissing();
 }
+
+// The output languages, each stored as its BCP 47 tag and shown by the name
+// languages.json gives it, in that file's order. A stored tag the list lacks is
+// still a language the model is told to write in, so it stays an option of its
+// own, shown as the tag, and a save that leaves the field alone keeps it.
+function fillLanguages(select, languages, stored) {
+  const options = languages.map(({tag, name}) => new Option(name, tag));
+  if (stored != null && !languages.some(({tag}) => tag === stored)) {
+    options.push(new Option(stored, stored));
+  }
+  select.replaceChildren(...options);
+}
+
+// The zone this browser reads its own clock in, or "" when it will not say.
+function browserZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
+
+// Every zone this browser knows, UTC, which some leave out, and the stored zone
+// and this browser's own when the list lacks them, so a save that leaves the
+// field alone keeps what was stored.
+function fillTimezones(select, stored) {
+  const known = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  const zones = new Set([...known, "UTC", stored, browserZone()].filter(Boolean));
+  select.replaceChildren(...[...zones].sort().map((zone) => new Option(zone, zone)));
+}
+
+// A timezone with no stored value opens on this browser's own, marked as
+// detected rather than stored; the form's Save then stores it.
+function detectTimezone(form) {
+  const zone = browserZone();
+  if (state.values["general.timezone"] != null || !zone) return;
+  $("timezone").value = zone;
+  $("timezone-detected").hidden = false;
+  refresh(form);
+}
+
+// A zone the reader picked is no longer the detected one.
+$("timezone").addEventListener("change", () => { $("timezone-detected").hidden = true; });
 
 function render() {
   const values = state.values;
@@ -177,7 +222,8 @@ function render() {
   const [m, e] = values["general.digest_schedule"] || [];
   if (m) $("morning").value = parseInt(m, 10);
   if (e) $("evening").value = parseInt(e, 10);
-  $("languages").replaceChildren(...state.languages.map((tag) => new Option("", tag)));
+  fillLanguages($("output-language"), state.languages, values["digest.output_language"]);
+  fillTimezones($("timezone"), values["general.timezone"]);
   // A select would otherwise show its first option for a missing value.
   for (const [id, key] of Object.entries(PLAIN)) {
     if (values[key] != null) $(id).value = values[key];
@@ -192,6 +238,7 @@ function render() {
   markMissing();
   if (state.writable) {
     document.querySelectorAll("form.tab").forEach((form) => markClean(form));
+    detectTimezone($("digest-form"));
   } else {
     SETTINGS_NOTICES.forEach((id) => {
       show("err", "This deployment has no settings store, so nothing can be saved here. " +

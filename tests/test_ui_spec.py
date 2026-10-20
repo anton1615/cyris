@@ -391,7 +391,8 @@ def test_an_unguarded_button_hover_is_reported() -> None:
 @pytest.mark.parametrize("source", BUTTON_SOURCES)
 def test_a_pressed_button_only_lowers_its_opacity(source: str) -> None:
     pressed = {key: d for key, d in _button_rules(source).items() if ":active" in key}
-    assert pressed == {f".btn{ENABLED}:active": {"opacity: .7"}}
+    # The toggle tile is pressed as a button is (ui-language.md §4); it is never disabled.
+    assert pressed == {f".btn{ENABLED}:active": {"opacity: .7"}, ".tile:active": {"opacity: .7"}}
 
 
 def test_every_website_button_lowers_its_opacity_when_pressed() -> None:
@@ -1491,8 +1492,10 @@ def test_a_product_example_suits_any_deployment(path: Path) -> None:
     assert _dates_outside_comments(text) == []
 
 
-def test_the_timezone_example_names_no_region() -> None:
-    assert 'id="timezone" type="text" placeholder="UTC"' in _source("settings")
+@pytest.mark.parametrize("page, control", [("settings", "timezone"), ("onboarding", "o-timezone")])
+def test_the_timezone_names_no_region_of_its_own(page: str, control: str) -> None:
+    # Its options are the reader's browser's zones, filled in by the script.
+    assert f'<select class="select" id="{control}"></select>' in _source(page)
 
 
 REPO = UI_SPEC.parents[2]

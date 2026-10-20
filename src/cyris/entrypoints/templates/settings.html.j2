@@ -168,8 +168,9 @@
             </div>
             <div class="field">
               <label class="label" for="timezone">Timezone</label>
-              <input class="input" id="timezone" type="text" placeholder="UTC" autocomplete="off">
+              <select class="select" id="timezone"></select>
               <p class="small">The clock the publish hours are read in.</p>
+              <p class="small" id="timezone-detected" hidden>Detected from this browser, and not saved yet.</p>
             </div>
             <div class="field">
               <label class="label" for="max-featured">Features cards</label>
@@ -183,10 +184,9 @@
             </div>
             <div class="field">
               <label class="label" for="output-language">Output language</label>
-              <input class="input" id="output-language" type="text" list="languages" autocomplete="off">
-              <datalist id="languages"></datalist>
-              <p class="small">A BCP 47 tag, such as zh-Hant or en.</p>
-              <details class="more"><summary>More</summary><p class="small">Headlines and summaries are written in it. A tag not in the list is passed to the model as written.</p></details>
+              <select class="select" id="output-language"></select>
+              <p class="small">The language headlines and summaries are written in.</p>
+              <details class="more"><summary>More</summary><p class="small">Each one is stored as its BCP 47 tag, such as zh-Hant or en. A tag stored outside this list is kept, shown as the tag itself, and passed to the model as written.</p></details>
             </div>
             <div class="field">
               <label class="label" for="style-prompt">Style</label>

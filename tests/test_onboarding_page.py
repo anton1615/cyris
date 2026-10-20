@@ -24,6 +24,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import cyris
 import cyris.entrypoints
+from cyris.adapters.fetch.rss_worker_source import POLL_CONCURRENCY, POLL_FEED_TIMEOUT_SECONDS
 from cyris.config import SETTINGS_FIELDS
 from cyris.domain.models import SourceConfig
 from cyris.entrypoints.triage_server import (
@@ -556,6 +557,11 @@ class TestThePickSourcesStep:
     def test_the_script_keeps_the_chosen_topics_for_a_reload(self) -> None:
         """scripts/onboarding_probe.py's reload check clears this key as its sabotage."""
         assert 'const TOPICS_KEY = "cyris-onboarding-topics";' in ONBOARDING_JS
+
+    def test_the_slow_pick_warning_starts_where_the_poll_passes_a_minute(self) -> None:
+        """Up to SLOW_PICKS feeds, the Votes step's poll is three batches of 20 seconds."""
+        within_a_minute = POLL_CONCURRENCY * (60 // POLL_FEED_TIMEOUT_SECONDS)
+        assert f"const SLOW_PICKS = {within_a_minute};" in ONBOARDING_JS
 
     def test_the_script_reads_the_list_from_the_server(self) -> None:
         assert 'fetch("/api/onboarding/feeds")' in ONBOARDING_JS

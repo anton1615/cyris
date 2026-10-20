@@ -288,7 +288,7 @@ def test_the_digest_category_offers_the_language_list_and_a_style_box() -> None:
 
     page = render_settings_page()
 
-    assert '<datalist id="languages">' in page
+    assert '<select class="select" id="output-language"></select>' in page
     assert '<textarea class="input" id="style-prompt" rows="4">' in page
 
 

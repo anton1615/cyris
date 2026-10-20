@@ -1,9 +1,10 @@
 // The onboarding wizard: one step at a time, moved through with Back, Next and
 // Skip, ending back on /settings. Three steps write settings, each through the
 // route /settings saves that field with, so what lands in the store is what the
-// settings form would have stored. The sources step shows the feed list's topics,
-// then the chosen topics' feeds, and writes each picked feed through
-// POST /api/sources, the route the settings form adds a source with. The
+// settings form would have stored. The sources step shows the feed list's
+// topics on one screen, then the chosen topics' feeds on the next, and writes
+// each picked feed through POST /api/sources, the route the settings form adds
+// a source with. The
 // votes step deals cards from those feeds (POST /api/onboarding/cards) and
 // writes the marked ones as votes (POST /api/onboarding/votes), then turns vote
 // similarity on through /api/settings/vote-similarity, the Model form's route.
@@ -43,9 +44,12 @@ let REGISTRY = {};
 // step turns vote similarity on with the embedder stored here.
 let VALUES = null;
 
+// The sources step's second screen has a hash of its own (FEEDS_SCREEN), so a
+// reload keeps the screen as well as the step.
 const stepOf = () => {
   const hash = location.hash.slice(1);
-  return STEPS.includes(hash) ? hash : STEPS[0];
+  const step = hash === FEEDS_SCREEN ? "sources" : hash;
+  return STEPS.includes(step) ? step : STEPS[0];
 };
 
 const hideNotice = () => { $("o-result").hidden = true; };
@@ -78,12 +82,14 @@ function route() {
   // Nothing is left to save on the last step: its own button starts the run,
   // and Finish, the link out of the wizard, takes Next's place.
   $("o-next").hidden = last;
+  $("o-next").disabled = false;
   $("o-start").hidden = true;
   $("o-finish").hidden = !last;
   hideNotice();
   if (pending) show("ok", pending);
   pending = null;
   window.scrollTo(0, 0);
+  drawScreen();
   if (step === "votes") loadCards();
   if (last) loadIssue();
 }
@@ -146,6 +152,8 @@ async function saveLanguage() {
   try {
     const data = await post("/api/settings/values", {values});
     keep(ids);
+    // Stored now, so no longer only detected.
+    if (ids.includes("o-timezone")) $("o-timezone-detected").hidden = true;
     const parts = ids.map((id) => `${labelOf(PLAIN[id])}: ${data.values[PLAIN[id]]}`);
     return `${parts.join(", ")}. ${data.note}`;
   } catch (err) {
@@ -214,9 +222,9 @@ async function saveNotify() {
   return lines.join("\n");
 }
 
-// The topic list's rows, one per topic GET /api/onboarding/feeds sent, in its
-// order, and the feed list's rows, one per entry, in its order; both empty
-// when the server offered none.
+// The topic tiles, one per topic GET /api/onboarding/feeds sent, in its order,
+// and the feed list's rows, one per entry, in its order; both empty when the
+// server offered none.
 let TOPICS = [];
 let FEEDS = [];
 
@@ -224,7 +232,13 @@ let FEEDS = [];
 // feeds. A feed's own pick is not kept: a reload starts it unchecked, as before.
 const TOPICS_KEY = "cyris-onboarding-topics";
 
-const chosenTopics = () => TOPICS.filter((row) => row.box.checked).map((row) => row.topic.id);
+// Past this many picked feeds the Votes step waits more than a minute before it
+// deals cards: its poll fetches four feeds at a time, each given 20 seconds
+// (docs/architecture.md §5, Onboarding poll wait), so 12 is three batches.
+const SLOW_PICKS = 12;
+
+const chosenTopics = () => TOPICS.filter((row) => row.chosen).map((row) => row.topic.id);
+const pickedFeeds = () => FEEDS.filter((row) => row.box.checked);
 
 function storedTopics() {
   try {
@@ -235,8 +249,8 @@ function storedTopics() {
   }
 }
 
-// A checklist row, as the list's rows all are: a checkbox, the name, and the
-// label role on the right.
+// A checklist row, as the feed list's rows all are: a checkbox, the name, and
+// the label role on the right.
 function checklistRow(name) {
   const label = document.createElement("label");
   label.className = "choice";
@@ -259,6 +273,26 @@ function checklist(legend, rows) {
   head.textContent = legend;
   set.append(head, ...rows.map((row) => row.label));
   return set;
+}
+
+// A topic's toggle tile: one press chooses it, the next unchooses it.
+function topicTile(topic, count) {
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "tile";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = topic.label;
+  const side = document.createElement("span");
+  side.className = "label";
+  side.textContent = `${count} ${count === 1 ? "feed" : "feeds"}`;
+  tile.append(name, side);
+  return tile;
+}
+
+function setChosen(row, chosen) {
+  row.chosen = chosen;
+  row.tile.setAttribute("aria-pressed", String(chosen));
 }
 
 // Where a picked feed goes once none of its topics is chosen: it stays checked
@@ -286,6 +320,41 @@ function drawFeeds() {
   $("o-feeds").replaceChildren(...sets);
   $("o-feeds").hidden = !sets.length;
   $("o-feeds-hint").hidden = chosen.length > 0;
+  drawPicked();
+  drawScreen();
+}
+
+// How many feeds Next sends, and past SLOW_PICKS, how long the next step waits
+// for them. It warns; it does not stop the reader.
+function drawPicked() {
+  const count = pickedFeeds().length;
+  const lines = [`${count} ${count === 1 ? "feed" : "feeds"} picked.`];
+  if (count > SLOW_PICKS) {
+    lines.push("The Votes step fetches every picked feed before it deals cards: " +
+      `up to ${SLOW_PICKS} take about a minute, and more take longer.`);
+  }
+  $("o-picked").textContent = lines.join(" ");
+}
+
+// The sources step's two screens, by the hash: its topics, then their feeds.
+const FEEDS_SCREEN = "sources/feeds";
+const onFeeds = () => location.hash.slice(1) === FEEDS_SCREEN;
+
+// Shows the screen the hash names, once the list is drawn. The feeds screen
+// with nothing to show, as after a reload whose topics were not kept, gives
+// way to the topics screen. Next on the topics screen waits for a topic, or
+// for a feed picked before, which only the feeds screen shows.
+function drawScreen() {
+  if (stepOf() !== "sources" || !TOPICS.length) return;
+  if (onFeeds() && !chosenTopics().length && !pickedFeeds().length) {
+    location.replace("#sources");
+    return;
+  }
+  const screen = onFeeds() ? "feeds" : "topics";
+  document.querySelectorAll('.step[data-step="sources"] [data-screen]').forEach((el) => {
+    el.hidden = el.dataset.screen !== screen;
+  });
+  $("o-next").disabled = screen === "topics" && !chosenTopics().length && !pickedFeeds().length;
 }
 
 // A row's state, shown on its right before its tags. An added feed's checkbox
@@ -305,6 +374,9 @@ function setState(row, state) {
 function renderFeeds(data) {
   if (!data.feeds.length) {
     $("o-feeds-loading").remove();
+    document.querySelectorAll('.step[data-step="sources"] [data-screen]').forEach((el) => {
+      el.hidden = true;
+    });
     $("o-feeds-had").hidden = false;
     return;
   }
@@ -317,6 +389,7 @@ function renderFeeds(data) {
       if (row.state === "Not added") setState(row, "");
       // An unchecked feed none of whose topics is chosen leaves the list.
       if (!row.box.checked && !topics.some((id) => chosenTopics().includes(id))) drawFeeds();
+      else drawPicked();
     });
     setState(row, "");
     return row;
@@ -324,10 +397,10 @@ function renderFeeds(data) {
   const stored = storedTopics();
   TOPICS = data.topics.map((topic) => {
     const count = FEEDS.filter((row) => row.entry.topics.includes(topic.id)).length;
-    const row = {topic, ...checklistRow(topic.label)};
-    row.side.textContent = `${count} ${count === 1 ? "feed" : "feeds"}`;
-    row.box.checked = stored.has(topic.id);
-    row.box.addEventListener("change", () => {
+    const row = {topic, tile: topicTile(topic, count)};
+    setChosen(row, stored.has(topic.id));
+    row.tile.addEventListener("click", () => {
+      setChosen(row, !row.chosen);
       // Kept only for a reload: storage the browser refuses must not stop the redraw.
       try {
         sessionStorage.setItem(TOPICS_KEY, JSON.stringify(chosenTopics()));
@@ -336,8 +409,7 @@ function renderFeeds(data) {
     });
     return row;
   });
-  $("o-topics").append(...TOPICS.map((row) => row.label));
-  $("o-topics").hidden = false;
+  $("o-topics").append(...TOPICS.map((row) => row.tile));
   drawFeeds();
   $("o-feeds-loading").remove();
 }
@@ -807,6 +879,11 @@ const moving = (on) => {
 };
 
 $("o-next").addEventListener("click", async () => {
+  // The topics screen saves nothing: its Next opens the chosen topics' feeds.
+  if (stepOf() === "sources" && TOPICS.length && !onFeeds()) {
+    location.hash = FEEDS_SCREEN;
+    return;
+  }
   const save = SAVES[stepOf()];
   if (!save) return advance();
   moving(true);
@@ -819,6 +896,7 @@ $("o-next").addEventListener("click", async () => {
     advance();
   } catch (err) {
     moving(false);
+    drawScreen();
     show("err", err.message);
   }
 });
@@ -834,6 +912,11 @@ $("o-start").addEventListener("click", startIssue);
 
 $("o-back").addEventListener("click", () => {
   unmark(FIELDS);
+  // The feeds screen's Back returns to the topics, every check kept.
+  if (onFeeds()) {
+    location.hash = "sources";
+    return;
+  }
   const index = STEPS.indexOf(stepOf());
   if (index > 0) location.hash = STEPS[index - 1];
 });
@@ -842,15 +925,53 @@ for (const id of FIELDS) {
   $(id).addEventListener("input", () => unmark([id]));
 }
 
+// The output languages, each stored as its BCP 47 tag and shown by the name
+// languages.json gives it, in that file's order. A stored tag the list lacks is
+// still a language the model is told to write in, so it stays an option of its
+// own, shown as the tag, and Next over the untouched field stores nothing.
+function fillLanguages(select, languages, stored) {
+  const options = languages.map(({tag, name}) => new Option(name, tag));
+  if (stored != null && !languages.some(({tag}) => tag === stored)) {
+    options.push(new Option(stored, stored));
+  }
+  select.replaceChildren(...options);
+}
+
+// The zone this browser reads its own clock in, or "" when it will not say.
+function browserZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
+
+// Every zone this browser knows, UTC, which some leave out, and the stored zone
+// and this browser's own when the list lacks them.
+function fillTimezones(select, stored) {
+  const known = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  const zones = new Set([...known, "UTC", stored, browserZone()].filter(Boolean));
+  select.replaceChildren(...[...zones].sort().map((zone) => new Option(zone, zone)));
+}
+
+// A setting with no stored value opens on "Not set", which a select would
+// otherwise show as its first option.
+function openOn(select, stored) {
+  if (stored != null) select.value = stored;
+  else select.prepend(new Option("Not set", "", true, true));
+}
+
+// A zone the reader picked is no longer the detected one.
+$("o-timezone").addEventListener("change", () => { $("o-timezone-detected").hidden = true; });
+
 function render(state) {
   const values = state.values;
   VALUES = values;
   REGISTRY = state.fields;
-  $("o-languages").replaceChildren(...state.languages.map((tag) => new Option("", tag)));
-  if (values["digest.output_language"] != null) {
-    $("o-output-language").value = values["digest.output_language"];
-  }
-  if (values["general.timezone"] != null) $("o-timezone").value = values["general.timezone"];
+  fillLanguages($("o-output-language"), state.languages, values["digest.output_language"]);
+  openOn($("o-output-language"), values["digest.output_language"]);
+  fillTimezones($("o-timezone"), values["general.timezone"]);
+  openOn($("o-timezone"), values["general.timezone"]);
   const [morning, evening] = values["general.digest_schedule"] || [];
   if (morning) $("o-morning").value = parseInt(morning, 10);
   if (evening) $("o-evening").value = parseInt(evening, 10);
@@ -859,6 +980,14 @@ function render(state) {
   $("o-email-to").value = values["notify.email_to"] ?? "";
   $("o-email-from").value = values["notify.email_from"] ?? "";
   keep(FIELDS);
+  // With no stored zone the field opens on this browser's own, marked as
+  // detected rather than stored: it differs from what was loaded, so Next
+  // saves it and Skip leaves the setting unset.
+  const zone = browserZone();
+  if (values["general.timezone"] == null && zone) {
+    $("o-timezone").value = zone;
+    $("o-timezone-detected").hidden = false;
+  }
 }
 
 route();

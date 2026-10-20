@@ -61,15 +61,15 @@
       </div>
       <div class="field">
         <label class="label" for="o-output-language">Output language</label>
-        <input class="input" id="o-output-language" type="text" list="o-languages" autocomplete="off">
-        <datalist id="o-languages"></datalist>
-        <p class="small">A BCP 47 tag, such as zh-Hant or en.</p>
-        <details class="more"><summary>More</summary><p class="small">Headlines and summaries are written in it. A tag not in the list is passed to the model as written.</p></details>
+        <select class="select" id="o-output-language"></select>
+        <p class="small">The language headlines and summaries are written in.</p>
+        <details class="more"><summary>More</summary><p class="small">Each one is stored as its BCP 47 tag, such as zh-Hant or en. A tag stored outside this list is kept, shown as the tag itself, and passed to the model as written.</p></details>
       </div>
       <div class="field">
         <label class="label" for="o-timezone">Timezone</label>
-        <input class="input" id="o-timezone" type="text" placeholder="UTC" autocomplete="off">
+        <select class="select" id="o-timezone"></select>
         <p class="small">The clock the publish hours are read in.</p>
+        <p class="small" id="o-timezone-detected" hidden>Detected from this browser, and not saved yet: Next saves it.</p>
       </div>
     </section>
 
@@ -91,20 +91,28 @@
     </section>
 
     {# The list is the server's (GET /api/onboarding/feeds), offered only while the
-       sources table is empty: its topics first, then the chosen topics' feeds, one
-       checklist per topic. Each pick is posted to POST /api/sources as listed, less
-       the list's own topics. #}
+       sources table is empty, in two screens of this one step: its topics, then
+       the chosen topics' feeds, one checklist per topic. The hash names the
+       screen: #sources, then #sources/feeds. Each pick is posted to
+       POST /api/sources as listed, less the list's own topics. #}
     <section class="step" data-step="sources" hidden>
       <div class="step-head">
         <h2 class="heading">Sources</h2>
-        <p class="small">The feeds this deployment reads. Each one is a publisher's own feed; pick the topics you follow, then the feeds you read.</p>
+        <p class="small" data-screen="topics">The feeds this deployment reads, each a publisher's own feed. Pick the topics you follow; Next shows their feeds.</p>
+        <p class="small" data-screen="feeds" hidden>The feeds of the topics you picked. Check the ones you read; Back changes the topics.</p>
         <p class="small" id="o-feeds-loading">Loading feeds…</p>
       </div>
-      <fieldset class="sources-check" id="o-topics" hidden>
-        <legend class="label">Topics</legend>
-      </fieldset>
-      <p class="small" id="o-feeds-hint" hidden>Pick a topic to see its feeds.</p>
-      <div id="o-feeds" hidden></div>
+      <div class="field" data-screen="topics" id="o-topics-screen" hidden>
+        <span class="label" id="o-topics-label">Topics</span>
+        <div class="tiles" id="o-topics" role="group" aria-labelledby="o-topics-label"></div>
+        <p class="small" id="o-feeds-hint">Pick a topic to see its feeds, or Skip to add sources later.</p>
+      </div>
+      <div data-screen="feeds" id="o-feeds-screen" hidden>
+        <div id="o-feeds"></div>
+        {# Fixed above the buttons: how many feeds Next sends, and past SLOW_PICKS
+           in onboarding.js, that the Votes step waits for each of them. #}
+        <p class="small" id="o-picked" aria-live="polite"></p>
+      </div>
       <p class="small" id="o-feeds-had" hidden>This deployment already has sources. Add more later under Sources in Settings; Next moves on.</p>
     </section>
 

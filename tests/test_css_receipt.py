@@ -548,6 +548,12 @@ def test_the_probe_set_watches_no_footer_link():
 # settings page adds the ids of the checks that hold it.
 EXPECTED_IDS = {
     "site-bar-current",
+    "digest-language-offers-the-listed-languages-by-name",
+    "digest-keeps-an-unlisted-stored-value",
+    "digest-save-keeps-an-unlisted-value-it-did-not-change",
+    "digest-timezone-lists-the-browsers-zones-and-utc",
+    "digest-timezone-with-none-stored-opens-on-the-browsers",
+    "digest-timezone-detected-is-saved-as-it-stands",
     "editor-opens-on-enter",
     "editor-opens-on-space",
     "editor-cancel-focuses-row",
@@ -1250,10 +1256,13 @@ def test_the_labels_probe_runs_on_the_shared_core():
 
 
 # The checks `scripts/onboarding_probe.py` must carry: the frame walks, each
-# settings step writes what it was given, the sources step shows its topics
-# first and only the chosen topics' feeds, each once, keeps a pick whose topic is
-# dropped and the topics over a reload, and stores each pick as listed with no
-# `topics` in its body, the votes step deals its cards, names a feed
+# settings step writes what it was given, the language and timezone are selects
+# that keep a stored value neither lists and open on the browser's zone when none
+# is stored, the sources step shows its topics as toggle tiles on one screen and
+# only the chosen topics' feeds, each once, on the next, with Next, Back and Skip
+# moving between them, counts the picks and warns past twelve, keeps a pick whose
+# topic is dropped and the topics over a reload, and stores each pick as listed
+# with no `topics` in its body, the votes step deals its cards, names a feed
 # with none, shows the wait and writes only the marked cards and vote
 # similarity, the first-issue step starts one run for the key it picked, today's
 # or yesterday's evening, shows it while it is out, says where its issue is or
@@ -1272,6 +1281,14 @@ EXPECTED_ONBOARDING_IDS = {
     "hours-step-saves-the-schedule",
     "hours-step-refuses-an-empty-hour",
     "a-refused-value-is-marked-in-its-own-field",
+    "language-step-offers-the-listed-languages-by-name",
+    "language-step-keeps-an-unlisted-stored-value",
+    "language-step-leaves-an-unlisted-value-it-did-not-change",
+    "timezone-lists-the-browsers-zones-and-utc",
+    "timezone-opens-on-the-stored-zone-not-the-browsers",
+    "timezone-with-none-stored-opens-on-the-browsers-marked-detected",
+    "timezone-detected-is-saved-by-next",
+    "timezone-detected-is-not-saved-by-skip",
     "notify-step-saves-the-webhook",
     "notify-step-saves-the-mail-pair",
     "notify-step-refuses-a-sender-without-a-recipient",
@@ -1285,6 +1302,17 @@ EXPECTED_ONBOARDING_IDS = {
     "sources-step-keeps-a-pick-when-its-topic-is-dropped",
     "sources-step-a-reload-keeps-the-topics",
     "sources-step-posts-no-topics",
+    "sources-step-topics-are-toggle-buttons",
+    "sources-step-a-pressed-topic-shows-it",
+    "sources-step-a-topic-answers-the-keyboard",
+    "sources-step-next-opens-the-feeds-screen",
+    "sources-step-back-returns-to-the-topics",
+    "sources-step-skip-on-the-topics-screen-leaves-the-step",
+    "sources-step-counts-the-picked-feeds",
+    "sources-step-warns-past-twelve-picks",
+    "sources-step-twelve-picks-carry-no-warning",
+    "fits-topics-375",
+    "fits-largest-topics-375",
     "sources-step-lists-every-entry",
     "sources-step-stores-the-picked-entries",
     "sources-step-stores-the-listed-tier",
