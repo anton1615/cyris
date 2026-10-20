@@ -136,9 +136,9 @@ def render_onboarding_page() -> str:
 # The answers /labels takes; a skip is kept on the sample alone.
 LABELS = ("up", "down", "skip")
 
-# Where the onboarding wizard leaves, and the mark its own exit carries. Until
-# the wizard's pick-sources step lands, a deployment that walked it through has
-# the same empty `sources` table it started with, and /settings would send it
+# Where the onboarding wizard leaves, and the mark its own exit carries. A
+# deployment that skipped the pick-sources step finishes the wizard with the
+# same empty `sources` table it started with, and /settings would send it
 # straight back; this marker is what lets it through once.
 ONBOARDING_PATH = "/onboarding"
 ONBOARDING_EXIT_MARK = ("from", "onboarding")
@@ -1417,10 +1417,10 @@ class TriageServer:
         return web.Response(text=self._labels_page, content_type="text/html")
 
     def _awaiting_onboarding(self) -> bool:
-        """Whether this deployment is one the wizard is for: a writable, empty source table.
+        """Whether this deployment is waiting for onboarding: a writable, empty source table.
 
-        A `backend = "json"` deployment has no writable table, so it has no
-        wizard: its sources live in `sources.yaml`, which the app never writes.
+        A `backend = "json"` deployment has no writable table, so it never is:
+        its sources live in `sources.yaml`, which the app never writes.
         """
         if self._source_store is None:
             return False
@@ -1438,8 +1438,13 @@ class TriageServer:
         return web.Response(text=self._settings_page, content_type="text/html")
 
     async def _handle_onboarding_page(self, request: web.Request) -> web.Response:
-        """The wizard, only while this deployment is waiting for onboarding."""
-        if not self._awaiting_onboarding():
+        """The wizard, on any deployment with a writable source table.
+
+        It stays open once the table has a source, because its own sources step
+        writes one: a reload on a later step must not send the reader out of it.
+        A `backend = "json"` deployment has no table the wizard could write.
+        """
+        if self._source_store is None:
             raise web.HTTPFound("/settings")
         return web.Response(text=self._onboarding_page, content_type="text/html")
 

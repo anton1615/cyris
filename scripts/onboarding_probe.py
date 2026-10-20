@@ -134,9 +134,9 @@ def build_fixture(kind: str) -> Fixture:
 
     `empty` has a writable, empty source table, which is what waiting for
     onboarding is; `empty-largest` is that page at the largest type size.
-    `has-sources` has one source, so the wizard sends it to /settings, and
-    `json` has no writable table at all, which is a `backend = "json"`
-    deployment: it has no wizard either.
+    `has-sources` has one source, which still opens the wizard, and `json` has
+    no writable table at all, which is a `backend = "json"` deployment: it has
+    no wizard.
     """
     if kind not in KINDS:
         raise ValueError(f"unknown fixture {kind!r}")
@@ -617,20 +617,28 @@ _CHECKS: list[Check] = [
         """,
         sabotage="""$("#o-steps").hidden = true;""",
     ),
-    *(
-        Check(
-            id=f"{kind}-has-no-wizard",
-            fixture=kind,
-            path=PAGE,
-            act="""await waitFor(() => $(".settings-nav"), "the settings page");""",
-            script="""
-                expect(location.pathname === "/settings", `landed on ${location.pathname}`);
-                expect(!$("#o-steps"), "the wizard is on the page");
-                expect($(".settings-nav"), "not the settings page");
-            """,
-            sabotage="""$(".settings-nav").remove();""",
-        )
-        for kind in ("has-sources", "json")
+    Check(
+        id="has-sources-keeps-the-step-a-reload-opens",
+        fixture="has-sources",
+        path=f"{PAGE}#votes",
+        act="await loaded();",
+        script="""
+            expect(location.pathname === "/onboarding", `landed on ${location.pathname}`);
+            expect(same(shownSteps(), ["votes"]), `shown: ${shownSteps()}`);
+        """,
+        sabotage="""$('.step[data-step="votes"]').hidden = true;""",
+    ),
+    Check(
+        id="json-has-no-wizard",
+        fixture="json",
+        path=PAGE,
+        act="""await waitFor(() => $(".settings-nav"), "the settings page");""",
+        script="""
+            expect(location.pathname === "/settings", `landed on ${location.pathname}`);
+            expect(!$("#o-steps"), "the wizard is on the page");
+            expect($(".settings-nav"), "not the settings page");
+        """,
+        sabotage="""$(".settings-nav").remove();""",
     ),
     Check(
         id="fits-375",

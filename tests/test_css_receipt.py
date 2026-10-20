@@ -1271,7 +1271,7 @@ EXPECTED_ONBOARDING_IDS = {
     "notify-step-left-empty-writes-nothing",
     "finish-leaves-for-settings",
     "an-empty-deployment-is-sent-from-settings-to-the-wizard",
-    "has-sources-has-no-wizard",
+    "has-sources-keeps-the-step-a-reload-opens",
     "json-has-no-wizard",
     "fits-375",
     "fits-largest-375",
@@ -1319,7 +1319,6 @@ async def test_the_onboarding_probe_serves_the_real_wizard_and_its_script():
     ("kind", "path", "location"),
     [
         ("empty", "/settings", "/onboarding"),
-        ("has-sources", "/onboarding", "/settings"),
         ("json", "/onboarding", "/settings"),
     ],
 )
@@ -1334,6 +1333,18 @@ async def test_the_onboarding_probe_fixtures_redirect_as_the_container_does(
     finally:
         await client.close()
     assert (response.status, response.headers["Location"]) == (302, location)
+
+
+@pytest.mark.parametrize("kind", ["empty", "has-sources"])
+async def test_the_onboarding_probe_fixtures_with_a_table_serve_the_wizard(kind: str):
+    fixture = onboarding_probe.build_fixture(kind)
+    client = TestClient(TestServer(fixture.app))
+    await client.start_server()
+    try:
+        response = await client.get(onboarding_probe.PAGE, allow_redirects=False)
+    finally:
+        await client.close()
+    assert response.status == 200
 
 
 async def test_the_onboarding_probe_fixture_records_what_a_step_wrote():

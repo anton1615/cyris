@@ -918,8 +918,10 @@ digest stays static is [ADR-0010](decisions/0010-the-digest-stays-static-behind-
 
 `/settings` and `/onboarding` are two views of one deployment's state: an empty `sources` table is
 the waiting-for-onboarding state (§5 *RSS + newsletter source list*), so the container sends
-`/settings` to the guided setup while the table is empty and `/onboarding` back to `/settings` once
-it is not. A `json` deployment, whose sources live in a file nothing writes, never sees the wizard.
+`/settings` to the guided setup while the table is empty. `/onboarding` stays open on a D1
+deployment once the table has a source, because the wizard's own sources step writes one and a
+reload on a later step must not leave the wizard. A `json` deployment, whose sources live in a file
+nothing writes, never sees the wizard.
 The wizard writes settings through the `/api/settings/*` routes the settings page writes them with,
 so it adds no write path and no state of its own.
 

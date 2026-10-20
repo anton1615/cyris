@@ -103,13 +103,14 @@ class TestWhoSeesTheWizard:
         assert response.status == 200
         assert 'id="model-form"' in await response.text()
 
-    async def test_a_deployment_with_a_source_is_sent_out_of_the_wizard(self, serve) -> None:
+    async def test_a_deployment_with_a_source_still_opens_the_wizard(self, serve) -> None:
+        """The sources step writes one, and a reload on a later step must not leave the wizard."""
         client = await serve(_server(table={"Feed": A_SOURCE}))
 
         response = await client.get("/onboarding", allow_redirects=False)
 
-        assert response.status == 302
-        assert response.headers["Location"] == "/settings"
+        assert response.status == 200
+        assert 'id="o-steps"' in await response.text()
 
     async def test_a_deployment_with_a_source_keeps_its_settings_page(self, serve) -> None:
         client = await serve(_server(table={"Feed": A_SOURCE}))
