@@ -992,6 +992,7 @@ on main after the change lands, citing the hash it landed as.
 | 2026-10-20 | `6a47422`..`de44784` | The vote order reaches news clusters (§3.2): every member is scored, a cluster is ordered by its best-scoring member before the issue cap cuts it, and the cluster/headline quota is unchanged; `run_summary` adds `preference_rank_moved_clusters` (ADR 0019). |
 | 2026-10-20 | `5a9a124`..`e915f84` | An empty source list is a deployment waiting for onboarding (§4, §5): `cyris run` ends at exit 0 before `build_deps` with no LLM call or alert, `cyris doctor` warns instead of failing, and `/settings` retires the last source; a list whose every source is unfetchable still stops the run. |
 | 2026-10-20 | `cf9cb10`..`22251ff` | §5 grades the onboarding feed catalog A: `src/cyris/onboarding_feeds.json` lists publisher-own feeds as `SourceConfig` entries, `scripts/validate_feed_catalog.py` checks each against both parsers, and nothing reads the catalog at runtime until the onboarding picker lands. |
+| 2026-10-20 | `cf3b383c`..`7a7d68a` | The onboarding wizard is a container page (§6): `/onboarding` joins the app Worker's `PROTECTED` list, an empty writable `sources` table sends `/settings` there unless the wizard's own `?from=onboarding` exit marks the visit, a failed source read still serves `/settings`, and its settings steps write through the existing `/api/settings/*` routes with no new state; the sources, votes and first-issue steps are placeholders. |
 
 ## 8. Where the core never changes
 
