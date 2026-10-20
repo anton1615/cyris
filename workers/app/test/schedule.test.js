@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import cases from "./schedule_cases.json" with { type: "json" };
-import { duePeriod, shouldStartRun } from "../src/schedule.js";
+import { duePeriod, readTimeZone, shouldStartRun } from "../src/schedule.js";
 
 const ENV = { CLOUDFLARE_ACCOUNT_ID: "acct-1", CYRIS_STORE_DATABASE_ID: "db-1", CLOUDFLARE_API_TOKEN: "tok" };
 
@@ -109,5 +109,21 @@ describe("shouldStartRun", () => {
     const fetchImpl = d1(() => new Response("Bearer tok echoed", { status: 401 }));
     await shouldStartRun({ env: ENV, fetchImpl, now: () => TAIPEI_9AM });
     expect(logged.join(" ")).not.toContain("tok");
+  });
+});
+
+describe("readTimeZone", () => {
+  it("reads the stored time zone", async () => {
+    const fetchImpl = d1(() => Response.json(settings(SCHEDULE)));
+    expect(await readTimeZone({ env: ENV, fetchImpl })).toBe("Asia/Taipei");
+  });
+
+  it("is null when D1 cannot answer or there is no D1", async () => {
+    const failing = d1(() => new Response("no", { status: 500 }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await readTimeZone({ env: ENV, fetchImpl: failing })).toBeNull();
+    const unused = d1(() => Response.json(settings(SCHEDULE)));
+    expect(await readTimeZone({ env: { ...ENV, CYRIS_STORE_BACKEND: "json" }, fetchImpl: unused })).toBeNull();
+    expect(unused.calls).toHaveLength(0);
   });
 });

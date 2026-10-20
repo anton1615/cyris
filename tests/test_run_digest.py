@@ -711,6 +711,31 @@ async def test_the_local_archive_links_this_runs_raw_page(tmp_path: Path) -> Non
     assert '-raw.html">All articles</a>' in index
 
 
+async def test_a_named_date_keys_the_issue_its_pages_and_its_archive_row(tmp_path: Path) -> None:
+    """The onboarding's first issue before the morning hour is yesterday's evening issue."""
+    deps, store, _ = _stored_digests(_fresh_and_earlier_deps(tmp_path))
+
+    report = await run_digest(deps, RunOptions(period="evening", date="2026-10-19"))
+
+    assert report.status == "ok"
+    assert report.html_path.name == "2026-10-19-evening.html"
+    assert (report.html_path.parent / "2026-10-19-evening-raw.html").exists()
+    assert store.issues() == [("2026-10-19", "evening")]
+    assert store.load("2026-10-19", "evening").content.date == "2026-10-19"
+    index = (report.html_path.parent / "index.html").read_text()
+    assert 'href="2026-10-19-evening' in index
+
+
+async def test_without_a_named_date_the_issue_is_dated_today(tmp_path: Path) -> None:
+    deps, store, _ = _stored_digests(_fresh_and_earlier_deps(tmp_path))
+
+    report = await run_digest(deps, RunOptions(period="evening"))
+
+    today = now_in_timezone(deps.cfg.app.general.timezone).strftime("%Y-%m-%d")
+    assert report.html_path.name == f"{today}-evening.html"
+    assert store.issues() == [(today, "evening")]
+
+
 @pytest.mark.parametrize("raw_written", [True, False])
 async def test_the_local_digest_links_all_articles_only_when_its_raw_page_was_written(
     tmp_path: Path, raw_written: bool

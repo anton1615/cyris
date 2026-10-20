@@ -62,7 +62,11 @@ PY
     # Votes sync even when the run stops (say, on incomplete settings); the
     # pass still exits with the run's failure.
     status=0
-    if [ -n "${CYRIS_RUN_PERIOD:-}" ]; then
+    # A manual POST /run sets the period, and may name the issue's date (the
+    # onboarding's first issue); the tick sets neither and lets --if-due decide.
+    if [ -n "${CYRIS_RUN_PERIOD:-}" ] && [ -n "${CYRIS_RUN_DATE:-}" ]; then
+      step cyris run --period "$CYRIS_RUN_PERIOD" --date "$CYRIS_RUN_DATE" $CONF || status=$?
+    elif [ -n "${CYRIS_RUN_PERIOD:-}" ]; then
       step cyris run --period "$CYRIS_RUN_PERIOD" $CONF || status=$?
     else
       step cyris run --if-due $CONF || status=$?

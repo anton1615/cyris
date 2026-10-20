@@ -7,7 +7,7 @@
 import { Container, getContainer } from "@cloudflare/containers";
 import { env } from "cloudflare:workers";
 import { handleRequest } from "./router.js";
-import { shouldStartRun } from "./schedule.js";
+import { readTimeZone, shouldStartRun } from "./schedule.js";
 import { createTypeScale } from "./type_scale.js";
 
 // Every secret the pipeline reads from the environment. The provider is a
@@ -166,10 +166,12 @@ const injectStyle = (response, html) =>
 
 // A separate instance from the UI: this one runs the pipeline once and exits,
 // so it stops billing without waiting for a sleep timer. A period skips the
-// schedule check, so a manual run works outside the two digest hours.
-async function startRun(period) {
+// schedule check, so a manual run works outside the two digest hours; a date,
+// which the router allows only beside a period, names the issue's date.
+async function startRun(period, date) {
   const envVars = containerEnv("run");
   if (period) envVars.CYRIS_RUN_PERIOD = period;
+  if (date) envVars.CYRIS_RUN_DATE = date;
   await getContainer(env.CYRIS, RUN_INSTANCE).start({ envVars });
   return { started: "run", at: new Date().toISOString() };
 }
@@ -179,6 +181,7 @@ export default {
     return handleRequest(request, env, {
       container: (r) => getContainer(env.CYRIS, "ui").fetch(r),
       startRun,
+      runTimeZone: () => readTimeZone({ env, fetchImpl: (input, init) => fetch(input, init) }),
       probeGemini,
       fetchImpl: (input, init) => fetch(input, init),
       typeScale,

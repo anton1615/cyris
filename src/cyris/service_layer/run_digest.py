@@ -70,6 +70,10 @@ class RunOptions:
     dry_run: bool = False
     force: bool = False
     rerun_of: str | None = None
+    # The issue's date, YYYY-MM-DD, when a manual run names one; None dates it
+    # today in the deployment's timezone. The onboarding's first issue names
+    # yesterday when both of today's publish hours are still to come.
+    date: str | None = None
 
 
 @dataclass
@@ -657,7 +661,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         cfg.sources,
         period=options.period,
         timezone=tz,
-        date=options.rerun_of,
+        date=options.rerun_of or options.date,
         article_scores=article_scores,
         preference=order,
     )

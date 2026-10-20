@@ -207,7 +207,8 @@ curl -X POST -b "cyris_session=$(printf %s "$CYRIS_UI_TOKEN" | shasum -a 256 | c
 ```
 
 It answers `{"started":"run", …}` at once; the run takes minutes. `period` is
-`morning` or `evening`. A plain `POST /run` without a period behaves like the cron
+`morning` or `evening`, and the issue is dated today unless `&date=YYYY-MM-DD` names
+today or yesterday. A plain `POST /run` without a period behaves like the cron
 tick: outside the publish hours the reply is still `{"started":"run", …}`, and the log
 (step 8) says `Not a digest hour`.
 

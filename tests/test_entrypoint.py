@@ -322,3 +322,34 @@ class TestContainerRoleDefaultsToPublishing:
         recorded = _recorded_env(tmp_path, role="ui", stub="cyris")
         assert "CYRIS_HTML_OUTPUT_ENABLED" not in recorded
         assert "CYRIS_PROMOTE_PUBLISH_ENABLED" not in recorded
+
+
+class TestRunRolePassesTheManualRunsChoice:
+    """`POST /run` sets CYRIS_RUN_PERIOD, and CYRIS_RUN_DATE for a named date."""
+
+    def _run_args(self, tmp_path: Path, extra_env: dict[str, str]) -> list[str]:
+        env, calls = _stubbed_env(tmp_path, "run", "exit 0", "exit 0")
+        _stub(tmp_path / "bin", "cyris", f"echo \"cyris $*\" >> '{calls}'")
+        for name in ("CYRIS_RUN_PERIOD", "CYRIS_RUN_DATE"):
+            env.pop(name, None)
+        env.update(extra_env)
+        subprocess.run(["sh", str(ENTRYPOINT)], env=env, cwd=tmp_path, check=True)
+        conf = " --config /app/cyris.toml --sources /app/sources.yaml"
+        return [line.removesuffix(conf) for line in _calls(calls) if line.startswith("cyris run")]
+
+    def test_a_period_and_a_date_reach_the_run(self, tmp_path: Path) -> None:
+        runs = self._run_args(
+            tmp_path, {"CYRIS_RUN_PERIOD": "evening", "CYRIS_RUN_DATE": "2026-10-19"}
+        )
+
+        assert runs == ["cyris run --period evening --date 2026-10-19"]
+
+    def test_a_period_alone_runs_as_before(self, tmp_path: Path) -> None:
+        assert self._run_args(tmp_path, {"CYRIS_RUN_PERIOD": "morning"}) == [
+            "cyris run --period morning"
+        ]
+
+    def test_the_tick_asks_the_schedule_and_never_names_a_date(self, tmp_path: Path) -> None:
+        runs = self._run_args(tmp_path, {"CYRIS_RUN_DATE": "2026-10-19"})
+
+        assert runs == ["cyris run --if-due"]

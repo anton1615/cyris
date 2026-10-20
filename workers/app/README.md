@@ -16,7 +16,10 @@ One image, started in one of two roles:
   container (`src/schedule.js`), so the other 22 ticks start nothing. When it cannot
   read the setting it starts the container and `--if-due` decides.
   `POST /run?period=morning|evening` starts the same role with that period, skipping
-  the schedule check.
+  the schedule check. `&date=YYYY-MM-DD` names the issue's date as well; it must be
+  today or yesterday in the deployment's time zone (the onboarding's first issue is
+  yesterday's evening before the morning hour), and only its format is checked when the
+  time zone cannot be read from D1.
 - **Any HTTP request** → `CYRIS_ROLE=ui`: `cyris triage-ui` on port 8766, asleep 5
   minutes after the last request (`onActivityExpired` → `stop()`).
 

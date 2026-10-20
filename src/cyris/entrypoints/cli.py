@@ -148,6 +148,17 @@ def _usage_error(message: str) -> None:
     raise typer.Exit(2)
 
 
+def _is_issue_date(text: str) -> bool:
+    """A real calendar date written YYYY-MM-DD, the shape an issue's key takes."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return False
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
+
+
 def _write_preview(path: Path, html: str) -> None:
     """The file a preview or a regeneration leaves, at the path the user named."""
     try:
@@ -183,11 +194,25 @@ def run(
             help="Run only if this hour is on the digest schedule; picks --period from it",
         ),
     ] = False,
+    date: Annotated[
+        str | None,
+        typer.Option(
+            "--date",
+            help="Issue date, YYYY-MM-DD; default today in the deployment's timezone",
+        ),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Debug logging")] = False,
 ) -> None:
     """Run the full pipeline: fetch, score, route, and digest."""
     if output is not None and not dry_run:
         _usage_error("--output is only available with --dry-run")
+    if date is not None:
+        # The tick dates its issue by the clock it fires on; naming another
+        # date is a manual run's choice, such as the onboarding's first issue.
+        if if_due:
+            _usage_error("--date cannot be combined with --if-due")
+        if not _is_issue_date(date):
+            _usage_error(f"--date must be a real YYYY-MM-DD date, not {date!r}")
     _setup_logging(verbose)
 
     from cyris.bootstrap import build_deps, load_effective_config
@@ -241,7 +266,7 @@ def run(
         if if_due and not dry_run:
             _alert_could_not_start(cfg, e)
         raise
-    options = RunOptions(period=period, dry_run=dry_run, force=force)
+    options = RunOptions(period=period, dry_run=dry_run, force=force, date=date)
 
     # The Container stops a run with SIGTERM, whose default kills the process
     # without unwinding — `run_digest`'s `finally`, which records the run, would

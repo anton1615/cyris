@@ -19,6 +19,8 @@ function makeDeps({
   fetchHeaders = {},
   scale = 1,
   containerResponse = () => new Response("container", { status: 200 }),
+  timeZone = "Asia/Taipei",
+  now = new Date("2026-10-20T02:30:00Z"),
 } = {}) {
   const wrappedContainer = async (req) => {
     wrappedContainer.calls.push(req);
@@ -26,8 +28,9 @@ function makeDeps({
   };
   wrappedContainer.calls = [];
 
-  const startRun = async (period) => {
-    startRun.calls.push(period);
+  // A run's period alone, or [period, date] when it names a date.
+  const startRun = async (period, date) => {
+    startRun.calls.push(date === undefined ? period : [period, date]);
     return { started: "run", at: "t" };
   };
   startRun.calls = [];
@@ -80,9 +83,17 @@ function makeDeps({
   };
   injectStyle.calls = [];
 
+  const runTimeZone = async () => {
+    runTimeZone.calls += 1;
+    return timeZone;
+  };
+  runTimeZone.calls = 0;
+
   return {
     container: wrappedContainer,
     startRun,
+    runTimeZone,
+    now: () => now,
     probeGemini,
     fetchImpl,
     typeScale,
@@ -300,6 +311,80 @@ describe("ManualRunPeriod", () => {
 
     expect(resp.status).toBe(200);
     expect(deps.startRun.calls).toEqual([undefined]);
+  });
+
+  // 10:30 on 2026-10-20 in Taipei; 02:30 UTC, the same day there.
+  const run = async (query, options) => {
+    const deps = makeDeps(options);
+    const resp = await handleRequest(
+      request("POST", `/run?${query}`, { cookie: await sessionCookie() }),
+      env(),
+      deps,
+    );
+    return { resp, deps };
+  };
+
+  it("passes a named date beside its period", async () => {
+    const { resp, deps } = await run("period=evening&date=2026-10-19");
+
+    expect(resp.status).toBe(200);
+    expect(deps.startRun.calls).toEqual([["evening", "2026-10-19"]]);
+  });
+
+  it("takes today in the deployment's time zone, not UTC's", async () => {
+    // 23:30 UTC on the 19th is already the 20th in Taipei.
+    const late = new Date("2026-10-19T23:30:00Z");
+    const today = await run("period=morning&date=2026-10-20", { now: late });
+    const before = await run("period=morning&date=2026-10-18", { now: late });
+
+    expect(today.deps.startRun.calls).toEqual([["morning", "2026-10-20"]]);
+    expect(before.resp.status).toBe(400);
+  });
+
+  it.each(["2026-10-21", "2026-10-18", "2025-10-20"])(
+    "refuses %s, neither today nor yesterday",
+    async (date) => {
+      const { resp, deps } = await run(`period=evening&date=${date}`);
+
+      expect(resp.status).toBe(400);
+      expect((await resp.json()).error).toContain("today or yesterday in Asia/Taipei");
+      expect(deps.startRun.calls).toHaveLength(0);
+    },
+  );
+
+  it.each(["2026-10-32", "2026-1-9", "20261019", "2026-10-19T00:00", ""])(
+    "refuses %j, not a real YYYY-MM-DD",
+    async (date) => {
+      const { resp, deps } = await run(`period=evening&date=${date}`);
+
+      expect(resp.status).toBe(400);
+      expect((await resp.json()).error).toContain("real YYYY-MM-DD");
+      expect(deps.startRun.calls).toHaveLength(0);
+    },
+  );
+
+  it("refuses a date it cannot check when the time zone cannot be read", async () => {
+    const old = await run("period=evening&date=2020-01-01", { timeZone: null });
+    const bad = await run("period=evening&date=2020-13-01", { timeZone: null });
+
+    expect(old.resp.status).toBe(503);
+    expect((await old.resp.json()).error).toContain("time zone");
+    expect(old.deps.startRun.calls).toHaveLength(0);
+    expect(bad.resp.status).toBe(400);
+  });
+
+  it("refuses a date with no period: the tick dates its own issue", async () => {
+    const { resp, deps } = await run("date=2026-10-20");
+
+    expect(resp.status).toBe(400);
+    expect(deps.startRun.calls).toHaveLength(0);
+  });
+
+  it("reads no time zone for a run that names no date", async () => {
+    const { deps } = await run("period=morning");
+
+    expect(deps.runTimeZone.calls).toBe(0);
+    expect(deps.startRun.calls).toEqual(["morning"]);
   });
 
   it("rejects an unknown period before starting a run", async () => {

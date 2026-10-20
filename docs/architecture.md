@@ -326,6 +326,15 @@ store saw them. The RSS Worker read has a bound of its own, the Worker's row cei
 row carries the feed's full content and the Worker holds the whole result in memory. A read that
 fills the ceiling logs a warning, since the window's earliest-buffered rows then stay unstored.
 
+An issue is keyed by `(date, period)`, and a run stores its issue over any other with its key
+(`adapters/store/digests.py`). The hourly tick (`cyris run --if-due`) takes the period from the
+schedule and the date from its own clock in `general.timezone`. A manual run (`POST /run?period=`,
+`cyris run --period`) names the period, and may name the date too (`&date=`, `--date`), which only
+`--if-due` refuses; the app Worker takes a named date only when it is today or yesterday in the
+deployment's time zone, and refuses it with 503 when it cannot read that zone. The
+onboarding's first issue is the one caller that names a date (§6). Without one, the pipeline dates
+the issue when it writes it.
+
 Each source carries a **tier**, which decides how much attention it gets:
 
 | Tier | Treatment |
@@ -849,7 +858,8 @@ one goes down in the same sitting.
 
 **The image carries three roles, and `CYRIS_ROLE` picks one** (`docker/entrypoint.sh`). `run` does
 one `cyris run --if-due` (or `--period`, when a manual `POST /run?period=` set
-`CYRIS_RUN_PERIOD`) plus one `promote-sync` and exits, so the instance stops billing without
+`CYRIS_RUN_PERIOD`, with `--date` when its `&date=` set `CYRIS_RUN_DATE`) plus one `promote-sync`
+and exits, so the instance stops billing without
 waiting for a sleep timer — `promote-sync` runs even when the run fails, and the pass exits with
 the run's status. A SIGTERM ends the pass instead: it exits 143 and skips what has not started
 (below); `ui` serves `/settings`; the default is the
@@ -925,6 +935,8 @@ digest stays static is [ADR-0010](decisions/0010-the-digest-stays-static-behind-
 /triage*                                   404
 /settings · /onboarding · /labels          CYRIS_UI_TOKEN cookie; Access too if
 /api/* · /static/*                         CYRIS_UI_ACCESS_HOST matches this host
+POST /run?period=[&date=]                  same lock; the Worker starts the `run` role
+                                           itself (a date: today or yesterday, §3.2)
 ```
 
 `/settings` and `/onboarding` are two views of one deployment's state: an empty `sources` table is
