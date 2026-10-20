@@ -49,6 +49,26 @@ On a fork they need, under Settings → Secrets and variables → Actions:
 Both paths push to the same registry repository, named by `[[containers]] name` in
 `wrangler.toml`, so whichever deployed last is what runs.
 
+### Staging first, production after
+
+On the release path, a release runs on a trial deployment
+([trial-deployment.md](trial-deployment.md)) before it reaches production. This project
+stages on `trial1`.
+
+1. Merge to `main`.
+2. Run "Release container image" on that commit.
+3. From the checkout that provisioned the trial, with that commit checked out, run
+   `scripts/deploy_trial.py`. It deploys the image the release recorded, and fails
+   unless the trial reports that commit. To check onboarding from its first step,
+   clear the trial with `scripts/reset_trial.py` first. Both scripts describe
+   themselves under `--help`.
+4. Check the release on the trial.
+5. The owner runs "Deploy the container Worker" for production.
+
+The rss and vote Workers deploy outside any workflow. `deploy_trial.py` deploys the
+trial's copies when their code changed, and production's copies then need the same
+deploy by hand.
+
 ## Which image is running
 
 ```sh

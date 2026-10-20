@@ -56,10 +56,12 @@ Either works; the first trial (2026-10-06) runs on production's.
 - **Nothing is generated twice.** The slug, the Pages suffix, the image digest and each
   id and token are saved the first time and reused on every later run. A new suffix would
   name a Pages project that was never created; a new digest would deploy a different
-  image from the first deploy's.
-- **The image is production's.** The wizard takes the newest `image/*` tag the release
-  workflow writes (see [operations.md](operations.md)) and asks you to confirm it is the
-  one production runs, so the trial tests the code the tester will keep getting.
+  image from the first deploy's. Only `scripts/deploy_trial.py` moves the saved digest,
+  to the release it deployed (see [After each release](#after-each-release)).
+- **The first image is production's.** The wizard takes the newest `image/*` tag the
+  release workflow writes (see [operations.md](operations.md)) and asks you to confirm
+  it is the one production runs, so the trial tests the code the tester will keep
+  getting. After that, a trial staged on gets each release before production does.
 - **The trial has its own API token**, with the permissions of
   [install step 3](install-cloudflare.md#3-create-an-api-token) and no more, so it can be
   revoked alone. Only on an account of its own does a leak reach nothing but the trial.
@@ -93,13 +95,23 @@ Either works; the first trial (2026-10-06) runs on production's.
   [notes on it](install-cloudflare.md#6-log-in-and-fill-settings) apply.
 - **The login token goes to the tester through a password manager**, never chat or email.
 
+## After each release
+
+A release runs on a trial before production; the flow is in
+[operations.md](operations.md#staging-first-production-after). From the checkout that
+provisioned the trial, `scripts/deploy_trial.py` puts the release on it, and
+`scripts/reset_trial.py` first clears it back to waiting for onboarding when the release
+is to be checked from the wizard's first step. What each does and refuses is in its
+`--help`.
+
 ## Files to keep
 
 The wizard writes these at the repo root, all gitignored:
 
 - `.env.trial-<slug>`, `.env.trial-<slug>-promote` and `.env.trial-<slug>-rss` hold the
   secrets. Cloudflare cannot read them back, so losing one means rotating it.
-- `.env.trial-<slug>-wizard` holds the inputs, the ids and the image the trial runs.
+- `.env.trial-<slug>-wizard` holds the inputs, the ids, the image the trial runs and the
+  commit its rss and vote Workers were last deployed from.
 
 ## What stays by hand
 
