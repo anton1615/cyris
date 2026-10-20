@@ -1491,8 +1491,10 @@ def test_a_product_example_suits_any_deployment(path: Path) -> None:
     assert _dates_outside_comments(text) == []
 
 
-def test_the_timezone_example_names_no_region() -> None:
-    assert 'id="timezone" type="text" placeholder="UTC"' in _source("settings")
+@pytest.mark.parametrize("page, control", [("settings", "timezone"), ("onboarding", "o-timezone")])
+def test_the_timezone_names_no_region_of_its_own(page: str, control: str) -> None:
+    # Its options are the reader's browser's zones, filled in by the script.
+    assert f'<select class="select" id="{control}"></select>' in _source(page)
 
 
 REPO = UI_SPEC.parents[2]

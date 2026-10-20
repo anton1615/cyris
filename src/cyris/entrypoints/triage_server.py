@@ -346,7 +346,11 @@ class TriageServer:
                 "may_be_empty": [key for key in GRADE_D_KEYS if _accepts_empty(key)],
                 "providers": providers,
                 "embedding_providers": embedding_providers,
-                "languages": list(_language_names()),
+                # Each tag with the name languages.json gives it, in the file's order:
+                # the pages offer them as a select's options.
+                "languages": [
+                    {"tag": tag, "name": name} for tag, name in _language_names().items()
+                ],
                 "writable": self._settings is not None,
             }
         )

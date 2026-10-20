@@ -10,6 +10,7 @@ from fakes import TEST_SETTINGS
 
 from cyris.config import GRADE_D_KEYS, SETTINGS_FIELDS
 from cyris.entrypoints.triage_server import PLAIN_KEYS, TriageServer
+from cyris.service_layer.prompts import _language_names
 
 pytestmark = pytest.mark.integration
 
@@ -267,7 +268,11 @@ class TestEveryKeyReported:
         data = await (await client.get("/api/settings")).json()
         await client.close()
 
-        assert {"zh-Hant", "en"} <= set(data["languages"])
+        # Each tag with its name, in languages.json's own order.
+        assert data["languages"] == [
+            {"tag": tag, "name": name} for tag, name in _language_names().items()
+        ]
+        assert {"zh-Hant", "en"} <= {language["tag"] for language in data["languages"]}
 
 
 class TestScheduleApi:

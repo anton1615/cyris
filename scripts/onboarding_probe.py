@@ -62,6 +62,7 @@ from cyris.entrypoints.triage_server import (
     load_onboarding_feeds,
     load_onboarding_topics,
 )
+from cyris.service_layer.prompts import _language_names
 
 PAGE = "/onboarding"
 SETTINGS = "/settings"
@@ -79,6 +80,8 @@ KINDS = (
     "first-issue-slow",
     "first-issue-fails",
     "first-issue-early",
+    "no-timezone",
+    "unlisted",
 )
 
 # What the reader types, and what each step must then store.
@@ -88,6 +91,13 @@ NEW_WEBHOOK = "https://discord.com/api/webhooks/9/NEWTOKEN"
 NEW_MAIL_TO = "me@example.org"
 NEW_MAIL_FROM = "digest@example.org"
 UNKNOWN_TIMEZONE = "Mars/Base"
+# The zone the probe's browser reports as its own (`PIN_ZONE`), so a check knows
+# what a field with no stored zone opens on: not the probe's stored Asia/Taipei.
+BROWSER_ZONE = "America/Halifax"
+# What the `unlisted` deployment stores: a language tag languages.json does not
+# list, which the model is still told as written, and a zone no browser lists.
+UNLISTED_LANGUAGE = "yue-Hant"
+UNLISTED_TIMEZONE = "Cyris/Probe"
 OFFLINE_DETAIL = "cyris-probe: answered offline"
 
 # A deployment whose settings are all stored and whose notifications are not set
@@ -122,6 +132,14 @@ _VALUES = {
     "vote_similarity.max_seeds": 200,
 }
 PROBE_VALUES = {key: _VALUES[key] for key in GRADE_D_KEYS}
+# Each fixture's stored values where they are not PROBE_VALUES.
+FIXTURE_VALUES = {
+    "no-timezone": {k: v for k, v in PROBE_VALUES.items() if k != "general.timezone"},
+    "unlisted": PROBE_VALUES
+    | {"digest.output_language": UNLISTED_LANGUAGE, "general.timezone": UNLISTED_TIMEZONE},
+}
+# languages.json's languages, in its order, as the language field must offer them.
+LANGUAGES = list(_language_names().items())
 
 A_SOURCE = SourceConfig(name="Simon Willison", url="https://simonwillison.net/atom/everything/")
 
@@ -387,7 +405,9 @@ def build_fixture(kind: str) -> Fixture:
     names `QUIET`; `cards-largest` is it at the largest type size, and
     `cards-slow` takes `SLOW_SECONDS` to read its feeds. The `first-issue`
     ones hold `A_SOURCE` and a clock pinned at `BETWEEN`, and their runs end as
-    `RUN_ENDS` says; `first-issue-early`'s clock is at `EARLY`.
+    `RUN_ENDS` says; `first-issue-early`'s clock is at `EARLY`. `no-timezone`
+    is `empty` with no zone stored, and `unlisted` stores a language and a zone
+    neither list holds (`FIXTURE_VALUES`).
     """
     if kind not in KINDS:
         raise ValueError(f"unknown fixture {kind!r}")
@@ -404,7 +424,7 @@ def build_fixture(kind: str) -> Fixture:
     edge = FakeRssEdge(SLOW_SECONDS if kind == "cards-slow" else 0)
     server = TriageServer(
         settings=settings,
-        values=PROBE_VALUES,
+        values=dict(FIXTURE_VALUES.get(kind, PROBE_VALUES)),
         source_store=store,
         article_store=articles,
         onboarding_articles=None if kind == "json" else OnboardingArticles(edge),
@@ -521,6 +541,14 @@ window.fetch = async (input, init) => {
 }"""
 
 
+# The browser reports `BROWSER_ZONE` as its own zone, whatever the machine's is.
+PIN_ZONE = f"""{{
+const realOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
+Intl.DateTimeFormat.prototype.resolvedOptions = function () {{
+  return {{...realOptions.call(this), timeZone: {json.dumps(BROWSER_ZONE)}}};
+}};
+}}"""
+
 # A sabotage: Skip presses Next, so a step the reader skipped is saved after all.
 SKIP_SAVES = """{
 document.addEventListener("DOMContentLoaded", () => {
@@ -594,6 +622,13 @@ const setValue = (el, value) => {
   el.dispatchEvent(new Event("input", {bubbles: true}));
   el.dispatchEvent(new Event("change", {bubbles: true}));
 };
+// A select's option, added first when it lists none: a zone the browser offers
+// that the server's own zone database may not know.
+const offer = (el, value) => {
+  if (![...el.options].some((option) => option.value === value)) el.add(new Option(value, value));
+  setValue(el, value);
+};
+const options = (el) => [...el.options].map((option) => [option.value, option.textContent]);
 const shownSteps = () => $$(".step").filter(visible).map((panel) => panel.dataset.step);
 const marked = () => $$('#o-steps li[aria-current="step"]').map((item) => item.dataset.step);
 const progress = () => $("#o-progress").textContent;
@@ -1657,7 +1692,7 @@ _CHECKS: list[Check] = [
         path=PAGE,
         act=f"""
             await loaded();
-            setValue($("#o-timezone"), {json.dumps(UNKNOWN_TIMEZONE)});
+            offer($("#o-timezone"), {json.dumps(UNKNOWN_TIMEZONE)});
             press("o-next");
             await waitFor(settled, "the refusal");
         """,
@@ -1669,6 +1704,150 @@ _CHECKS: list[Check] = [
             expect(same(marks(), ["o-timezone"]), `marked: ${marks()}`);
         """,
         sabotage="""$("#o-timezone").removeAttribute("aria-invalid");""",
+        receipt=_calls(),
+    ),
+    Check(
+        id="language-step-offers-the-listed-languages-by-name",
+        fixture="empty",
+        path=PAGE,
+        act="await loaded();",
+        script=f"""
+            const field = $("#o-output-language");
+            expect(field.tagName === "SELECT", `the field is a ${{field.tagName}}`);
+            const wanted = {json.dumps([list(pair) for pair in LANGUAGES], ensure_ascii=False)};
+            expect(same(options(field), wanted), `options: ${{JSON.stringify(options(field))}}`);
+            expect(field.value === {json.dumps(PROBE_VALUES["digest.output_language"])},
+              `selected: ${{field.value}}`);
+        """,
+        # After the act: the options lose the file's order.
+        sabotage="""
+            const field = $("#o-output-language");
+            field.append(field.options[0]);
+        """,
+        receipt=_calls(),
+    ),
+    Check(
+        id="language-step-keeps-an-unlisted-stored-value",
+        fixture="unlisted",
+        path=PAGE,
+        act="await loaded();",
+        script=f"""
+            const language = $("#o-output-language"), zone = $("#o-timezone");
+            const tag = {json.dumps(UNLISTED_LANGUAGE)}, other = {json.dumps(UNLISTED_TIMEZONE)};
+            expect(language.value === tag, `language: ${{language.value}}`);
+            expect(language.selectedOptions[0].textContent === tag,
+              `shown as ${{language.selectedOptions[0].textContent}}`);
+            expect(zone.value === other, `timezone: ${{zone.value}}`);
+            expect(!visible($("#o-timezone-detected")), "a stored zone is marked detected");
+        """,
+        # After the act: the stored language's option is gone, as a list-only select's would be.
+        sabotage=f"""
+            $("#o-output-language").querySelector(
+              'option[value={json.dumps(UNLISTED_LANGUAGE)}]').remove();
+        """,
+        receipt=_calls(),
+    ),
+    Check(
+        id="language-step-leaves-an-unlisted-value-it-did-not-change",
+        fixture="unlisted",
+        path=PAGE,
+        act=f"""
+            await loaded();
+            setValue($("#o-timezone"), {json.dumps(NEW_TIMEZONE)});
+            press("o-next");
+            await onStep("schedule");
+            await waitFor(settled, "the result notice");
+        """,
+        script="""
+            expect(!notice().classList.contains("err"), `an error: ${notice().textContent}`);
+        """,
+        # The page sends the language too, as one that lost the unlisted value would.
+        sabotage_preload=rewrite_post(
+            "/api/settings/values", 'body.values["digest.output_language"] = "en";'
+        ),
+        receipt=_calls({"general.timezone": NEW_TIMEZONE}),
+    ),
+    Check(
+        id="timezone-lists-the-browsers-zones-and-utc",
+        fixture="empty",
+        path=PAGE,
+        act="await loaded();",
+        script="""
+            const field = $("#o-timezone");
+            expect(field.tagName === "SELECT", `the field is a ${field.tagName}`);
+            const zones = options(field).map(([value]) => value);
+            const known = Intl.supportedValuesOf("timeZone");
+            const missing = known.filter((zone) => !zones.includes(zone));
+            expect(!missing.length, `missing: ${missing.slice(0, 5)}`);
+            expect(zones.includes("UTC"), "UTC is not offered");
+            expect(same(zones, [...zones].sort()), "the zones are not in order");
+        """,
+        sabotage="""$('#o-timezone option[value="UTC"]').remove();""",
+        receipt=_calls(),
+    ),
+    Check(
+        id="timezone-opens-on-the-stored-zone-not-the-browsers",
+        fixture="empty",
+        path=PAGE,
+        preload=PIN_ZONE,
+        act="await loaded();",
+        script=f"""
+            const field = $("#o-timezone");
+            expect(field.value === {json.dumps(PROBE_VALUES["general.timezone"])},
+              `selected: ${{field.value}}`);
+            expect(!visible($("#o-timezone-detected")), "a stored zone is marked detected");
+        """,
+        sabotage="""$("#o-timezone-detected").hidden = false;""",
+        receipt=_calls(),
+    ),
+    Check(
+        id="timezone-with-none-stored-opens-on-the-browsers-marked-detected",
+        fixture="no-timezone",
+        path=PAGE,
+        preload=PIN_ZONE,
+        act="await loaded();",
+        script=f"""
+            const field = $("#o-timezone");
+            expect(field.value === {json.dumps(BROWSER_ZONE)}, `selected: ${{field.value}}`);
+            const line = $("#o-timezone-detected");
+            expect(visible(line) && line.textContent.startsWith("Detected from this browser"),
+              "the zone is not marked detected");
+        """,
+        sabotage="""$("#o-timezone-detected").hidden = true;""",
+        receipt=_calls(),
+    ),
+    Check(
+        id="timezone-detected-is-saved-by-next",
+        fixture="no-timezone",
+        path=PAGE,
+        preload=PIN_ZONE,
+        act="""
+            await loaded();
+            press("o-next");
+            await onStep("schedule");
+            await waitFor(settled, "the result notice");
+        """,
+        script=f"""
+            const text = notice().textContent;
+            expect(text.includes("Timezone: {BROWSER_ZONE}"), `notice: ${{text}}`);
+        """,
+        sabotage_preload=rewrite_post(
+            "/api/settings/values", 'body.values["general.timezone"] = "UTC";'
+        ),
+        receipt=_calls({"general.timezone": BROWSER_ZONE}),
+    ),
+    Check(
+        id="timezone-detected-is-not-saved-by-skip",
+        fixture="no-timezone",
+        path=PAGE,
+        preload=PIN_ZONE,
+        act="""
+            await loaded();
+            press("o-skip");
+            await onStep("schedule");
+        """,
+        script="""expect(!visible(notice()), `a notice: ${notice().textContent}`);""",
+        sabotage_preload=SKIP_SAVES,
         receipt=_calls(),
     ),
     Check(

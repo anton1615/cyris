@@ -146,6 +146,8 @@ async function saveLanguage() {
   try {
     const data = await post("/api/settings/values", {values});
     keep(ids);
+    // Stored now, so no longer only detected.
+    if (ids.includes("o-timezone")) $("o-timezone-detected").hidden = true;
     const parts = ids.map((id) => `${labelOf(PLAIN[id])}: ${data.values[PLAIN[id]]}`);
     return `${parts.join(", ")}. ${data.note}`;
   } catch (err) {
@@ -842,15 +844,53 @@ for (const id of FIELDS) {
   $(id).addEventListener("input", () => unmark([id]));
 }
 
+// The output languages, each stored as its BCP 47 tag and shown by the name
+// languages.json gives it, in that file's order. A stored tag the list lacks is
+// still a language the model is told to write in, so it stays an option of its
+// own, shown as the tag, and Next over the untouched field stores nothing.
+function fillLanguages(select, languages, stored) {
+  const options = languages.map(({tag, name}) => new Option(name, tag));
+  if (stored != null && !languages.some(({tag}) => tag === stored)) {
+    options.push(new Option(stored, stored));
+  }
+  select.replaceChildren(...options);
+}
+
+// The zone this browser reads its own clock in, or "" when it will not say.
+function browserZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
+
+// Every zone this browser knows, UTC, which some leave out, and the stored zone
+// and this browser's own when the list lacks them.
+function fillTimezones(select, stored) {
+  const known = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  const zones = new Set([...known, "UTC", stored, browserZone()].filter(Boolean));
+  select.replaceChildren(...[...zones].sort().map((zone) => new Option(zone, zone)));
+}
+
+// A setting with no stored value opens on "Not set", which a select would
+// otherwise show as its first option.
+function openOn(select, stored) {
+  if (stored != null) select.value = stored;
+  else select.prepend(new Option("Not set", "", true, true));
+}
+
+// A zone the reader picked is no longer the detected one.
+$("o-timezone").addEventListener("change", () => { $("o-timezone-detected").hidden = true; });
+
 function render(state) {
   const values = state.values;
   VALUES = values;
   REGISTRY = state.fields;
-  $("o-languages").replaceChildren(...state.languages.map((tag) => new Option("", tag)));
-  if (values["digest.output_language"] != null) {
-    $("o-output-language").value = values["digest.output_language"];
-  }
-  if (values["general.timezone"] != null) $("o-timezone").value = values["general.timezone"];
+  fillLanguages($("o-output-language"), state.languages, values["digest.output_language"]);
+  openOn($("o-output-language"), values["digest.output_language"]);
+  fillTimezones($("o-timezone"), values["general.timezone"]);
+  openOn($("o-timezone"), values["general.timezone"]);
   const [morning, evening] = values["general.digest_schedule"] || [];
   if (morning) $("o-morning").value = parseInt(morning, 10);
   if (evening) $("o-evening").value = parseInt(evening, 10);
@@ -859,6 +899,14 @@ function render(state) {
   $("o-email-to").value = values["notify.email_to"] ?? "";
   $("o-email-from").value = values["notify.email_from"] ?? "";
   keep(FIELDS);
+  // With no stored zone the field opens on this browser's own, marked as
+  // detected rather than stored: it differs from what was loaded, so Next
+  // saves it and Skip leaves the setting unset.
+  const zone = browserZone();
+  if (values["general.timezone"] == null && zone) {
+    $("o-timezone").value = zone;
+    $("o-timezone-detected").hidden = false;
+  }
 }
 
 route();

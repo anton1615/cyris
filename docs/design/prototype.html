@@ -1072,7 +1072,8 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
             </div>
             <div class="field">
               <label class="label" for="timezone">Timezone</label>
-              <input class="input" id="timezone" type="text" placeholder="UTC" value="UTC" autocomplete="off">
+              <!-- The page offers every zone the browser lists, plus UTC; a few stand in for them here. -->
+              <select class="select" id="timezone"><option>America/New_York</option><option>Asia/Taipei</option><option>Asia/Tokyo</option><option>Europe/London</option><option selected>UTC</option></select>
               <p class="small">The clock the publish hours are read in.</p>
             </div>
             <div class="field">
@@ -1087,10 +1088,9 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
             </div>
             <div class="field">
               <label class="label" for="output-language">Output language</label>
-              <input class="input" id="output-language" type="text" list="languages" value="zh-Hant" autocomplete="off">
-              <datalist id="languages"><option value="zh-Hant"></option><option value="zh-Hans"></option><option value="en"></option><option value="ja"></option><option value="ko"></option><option value="fr"></option><option value="de"></option><option value="es"></option></datalist>
-              <p class="small">A BCP 47 tag, such as zh-Hant or en.</p>
-              <details class="more"><summary>More</summary><p class="small">Headlines and summaries are written in it. A tag not in the list is passed to the model as written.</p></details>
+              <select class="select" id="output-language"><option value="zh-Hant" selected>繁體中文 (Traditional Chinese)</option><option value="zh-Hans">简体中文 (Simplified Chinese)</option><option value="en">English</option><option value="ja">日本語 (Japanese)</option><option value="ko">한국어 (Korean)</option><option value="fr">français (French)</option><option value="de">Deutsch (German)</option><option value="es">español (Spanish)</option></select>
+              <p class="small">The language headlines and summaries are written in.</p>
+              <details class="more"><summary>More</summary><p class="small">Each one is stored as its BCP 47 tag, such as zh-Hant or en. A tag stored outside this list is kept, shown as the tag itself, and passed to the model as written.</p></details>
             </div>
             <div class="field">
               <label class="label" for="style-prompt">Style</label>
