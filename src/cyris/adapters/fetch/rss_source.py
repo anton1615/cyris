@@ -10,6 +10,7 @@ so it is correct only for feeds whose snapshot outlives the window.
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -88,9 +89,10 @@ class RssSource:
     ) -> list[Article]:
         response = await self._http.get(source.url or "")
         response.raise_for_status()
-        # feedparser.parse(url) would do its own blocking urllib fetch — hand it bytes
-        # so the shared client's User-Agent and redirect handling apply.
-        parsed = await asyncio.to_thread(feedparser.parse, response.content)
+        # feedparser.parse(url) would do its own blocking urllib fetch — hand it the body
+        # so the shared client's User-Agent and redirect handling apply. As a stream:
+        # bare bytes that name a path are opened as that local file.
+        parsed = await asyncio.to_thread(feedparser.parse, io.BytesIO(response.content))
 
         articles = []
         for entry in parsed.entries:
