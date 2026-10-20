@@ -36,6 +36,7 @@ from cyris.adapters.output.html_digest import FAVICON, PROJECT_URL, HtmlDigestWr
 from cyris.entrypoints.triage_server import (
     TriageServer,
     render_labels_page,
+    render_onboarding_page,
     render_settings_page,
 )
 
@@ -53,13 +54,17 @@ def _source(name: str) -> str:
         return render_settings_page()
     if name == "labels":
         return render_labels_page()
+    if name == "onboarding":
+        return render_onboarding_page()
     return dict(zip(("index", "digest", "raw"), receipt_fixtures(), strict=True))[name]
 
 
-GUARDED = ["index", "digest", "raw", "style.css", "settings", "labels"]
+GUARDED = ["index", "digest", "raw", "style.css", "settings", "labels", "onboarding"]
 
 
-@pytest.mark.parametrize("page", ["index", "digest", "raw", "settings", "labels", "prototype"])
+@pytest.mark.parametrize(
+    "page", ["index", "digest", "raw", "settings", "labels", "onboarding", "prototype"]
+)
 def test_every_page_says_its_chrome_is_english(page):
     html = PROTOTYPE.read_text() if page == "prototype" else _source(page)
 
@@ -203,7 +208,7 @@ RAW_CARD_MOTION = frozenset(
 )
 
 
-@pytest.mark.parametrize("page", ["index", "digest", "raw", "settings", "labels"])
+@pytest.mark.parametrize("page", ["index", "digest", "raw", "settings", "labels", "onboarding"])
 def test_every_transition_changes_colour_over_the_fast_token(page: str) -> None:
     exempt = RAW_CARD_MOTION if page in ("raw", "labels") else frozenset()
     assert off_spec_transitions(_source(page), exempt) == []
@@ -474,6 +479,33 @@ async def test_settings_opens_with_the_digest_site_bar_marking_settings(
     assert page.count('<header class="site-bar">') == 1
     assert _site_bar(page) == _site_bar(expected)
     assert '<script src="/static/settings.js"></script>' in page
+
+
+def test_onboarding_opens_with_the_digest_site_bar_leading_out_of_the_wizard() -> None:
+    env = HtmlDigestWriter("unused-by-these-tests").env
+    expected = env.get_template("_site_bar.html.j2").render(current="onboarding")
+    page = _source("onboarding")
+    assert page.count('<header class="site-bar">') == 1
+    assert _site_bar(page) == _site_bar(expected)
+    # Settings would send a deployment with no source back here, so the bar's own
+    # link carries the wizard's exit mark (ui-language.md §6 onboarding).
+    assert '<a class="label settings-link" href="/settings?from=onboarding">' in page
+    assert '<script src="/static/onboarding.js"></script>' in page
+
+
+def test_onboarding_links_only_the_shared_stylesheet() -> None:
+    hrefs = re.findall(r'<link\b[^>]*href="(/static/[^"]+)"', _source("onboarding"))
+    assert hrefs == ["/static/style.css"]
+
+
+def test_onboarding_is_one_column_at_the_prose_measure() -> None:
+    rules = parse_style_block(_source("onboarding"))
+    assert "max-width: var(--measure)" in rules[".page"]
+
+
+def test_onboarding_needs_no_breakpoint_of_its_own() -> None:
+    rules = parse_style_block(_source("onboarding"))
+    assert [key for key in rules if "@" in key] == []
 
 
 async def test_settings_links_nowhere_near_triage(triage: TestClient) -> None:
@@ -1151,12 +1183,12 @@ def test_a_style_attribute_is_reported() -> None:
     assert style_attributes("<style>p { margin: 0; }</style><p>x</p>") == []
 
 
-@pytest.mark.parametrize("source", ["style.css", "settings", "labels"])
+@pytest.mark.parametrize("source", ["style.css", "settings", "labels", "onboarding"])
 def test_no_size_is_written_in_rem(source: str) -> None:
     assert rem_values(_source(source)) == []
 
 
-@pytest.mark.parametrize("source", ["style.css", "settings", "labels"])
+@pytest.mark.parametrize("source", ["style.css", "settings", "labels", "onboarding"])
 def test_every_radius_is_a_shape_token(source: str) -> None:
     assert off_token_radii(_source(source)) == []
 
@@ -1456,7 +1488,7 @@ def test_the_timezone_example_names_no_region() -> None:
 
 
 REPO = UI_SPEC.parents[2]
-PAGES = ["index", "digest", "raw", "settings", "labels"]
+PAGES = ["index", "digest", "raw", "settings", "labels", "onboarding"]
 
 
 def _head(html: str) -> str:

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Cyris Onboarding</title>
+  <meta name="description" content="The guided setup of a new Cyris deployment: language, publish hours, sources, votes, notifications and the first issue.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* This page's own layout: one step at a time, over the step list that says
+       where the reader is (ui-language.md §6 onboarding). Every control and
+       role comes from style.css; a rule here that another page also needs
+       belongs there. */
+    body { font-size: calc(14px * var(--type-scale)); line-height: 1.6; min-height: 100vh; }
+    a { color: inherit; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    .page { max-width: var(--measure); margin: 0 auto; padding: var(--s-12) var(--s-4) var(--s-20); }
+    .steps { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-8); padding: 0; list-style: none; }
+    .steps li { display: flex; align-items: center; gap: var(--s-2); }
+    .steps li::before { content: ""; width: 6px; height: 6px; border: 1px solid var(--border-strong); border-radius: 50%; }
+    .steps li.done::before { background: var(--text-dim); border-color: var(--text-dim); }
+    .steps li[aria-current="step"] { color: var(--accent); }
+    .steps li[aria-current="step"]::before { background: var(--accent); border-color: var(--accent); }
+    .step { display: grid; gap: var(--s-6); }
+    .step-head { display: grid; gap: var(--s-2); }
+    .step-nav { display: flex; align-items: center; gap: var(--s-4); flex-wrap: wrap; margin-top: var(--s-8); }
+  </style>
+</head>
+<body>
+{% with current="onboarding" %}{% include "_site_bar.html.j2" %}{% endwith %}
+  <main class="page">
+    <div class="page-head">
+      <span class="label" id="o-progress">Step 1 of 6</span>
+      <h1 class="display">Set up <em>cyris</em></h1>
+      <p class="small">Six steps to your first issue. Skip any of them: a skipped step keeps its current value, and everything here can be changed later in Settings.</p>
+    </div>
+
+    <ol class="steps" id="o-steps">
+      <li class="label" data-step="language">Language</li>
+      <li class="label" data-step="schedule">Publish hours</li>
+      <li class="label" data-step="sources">Sources</li>
+      <li class="label" data-step="votes">Votes</li>
+      <li class="label" data-step="notify">Notifications</li>
+      <li class="label" data-step="first-issue">First issue</li>
+    </ol>
+
+    <section class="step" data-step="language" hidden>
+      <div class="step-head">
+        <h2 class="heading">Language and timezone</h2>
+        <p class="small">The language each issue is written in, and the clock its publish hours are read in.</p>
+        <p class="small" data-loading>Loading settings…</p>
+      </div>
+      <div class="field">
+        <label class="label" for="o-output-language">Output language</label>
+        <input class="input" id="o-output-language" type="text" list="o-languages" autocomplete="off">
+        <datalist id="o-languages"></datalist>
+        <p class="small">A BCP 47 tag, such as zh-Hant or en.</p>
+        <details class="more"><summary>More</summary><p class="small">Headlines and summaries are written in it. A tag not in the list is passed to the model as written.</p></details>
+      </div>
+      <div class="field">
+        <label class="label" for="o-timezone">Timezone</label>
+        <input class="input" id="o-timezone" type="text" placeholder="UTC" autocomplete="off">
+        <p class="small">The clock the publish hours are read in.</p>
+      </div>
+    </section>
+
+    <section class="step" data-step="schedule" hidden>
+      <div class="step-head">
+        <h2 class="heading">Publish hours</h2>
+        <p class="small">When each day's two issues are published.</p>
+        <p class="small" data-loading>Loading settings…</p>
+      </div>
+      <div class="field">
+        <label class="label" for="o-morning">Morning</label>
+        <input class="input" id="o-morning" type="number" min="0" max="23" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="label" for="o-evening">Evening</label>
+        <input class="input" id="o-evening" type="number" min="0" max="23" autocomplete="off">
+        <details class="more"><summary>More</summary><p class="small">Whole hours in the timezone of the step before. The tick is hourly, so half hours are refused rather than rounded down.</p></details>
+      </div>
+    </section>
+
+    {# Placeholder, until the pick-sources ticket lands: this step writes nothing. #}
+    <section class="step" data-step="sources" data-coming-next hidden>
+      <div class="step-head">
+        <h2 class="heading">Sources</h2>
+        <p class="small">Coming next: pick the feeds this deployment reads, from a list of media that publish their own. Until then, add them one at a time under Sources in Settings.</p>
+      </div>
+    </section>
+
+    {# Placeholder, until the vote-cards ticket lands: this step writes nothing. #}
+    <section class="step" data-step="votes" data-coming-next hidden>
+      <div class="step-head">
+        <h2 class="heading">Votes</h2>
+        <p class="small">Coming next: a few recent articles from those feeds, to mark interested or not interested, so the first issue already knows what you read.</p>
+      </div>
+    </section>
+
+    <section class="step" data-step="notify" hidden>
+      <div class="step-head">
+        <h2 class="heading">Notifications</h2>
+        <p class="small">Where a finished issue is announced. Leave both empty to be notified nowhere.</p>
+        <p class="small" data-loading>Loading settings…</p>
+      </div>
+      <div class="field">
+        <label class="label" for="o-discord-webhook">Discord webhook</label>
+        <input class="input" id="o-discord-webhook" type="text" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+        <p class="small">Paste the whole URL.</p>
+        <details class="more"><summary>More</summary><p class="small">It is saved only after Discord confirms it exists.</p></details>
+      </div>
+      <div class="field">
+        <label class="label" for="o-email-to">Email to</label>
+        <input class="input" id="o-email-to" type="email" placeholder="you@example.com" autocomplete="off">
+        <p class="small">Leave it empty to send no mail.</p>
+        <details class="more"><summary>More</summary><p class="small">It must be a verified destination address in Cloudflare Email Routing. It is saved only after a test message reaches it.</p></details>
+      </div>
+      <div class="field">
+        <label class="label" for="o-email-from">Email from</label>
+        <input class="input" id="o-email-from" type="email" placeholder="digest@your-domain" autocomplete="off">
+        <p class="small">An address on your Email Routing domain.</p>
+      </div>
+    </section>
+
+    {# Placeholder, until the first-issue ticket lands: this step starts nothing. #}
+    <section class="step" data-step="first-issue" data-coming-next hidden>
+      <div class="step-head">
+        <h2 class="heading">First issue</h2>
+        <p class="small">Coming next: the first issue, built from the sources and votes of the steps above. Until then, Finish opens Settings, where Run builds one.</p>
+      </div>
+    </section>
+
+    <div class="step-nav">
+      <button class="btn secondary" type="button" id="o-back">Back</button>
+      <button class="btn secondary" type="button" id="o-skip">Skip</button>
+      <button class="btn primary" type="button" id="o-next">Next</button>
+      {# The way out, on the last step alone. The mark is what keeps /settings from
+         sending a deployment whose sources table is still empty straight back here. #}
+      <a class="btn primary" id="o-finish" href="/settings?from=onboarding" hidden>Finish</a>
+      <div class="notice" id="o-result" role="status" hidden></div>
+    </div>
+  </main>
+<script src="/static/onboarding.js"></script>
+{% include "_probe_script.html.j2" %}
+</body>
+</html>

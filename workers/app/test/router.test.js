@@ -192,6 +192,38 @@ describe("UnauthenticatedWriteSurfaceRejected", () => {
     expect(deps.fetchImpl.calls).toHaveLength(0);
   });
 
+  it("GET /onboarding with no cookie does not reach the container", async () => {
+    const deps = makeDeps();
+    const resp = await handleRequest(request("GET", "/onboarding"), env(), deps);
+    expect(resp.status).toBe(401);
+    expect(deps.container.calls).toHaveLength(0);
+    expect(deps.fetchImpl.calls).toHaveLength(0);
+  });
+
+  it("GET /onboarding with Accept text/html and no cookie is the sign-in form", async () => {
+    const resp = await handleRequest(
+      request("GET", "/onboarding", { headers: { Accept: "text/html" } }),
+      env(),
+      makeDeps(),
+    );
+    expect(resp.status).toBe(401);
+    expect(resp.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    // Signing in returns to the wizard rather than to the archive.
+    expect((await resp.text()).match(/name="next" value="([^"]*)"/)?.[1]).toBe("/onboarding");
+  });
+
+  it("GET /onboarding with a valid cookie reaches the container, not Pages", async () => {
+    const deps = makeDeps();
+    const resp = await handleRequest(
+      request("GET", "/onboarding", { cookie: await sessionCookie() }),
+      env(),
+      deps,
+    );
+    expect(resp.status).toBe(200);
+    expect(deps.container.calls).toHaveLength(1);
+    expect(deps.fetchImpl.calls).toHaveLength(0);
+  });
+
   it("GET /static/settings.js with no cookie is 401", async () => {
     const resp = await handleRequest(request("GET", "/static/settings.js"), env(), makeDeps());
     expect(resp.status).toBe(401);

@@ -1294,7 +1294,7 @@ CHECKS: list[Check] = [
     Check(
         id="sources-empty-all",
         fixture="writable",
-        path="/settings#sources",
+        path="/settings?from=onboarding#sources",
         setup=lambda fixture: fixture.sources.clear(),
         act="""
             await sourcesListed();
@@ -1321,7 +1321,7 @@ CHECKS: list[Check] = [
     Check(
         id="sources-empty-warn-dot",
         fixture="writable",
-        path="/settings#sources",
+        path="/settings?from=onboarding#sources",
         setup=lambda fixture: fixture.sources.clear(),
         act="await sourcesListed();",
         script="""
@@ -1334,7 +1334,7 @@ CHECKS: list[Check] = [
     Check(
         id="sources-warn-dot-clears-on-save",
         fixture="writable",
-        path="/settings#sources",
+        path="/settings?from=onboarding#sources",
         setup=lambda fixture: fixture.sources.clear(),
         act="""
             await sourcesListed();
