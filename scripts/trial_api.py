@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Ask Cloudflare what the trial wizard cannot see from the shell.
 
-`scripts/trial-wizard.sh` calls this at two points. Its stage 7 checks a new trial
+`scripts/trial-wizard.sh` calls this at one point. Its stage 7 checks a new trial
 token before anything relies on it: a token missing Cloudflare Pages → Edit let
 the first trial's run fetch, score and summarize, then fail at publishing
-(2026-10-06). Its stage 17 waits for the first run's `digest_runs` row, because
+(2026-10-06). `latest-run` and `wait-run` wait for a run's `digest_runs` row, because
 `wrangler tail` never shows it: the container's stdout reaches Workers Logs only.
+The wizard no longer starts a run (the tester's onboarding does), so they are run
+by hand.
 
 The token comes on stdin, never as an argument, so it stays out of the process
 list and out of every line this prints. Every call is read-only or rejected

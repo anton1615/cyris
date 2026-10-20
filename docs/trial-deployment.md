@@ -77,10 +77,16 @@ Either works; the first trial (2026-10-06) runs on production's.
   [running the CLI](install-cloudflare.md#running-the-cli-against-the-deployment) for why
   the files are named the way they are. Its first line names the database it wrote to,
   and the wizard stops unless that is the trial's.
-- **The tester's sources are RSS only.** A trial has no newsletter Worker, so an
-  email-only source would be silently absent.
+- **The wizard gives the trial no source and starts no digest.** The tester picks their
+  feeds in `/onboarding`, whose last step builds the first issue
+  ([ADR-0020](decisions/0020-new-deployments-start-from-onboarding.md)): a trial seeded with
+  someone else's feeds starts on articles the tester does not read. The first boot pushes
+  the settings alone, so the trial waits for onboarding until the tester signs in. Its feeds
+  are RSS only: a trial has no newsletter Worker, so an email-only source would be silently
+  absent.
 - **The rss Worker comes after the first boot**, and the app is pointed at it only after
-  it answers `401` without the bearer and its first poll counts every pushed source. See
+  it answers `401` without the bearer and its first poll answers with a feed count, `0`
+  until the tester's onboarding. See
   [Optional Workers](install-cloudflare.md#optional-workers) for why the order matters and
   why the app and the Worker share one token.
 - **A new custom domain can take minutes to answer**; the install guide's
@@ -94,13 +100,13 @@ The wizard writes these at the repo root, all gitignored:
 - `.env.trial-<slug>`, `.env.trial-<slug>-promote` and `.env.trial-<slug>-rss` hold the
   secrets. Cloudflare cannot read them back, so losing one means rotating it.
 - `.env.trial-<slug>-wizard` holds the inputs, the ids and the image the trial runs.
-- `.env.trial-<slug>-sources.yaml` holds the tester's sources.
 
 ## What stays by hand
 
 - Checking Zero Trust → Access for a policy covering `<slug>.<domain>`; a wildcard
   policy would give the tester a second login. The wizard opens the page and waits.
-- The tester's own `/settings`: the Discord webhook, mail, anything else.
+- The tester's own `/onboarding`: sources, votes, notifications and the first issue; then
+  `/settings` for anything else.
 - The vote round trip: the tester votes, you run `cyris promote-sync` against the trial,
   and the article's `triaged_at` is set in the trial's D1.
 

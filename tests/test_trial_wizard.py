@@ -35,10 +35,13 @@ case "$*" in
     cat > "$FAKE_DIR/stdin"
     [[ "$(cat "$FAKE_DIR/stdin")" == "$FAKE_GOOD_TOKEN" ]] && exit 0
     echo "  ✗ the token lacks Cloudflare Pages → Edit"; exit 1 ;;
-  *"trial_api.py latest-run"*) cat > /dev/null; echo "${FAKE_LATEST:-4}" ;;
-  *"trial_api.py wait-run"*)
-    cat > /dev/null; echo "  run 5: status ok"; exit "${FAKE_WAIT_RC:-0}" ;;
-  *"python -c"*) echo 1 ;;
+  *"cyris settings push"*)
+    # Under `env -i`, which keeps only HOME and PATH: what it was given goes to HOME.
+    echo "uv $*" >> "$HOME/push.calls"
+    sources=$(sed -E 's/.*--sources ([^ ]+).*/\1/' <<<"$*")
+    cp "$sources" "$HOME/pushed-sources.yaml"
+    echo "D1 database 0948e71f-2374-4e4e-8f30-44890139011b" ;;
+  *"cyris sources push"*) echo "uv $*" >> "$HOME/push.calls" ;;
 esac
 """
 
@@ -46,7 +49,9 @@ FAKE_CURL = r"""#!/bin/bash
 echo "curl $*" >> "$CALLS"
 case " $* " in
   *"/stats"*) echo "${FAKE_STATS_CODE:-401}" ;;
-  *"/poll"*) printf '{"feeds":%s}\n' "${FAKE_POLL_FEEDS:-1}" ;;
+  *"/poll"*)
+    if [[ -n "${FAKE_POLL_REPLY:-}" ]]; then echo "$FAKE_POLL_REPLY"
+    else printf '{"feeds":%s}\n' "${FAKE_POLL_FEEDS:-0}"; fi ;;
   *" -D - "*)
     n=$(( $(cat "$FAKE_DIR/login" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$FAKE_DIR/login"
     if [[ -z "${FAKE_LOGIN_NEVER:-}" && $n -gt ${FAKE_LOGIN_FAIL_FIRST:-0} ]]; then
@@ -54,7 +59,6 @@ case " $* " in
     else
       printf 'HTTP/2 522\r\n\r\n'
     fi ;;
-  *"/run?period="*) echo '{"started":"run","at":"2026-10-06T10:50:10Z"}' ;;
 esac
 """
 
@@ -80,7 +84,7 @@ output_language = "zh-Hant"
 """
 
 
-def _state(done: str, email: str = "", source_count: str = "1") -> str:
+def _state(done: str, email: str = "") -> str:
     return "\n".join(
         [
             "DOMAIN=example.com",
@@ -95,7 +99,6 @@ def _state(done: str, email: str = "", source_count: str = "1") -> str:
             "TRIAL_KV_ID=" + "c" * 32,
             "PAGES_CREATED=yes",
             "TRIAL_PROMOTE_URL=https://p-t1.x.workers.dev",
-            f"SOURCE_COUNT={source_count}",
             f"STAGES_DONE={done}",
             "",
         ]
@@ -144,13 +147,13 @@ class Rig:
 
 @pytest.fixture
 def rig(tmp_path: Path):
-    def make(done: str, email: str = "", source_count: str = "1", **env: str) -> Rig:
+    def make(done: str, email: str = "", **env: str) -> Rig:
         repo = tmp_path / "repo"
         (repo / "scripts").mkdir(parents=True)
         shutil.copy(ROOT / "scripts/trial-wizard.sh", repo / "scripts/trial-wizard.sh")
         (repo / "scripts/provision_trial.py").write_text("")
         (repo / "cyris.toml.example").write_text(EXAMPLE_CONFIG)
-        (repo / f".env.trial-{SLUG}-wizard").write_text(_state(done, email, source_count))
+        (repo / f".env.trial-{SLUG}-wizard").write_text(_state(done, email))
         (repo / f".env.trial-{SLUG}").write_text(
             f"CLOUDFLARE_API_TOKEN={TOKEN}\nGEMINI_API_KEY=g\nCYRIS_UI_TOKEN=u\n"
             f"CYRIS_STORE_DATABASE_ID={D1_ID}\n"
@@ -182,9 +185,9 @@ def rig(tmp_path: Path):
 def test_a_resumed_run_starts_at_the_first_stage_not_done(rig) -> None:
     run = rig(_stages(11)).run()
     assert "Stages 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 were done earlier" in run.out
-    assert "▸ Stage 12/18 · Deploy the app" in run.out
+    assert "▸ Stage 12/17 · Deploy the app" in run.out
     for earlier in range(1, 12):
-        assert f"▸ Stage {earlier}/18" not in run.out
+        assert f"▸ Stage {earlier}/17" not in run.out
     assert "Domain on the trial account" not in run.out
     assert "d1 create" not in run.calls
     assert "provision_trial.py names --slug t1 --pages-suffix 0123456789abcdef" in run.calls
@@ -200,7 +203,7 @@ def test_a_completed_stage_is_recorded_and_a_failed_one_is_not(rig) -> None:
 def test_from_clears_that_stage_and_every_later_one(rig) -> None:
     r = rig(_stages(14))
     run = r.run("--from", "12")
-    assert "▸ Stage 12/18 · Deploy the app" in run.out
+    assert "▸ Stage 12/17 · Deploy the app" in run.out
     assert r.done() == f"STAGES_DONE={_stages(12)}"
 
 
@@ -210,7 +213,9 @@ def test_from_keeps_the_values_already_saved(rig) -> None:
     assert f"TRIAL_D1_ID={D1_ID}" in run.state.splitlines()
 
 
-@pytest.mark.parametrize("args", [("--from", "18"), ("--from", "0"), ("--from",), ("again",)])
+@pytest.mark.parametrize(
+    "args", [("--from", "17"), ("--from", "18"), ("--from", "0"), ("--from",), ("again",)]
+)
 def test_a_bad_mode_prints_the_usage(rig, args: tuple[str, ...]) -> None:
     run = rig(_stages(14)).run(*args)
     assert run.code == 1
@@ -256,7 +261,7 @@ def test_a_token_with_every_permission_is_saved(rig) -> None:
     run = r.run(stdin=START + "good-token\ngemini-key\n")
     assert "Add the permissions marked ✗" not in run.out
     assert "CLOUDFLARE_API_TOKEN=good-token" in (r.repo / f".env.trial-{SLUG}").read_text()
-    assert "▸ Stage 8/18" in run.out
+    assert "▸ Stage 8/17" in run.out
 
 
 @pytest.mark.parametrize("pasted", ["good-token", "pasted-token-123"])
@@ -279,66 +284,85 @@ def test_mail_permission_is_checked_only_for_a_tester_with_email(rig, email, fla
     assert "--pages-project cyris-app-t1-0123456789abcdef --app-worker cyris-app-t1" in check
 
 
-def test_the_first_digest_waits_for_its_digest_runs_row(rig) -> None:
-    run = rig(_stages(16)).run(stdin=START + "evening\ny\n")
-    calls = run.calls.splitlines()
-    order = [
-        next(i for i, c in enumerate(calls) if marker in c)
-        for marker in ("trial_api.py latest-run", "/run?period=evening", "trial_api.py wait-run")
-    ]
-    assert order == sorted(order)
-    wait = calls[order[2]]
-    assert "--after 4" in wait and "--app-worker cyris-app-t1" in wait
-    assert "run 5: status ok" in run.out
-    assert " tail " not in run.calls
-
-
-def test_a_wait_that_times_out_warns_and_goes_on(rig) -> None:
-    run = rig(_stages(16), FAKE_WAIT_RC="2").run(stdin=START + "evening\ny\n")
-    assert "a second post starts a second run" in run.out
-    assert "▸ Stage 18/18 · Receipts" in run.out
-
-
-def test_declining_the_post_starts_nothing(rig) -> None:
-    run = rig(_stages(16)).run(stdin=START + "evening\nn\n")
-    assert "/run?period=" not in run.calls
-    assert "wait-run" not in run.calls
-
-
 def test_a_declined_deploy_looks_once_instead_of_waiting(rig) -> None:
     run = rig(_stages(11), FAKE_LOGIN_NEVER="1").run()
     assert "waiting for" not in run.out
     assert "does not answer 302 → /login, and nothing was deployed now." in run.out
     assert run.calls.count(" -D - ") == 1
-    assert "▸ Stage 13/18" in run.out
+    assert "▸ Stage 13/17" in run.out
 
 
-# Stage 14 reads /poll to see the feeds the first boot pushed. A trial with no
-# source of its own has none to push and waits for onboarding, so feeds 0 is the
-# answer that stage expects there. Every answer from stage 14 on, in order: the
-# rss deploy declined, the Worker URL, the app deploy declined, then the pauses
-# and the clipboard of stages 14 to 16, and stage 17's period with its POST
-# declined. A prompt left unanswered would loop on end-of-file rather than stop.
+# Every answer from stage 14 on, in order: the rss deploy declined, the Worker
+# URL, the app deploy declined, then the pauses and the clipboard of stages 14
+# to 16. A prompt left unanswered would loop on end-of-file rather than stop.
 RSS_URL = "https://rss-t1.x.workers.dev"
-FROM_STAGE_14 = START + "\n".join(["n", RSS_URL, "n", "", "", "", "n", "", "morning", "n", ""])
+FROM_STAGE_14 = ["n", RSS_URL, "n", "", "", "", "n", ""]
+# Stage 13's push, confirmed, and the pause after it.
+STAGE_13 = ["y", ""]
 
 
-def test_stage_14_takes_feeds_0_when_no_source_was_pushed(rig) -> None:
-    r = rig(_stages(13), source_count="0", FAKE_POLL_FEEDS="0")
+def _answers(*lines: str) -> str:
+    return START + "\n".join(lines) + "\n"
 
-    run = r.run(stdin=FROM_STAGE_14)
+
+def test_the_first_boot_pushes_the_settings_and_no_source(rig) -> None:
+    r = rig(_stages(12))
+
+    run = r.run(stdin=_answers(*STAGE_13, *FROM_STAGE_14))
+
+    home = Path(r.env["HOME"])
+    pushes = (home / "push.calls").read_text().splitlines()
+    assert run.code == 0, run.out
+    assert [p.split(" push ")[0] for p in pushes] == ["uv run cyris settings"]
+    assert (home / "pushed-sources.yaml").read_text() == "sources: []\n"
+    assert "✓ settings push went to" in run.out
+    assert not list(r.repo.glob(".env.trial-*-sources.yaml"))
+
+
+def test_a_pass_from_the_first_boot_to_the_receipts_starts_no_run(rig) -> None:
+    run = rig(_stages(12)).run(stdin=_answers(*STAGE_13, *FROM_STAGE_14))
+
+    assert run.code == 0, run.out
+    assert "/run" not in run.calls
+    assert "wait-run" not in run.calls and "latest-run" not in run.calls
+    assert "▸ Stage 17/17 · Receipts" in run.out
+
+
+def test_a_state_from_before_the_first_digest_stage_was_dropped_still_runs_the_receipts(
+    rig,
+) -> None:
+    """An older state lists 17, the first-digest stage then; 17 is the receipts now."""
+    run = rig(_stages(17)).run()
+
+    assert "Stages 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 were done" in run.out
+    assert "▸ Stage 17/17 · Receipts" in run.out
+    assert "/run" not in run.calls
+
+
+def test_stage_14_takes_feeds_0_on_a_trial_with_no_source(rig) -> None:
+    r = rig(_stages(13), FAKE_POLL_FEEDS="0")
+
+    run = r.run(stdin=_answers(*FROM_STAGE_14))
 
     assert "/poll feeds = 0: no source yet, so the trial waits for onboarding." in run.out
-    assert "/poll reports feeds" not in run.out
     assert run.code == 0
     assert "14" in r.done().removeprefix("STAGES_DONE=").split(",")
 
 
-def test_stage_14_still_stops_when_a_pushed_source_polls_no_feed(rig) -> None:
-    r = rig(_stages(13), source_count="1", FAKE_POLL_FEEDS="0")
+def test_stage_14_counts_the_feeds_a_tester_already_picked(rig) -> None:
+    r = rig(_stages(13), FAKE_POLL_FEEDS="3")
 
-    run = r.run(stdin=FROM_STAGE_14)
+    run = r.run(stdin=_answers(*FROM_STAGE_14))
 
-    assert "/poll reports feeds '0', sources push had 1." in run.out
+    assert "✓ /poll feeds = 3" in run.out
+    assert run.code == 0
+
+
+def test_stage_14_stops_when_the_poll_reports_no_feed_count(rig) -> None:
+    r = rig(_stages(13), FAKE_POLL_REPLY='{"error":"unauthorized"}')
+
+    run = r.run(stdin=_answers(*FROM_STAGE_14))
+
+    assert "/poll answered without a feed count." in run.out
     assert run.code == 1
     assert "14" not in r.done().removeprefix("STAGES_DONE=").split(",")

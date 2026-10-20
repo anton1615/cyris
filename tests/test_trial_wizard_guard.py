@@ -1,5 +1,9 @@
 """scripts/trial-wizard.sh cannot touch production; docs/trial-deployment.md points, not copies.
 
+Nor does the wizard choose the tester's sources or start their first issue: a new
+deployment starts from onboarding (ADR-0020), so it pushes no source, writes no
+source entry, and posts no `/run`.
+
 A trial runs from the same checkout as production, so one wrangler command without the
 trial's own config redeploys, re-secrets or re-seeds the production Worker. These rules
 read the wizard's source and refuse the lines that would reach production. Each rule has
@@ -161,6 +165,13 @@ def _first_failure(lines: list[str]) -> str | None:
                 w.startswith("-") and not w.startswith("--") and "q" in w for w in words
             ):
                 return f"(j) grep names a token without -q: {ln}"
+    for ln in lines:
+        if re.search(r"cyris sources push", ln):
+            return f"(k) the wizard pushes sources: {ln}"
+        if re.match(r"-\s*(name|url):", ln):
+            return f"(k) the wizard writes a source entry: {ln}"
+        if re.search(r"/run(\?|\b)", ln) and not re.search(r"/runs?_", ln):
+            return f"(l) the wizard starts a run: {ln}"
     return None
 
 
@@ -251,6 +262,25 @@ def test_wrangler_in_any_shape_is_still_wrangler(line: str, rule: str | None) ->
 def test_a_push_outside_the_trial_directory_is_refused() -> None:
     line = 'uv run cyris sources push --config "$TRIAL_DIR/settings.toml" '
     _raises(_wizard() + "\n" + line + '--sources "$TRIAL_DIR/sources.yaml"\n', "d")
+
+
+@pytest.mark.parametrize(
+    ("line", "rule"),
+    [
+        (
+            'env -i HOME="$HOME" PATH="$PATH" uv run cyris sources push '
+            '--config "$TRIAL_DIR/settings.toml" --sources "$TRIAL_DIR/sources.yaml"',
+            "k",
+        ),
+        ('  - name: "Stratechery"', "k"),
+        (
+            'curl -s -X POST -b "cyris_session=$SESSION" "https://$SLUG.$DOMAIN/run?period=$PERIOD"',
+            "l",
+        ),
+    ],
+)
+def test_choosing_sources_or_starting_the_first_issue_is_refused(line: str, rule: str) -> None:
+    _raises(_wizard() + "\n" + line + "\n", rule)
 
 
 def test_a_secrets_file_git_would_track_is_refused() -> None:
