@@ -500,7 +500,7 @@ table.src td.areas-pos-cell { width: 1%; }
 
 <div class="proto-strip">
   <span>PROTOTYPE · sample data ·</span>
-  <a href="#system">system</a><a href="#archive">archive</a><a href="#digest">digest</a><a href="#raw">raw</a><a href="#settings/model">settings</a><a href="#onboarding">onboarding</a><a href="#onboarding/votes">onboarding votes</a>
+  <a href="#system">system</a><a href="#archive">archive</a><a href="#digest">digest</a><a href="#raw">raw</a><a href="#settings/model">settings</a><a href="#onboarding">onboarding</a><a href="#onboarding/votes">onboarding votes</a><a href="#onboarding/first-issue">onboarding first issue</a>
   <label><input type="checkbox" id="authorized" checked> signed in (shows Settings, votes, List/Triage; off shows Sign in)</label>
 </div>
 
@@ -832,7 +832,9 @@ table.src td.areas-pos-cell { width: 1%; }
      through POST /api/sources; the feed list is the server's, here four of its
      entries. #onboarding/votes is the next step: the cards the server dealt from
      those feeds, one marked each way and one left alone, with the feed that gave
-     no article named. The first-issue step is a placeholder in the app too. -->
+     no article named. #onboarding/first-issue is the last step before the morning
+     hour, after a run that failed: its plan, yesterday's evening, the run's reason,
+     and Try again beside Finish. -->
 <section data-view="onboarding" hidden>
   <main class="page narrow" data-ostep="sources">
     <div class="page-head">
@@ -922,6 +924,40 @@ Press Next to try again, or Skip to go on without them.</div>
       <button class="btn secondary" type="button">Back</button>
       <button class="btn secondary" type="button">Skip</button>
       <button class="btn primary" type="button">Next</button>
+    </div>
+  </main>
+
+  <main class="page narrow" data-ostep="first-issue" hidden>
+    <div class="page-head">
+      <span class="label">Step 6 of 6</span>
+      <h1 class="display">Set up <em>cyris</em></h1>
+      <p class="small">Six steps to your first issue. Skip any of them: a skipped step keeps its current value, and everything here can be changed later in Settings.</p>
+    </div>
+
+    <ol class="steps">
+      <li class="label done">Language</li>
+      <li class="label done">Publish hours</li>
+      <li class="label done">Sources</li>
+      <li class="label done">Votes</li>
+      <li class="label done">Notifications</li>
+      <li class="label" aria-current="step">First issue</li>
+    </ol>
+
+    <section class="step">
+      <div class="step-head">
+        <h2 class="heading">First issue</h2>
+        <p class="small">Build an issue now from your feeds and votes, instead of waiting for the next publish hour.</p>
+        <details class="more"><summary>More</summary><p class="small">It takes today's latest publish hour that has already begun, or yesterday's evening while both of today's are still to come, so no later issue replaces it. It runs as a scheduled issue does, notifications included, and takes a few minutes. Skip leaves without one, and the next publish hour brings the first issue.</p></details>
+      </div>
+      <p class="small">Start builds the 2026-10-19 evening issue now, dated yesterday: neither of today's publish hours, 08:00 and 20:00 Asia/Taipei, has begun, and an issue dated today would be replaced by them. It takes a few minutes.</p>
+    </section>
+
+    <div class="step-nav">
+      <button class="btn secondary" type="button">Back</button>
+      <button class="btn primary" type="button">Try again</button>
+      <a class="btn primary" href="#onboarding/first-issue">Finish</a>
+      <div class="notice err" role="status">The run stopped with an error. RuntimeError: the Gemini key was refused
+Press Try again, or Finish to leave: the next publish hour brings an issue either way.</div>
     </div>
   </main>
 </section>

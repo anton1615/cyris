@@ -29,6 +29,42 @@ const VOTE_ONLY = (path) => path === "/api/vote";
 // `cyris run --period` takes these; anything else would reach the container and fail there.
 const RUN_PERIODS = ["morning", "evening"];
 
+// The deployment's own calendar day, YYYY-MM-DD, at `now`.
+const dayIn = (timeZone, now) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(now);
+
+const dayBefore = (day) => {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+};
+
+// Why a manual run's named issue date is refused, as [status, error], or null
+// to take it. A real YYYY-MM-DD, and today or yesterday in the deployment's time
+// zone: yesterday is the onboarding's first issue before the morning hour, and
+// anything older would store over an issue already published. Without a
+// readable time zone the date cannot be checked, so it is refused rather than
+// taken: the wizard, the one caller, can try again.
+const UNCHECKED = [503, "could not read the deployment's time zone to check the date; try again"];
+
+async function refuseRunDate(date, deps) {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  const real = /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === date;
+  if (!real) return [400, "date must be a real YYYY-MM-DD date"];
+  const timeZone = deps.runTimeZone ? await deps.runTimeZone() : null;
+  if (!timeZone) return UNCHECKED;
+  let today;
+  try {
+    today = dayIn(timeZone, deps.now ? deps.now() : new Date());
+  } catch {
+    return UNCHECKED;
+  }
+  if (date === today || date === dayBefore(today)) return null;
+  return [400, `date must be today or yesterday in ${timeZone} (${dayBefore(today)} or ${today})`];
+}
+
 const sha256 = async (text) => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -284,11 +320,19 @@ export async function handleRequest(request, env, deps) {
 
   if (request.method === "POST" && url.pathname === "/run") {
     const period = url.searchParams.get("period");
-    if (period === null) return json(await deps.startRun());
+    const date = url.searchParams.get("date");
+    if (period === null) {
+      // `cyris run --if-due` dates its issue by the tick's own clock.
+      if (date !== null) return json({ error: "date needs a period" }, 400);
+      return json(await deps.startRun());
+    }
     if (!RUN_PERIODS.includes(period)) {
       return json({ error: `period must be one of ${RUN_PERIODS.join(", ")}` }, 400);
     }
-    return json(await deps.startRun(period));
+    if (date === null) return json(await deps.startRun(period));
+    const refused = await refuseRunDate(date, deps);
+    if (refused) return json({ error: refused[1] }, refused[0]);
+    return json(await deps.startRun(period, date));
   }
 
   const response = await deps.container(request);

@@ -1252,12 +1252,13 @@ def test_the_labels_probe_runs_on_the_shared_core():
 # settings step writes what it was given, the sources step lists the feed list
 # and stores each pick as listed, the votes step deals its cards, names a feed
 # with none, shows the wait and writes only the marked cards and vote
-# similarity, a skip writes nothing, only the right deployment sees the wizard
-# and its list, and the page fits a phone.
+# similarity, the first-issue step starts one run for the key it picked, today's
+# or yesterday's evening, shows it while it is out, says where its issue is or
+# why it failed, and starts none when skipped, a skip writes nothing, only the
+# right deployment sees the wizard and its list, and the page fits a phone.
 EXPECTED_ONBOARDING_IDS = {
     "opens-on-the-first-step",
     "the-step-list-names-every-step",
-    "a-step-still-to-come-says-so",
     "next-walks-to-the-next-step",
     "back-returns-to-the-previous-step",
     "skip-walks-to-the-last-step",
@@ -1304,6 +1305,15 @@ EXPECTED_ONBOARDING_IDS = {
     "tap-votes-375",
     "tap-feeds-375",
     "tap-steps-375",
+    "first-issue-starts-a-run-no-later-tick-replaces",
+    "first-issue-says-where-to-read-it",
+    "first-issue-shows-the-run-while-it-is-out",
+    "first-issue-says-why-its-run-failed",
+    "first-issue-tries-again-after-a-failure",
+    "first-issue-skipped-starts-no-run",
+    "first-issue-before-the-morning-takes-yesterdays-evening",
+    "first-issue-with-no-source-says-so",
+    "fits-first-issue-375",
 }
 
 
@@ -1456,6 +1466,102 @@ async def test_the_onboarding_probe_votes_receipt_reads_what_the_votes_wrote():
 
 def test_the_onboarding_probe_slow_fixture_outlasts_a_look_at_the_wait():
     assert onboarding_probe.SLOW_SECONDS >= 2
+
+
+class _Query:
+    """A request as the probe's `POST /run` stand-in reads it: the query alone."""
+
+    def __init__(self, period: str, date: str | None = None) -> None:
+        self.query = {"period": period} | ({"date": date} if date else {})
+
+
+def _start_run(fixture):
+    [route] = [r for r in fixture.app.router.routes() if r.resource.canonical == "/run"]
+    return route.handler
+
+
+async def _first_issue(fixture) -> dict:
+    server = _onboarding_server(fixture)
+    return json.loads((await server._handle_get_first_issue(None)).text)
+
+
+@pytest.mark.parametrize(
+    ("kind", "run"),
+    [
+        ("first-issue", onboarding_probe.ISSUE_RUN),
+        ("first-issue-early", onboarding_probe.EARLY_RUN),
+    ],
+)
+async def test_the_onboarding_probe_first_issue_clock_picks_the_key_the_checks_expect(
+    kind: str, run: tuple[str, str]
+):
+    body = await _first_issue(onboarding_probe.build_fixture(kind))
+
+    assert (body["period"], body["date"]) == run
+    assert body["today"] == onboarding_probe.ISSUE_DATE
+    assert (body["sources"], body["published"]) == (1, False)
+    assert body["hours"][0] == "08:00"
+
+
+async def test_the_onboarding_probe_run_records_its_period_and_ends_as_listed():
+    fixture = onboarding_probe.build_fixture("first-issue-fails")
+    start = _start_run(fixture)
+    before = (await _first_issue(fixture))["run"]["id"]
+
+    await start(_Query("morning", "2026-10-20"))
+    failed = (await _first_issue(fixture))["run"]
+    await start(_Query("morning", "2026-10-20"))
+    published = (await _first_issue(fixture))["run"]
+
+    assert fixture.runs == [onboarding_probe.ISSUE_RUN, onboarding_probe.ISSUE_RUN]
+    assert (failed["id"], failed["status"], failed["error"]) == (
+        before + 1,
+        "error",
+        onboarding_probe.FAILURE,
+    )
+    assert (published["status"], published["digest_url"]) == ("ok", onboarding_probe.DIGEST_URL)
+    run = onboarding_probe.ISSUE_RUN
+    assert onboarding_probe._runs(run, run)(fixture) is None
+    assert onboarding_probe._runs(run)(fixture) is not None
+
+
+async def test_the_onboarding_probe_slow_run_never_records_a_row():
+    fixture = onboarding_probe.build_fixture("first-issue-slow")
+    before = (await _first_issue(fixture))["run"]
+
+    await _start_run(fixture)(_Query("morning", "2026-10-20"))
+
+    assert (await _first_issue(fixture))["run"] == before
+    assert fixture.runs == [onboarding_probe.ISSUE_RUN]
+
+
+@pytest.mark.parametrize(
+    ("period", "date"), [("noon", None), ("evening", "2026-10-18"), ("evening", "2026-10-21")]
+)
+async def test_the_onboarding_probe_run_refuses_what_the_worker_refuses(period, date):
+    fixture = onboarding_probe.build_fixture("first-issue")
+
+    response = await _start_run(fixture)(_Query(period, date))
+
+    assert response.status == 400
+    assert fixture.runs == []
+
+
+async def test_the_onboarding_probe_early_run_is_yesterdays_evening_and_publishes_it():
+    fixture = onboarding_probe.build_fixture("first-issue-early")
+
+    await _start_run(fixture)(_Query("evening", "2026-10-19"))
+    run = (await _first_issue(fixture))["run"]
+
+    assert fixture.runs == [onboarding_probe.EARLY_RUN]
+    assert (run["status"], run["digest_url"]) == ("ok", "https://cyris.example/2026-10-19-evening")
+
+
+def test_the_onboarding_probe_waits_longer_than_the_page_reads():
+    js = (Path(__file__).parents[1] / "src/cyris/entrypoints/static/onboarding.js").read_text()
+    poll = int(re.search(r"const POLL_MS = (\d+);", js)[1])
+
+    assert 2 * poll <= onboarding_probe.RUN_READ_MS
 
 
 def test_the_labels_probe_fixture_refuses_an_unknown_kind():

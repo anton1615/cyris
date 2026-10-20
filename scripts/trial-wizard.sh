@@ -207,10 +207,10 @@ FROM=""
 if [[ "$MODE" == --from ]]; then FROM="${3:-}"; fi
 if [[ ! "$SLUG" =~ ^[a-z][a-z0-9]{1,19}$ || "$SLUG" == wizard ]] \
   || [[ "$MODE" != all && "$MODE" != receipts && "$MODE" != --from ]] \
-  || [[ "$MODE" == --from && ! "$FROM" =~ ^([1-9]|1[0-7])$ ]]; then
+  || [[ "$MODE" == --from && ! "$FROM" =~ ^([1-9]|1[0-6])$ ]]; then
   echo "Usage: bash scripts/trial-wizard.sh <slug> [receipts | --from N]"
   echo "slug: 2-20 lowercase letters or digits, starting with a letter, not 'wizard'."
-  echo "N: a stage from 1 to 17."
+  echo "N: a stage from 1 to 16."
   exit 1
 fi
 LOGIN_WAIT_SECONDS="${TRIAL_WIZARD_LOGIN_WAIT:-2400}"
@@ -220,7 +220,6 @@ STATE=".env.trial-$SLUG-wizard"
 APP_ENV=".env.trial-$SLUG"
 PROMOTE_ENV=".env.trial-$SLUG-promote"
 RSS_ENV=".env.trial-$SLUG-rss"
-SOURCES_FILE=".env.trial-$SLUG-sources.yaml"
 APP_CFG="wrangler.trial-$SLUG.toml"
 PROMOTE_CFG="workers/promote/wrangler.trial-$SLUG.toml"
 RSS_CFG="workers/rss/wrangler.trial-$SLUG.toml"
@@ -322,7 +321,7 @@ deploy_app_and_wait() {
 
 receipts() {
   stage "Receipts (acceptance criteria)"
-  say "Read-only checks. The first digest's run takes minutes: wait for it to end first."
+  say "Read-only checks. The first digest comes from the tester's onboarding: run these after it."
   note "Scheduled runs come at the publish hours; re-run with 'receipts' later to see one."
   printf '\n%s  digest_runs%s\n' "$BOLD" "$RESET"
   show_run d1-runs bunx wrangler d1 execute "$TRIAL_D1_NAME" --remote --config "$RSS_CFG" --env-file /dev/null \
@@ -595,30 +594,10 @@ stage_12() {
 }
 
 # ── 13 ────────────────────────────────────────────────────────────────────
+# The trial gets no source here: its tester picks them in /onboarding, which
+# also starts the first issue (docs/decisions/0020-new-deployments-start-from-onboarding.md).
 stage_13() {
-  stage "First boot: settings and the tester's sources"
-  if [[ ! -f "$SOURCES_FILE" ]]; then
-    cat > "$SOURCES_FILE" <<'YAML'
-defaults:
-  tier: filter
-  language: auto
-sources:
-  - name: "Stratechery"
-    url: "https://stratechery.com/feed/"
-    tier: summarize
-    tags: [tech, business-strategy]
-YAML
-  fi
-  say "Replace the example with the tester's feeds: RSS only, never type: newsletter."
-  say "Tiers are explained in docs/sources.md. Keep to the source limit you agreed."
-  say "File: $REPO/$SOURCES_FILE"
-  if confirm "Open it in ${EDITOR:-vi} now?"; then ${EDITOR:-vi} "$SOURCES_FILE"; fi
-  pause "Saved the tester's feeds? Press Enter"
-  grep -qE 'type:[[:space:]]*"?newsletter' "$SOURCES_FILE" && die "$SOURCES_FILE has a newsletter source; a trial has no newsletter Worker."
-  SOURCE_COUNT=$(uv run python -c 'import sys, yaml; print(len(yaml.safe_load(open(sys.argv[1]))["sources"]))' "$SOURCES_FILE") \
-    || die "$SOURCES_FILE is not valid YAML with a sources list."
-  write_env SOURCE_COUNT "$SOURCE_COUNT"
-  say "$SOURCE_COUNT source(s)."
+  stage "First boot: settings"
   local TRIAL_DIR
   TRIAL_DIR=$(mktemp -d)
   grep -E '^(CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_API_TOKEN|CYRIS_STORE_DATABASE_ID|CYRIS_PROMOTE_PAGES_PROJECT)=' "$APP_ENV" > "$TRIAL_DIR/.env"
@@ -628,7 +607,8 @@ YAML
       -e "s/^output_language = .*/output_language = \"$OUTPUT_LANGUAGE\"/" \
       cyris.toml.example > "$TRIAL_DIR/settings.toml"
   grep -qx "output_language = \"$OUTPUT_LANGUAGE\"" "$TRIAL_DIR/settings.toml" || die "output_language did not land in settings.toml."
-  cp "$SOURCES_FILE" "$TRIAL_DIR/sources.yaml"
+  # An empty list, so the push reads no sources.yaml from anywhere else.
+  printf 'sources: []\n' > "$TRIAL_DIR/sources.yaml"
   printf '  %s$%s cyris settings push --config %s/settings.toml --sources %s/sources.yaml\n' "$DIM" "$RESET" "$TRIAL_DIR" "$TRIAL_DIR"
   confirm "Push the settings into the trial's D1?" || die "Stopped before settings push."
   env -i HOME="$HOME" PATH="$PATH" uv run cyris settings push --config "$TRIAL_DIR/settings.toml" --sources "$TRIAL_DIR/sources.yaml" \
@@ -636,8 +616,6 @@ YAML
   head -1 "$TRIAL_DIR/settings-push.log" | grep -qx "D1 database $TRIAL_D1_ID" \
     || die "settings push wrote to a database other than $TRIAL_D1_ID. Stop and check."
   printf '  %s✓%s settings push went to %s\n' "$GREEN" "$RESET" "$TRIAL_D1_ID"
-  env -i HOME="$HOME" PATH="$PATH" uv run cyris sources push --config "$TRIAL_DIR/settings.toml" --sources "$TRIAL_DIR/sources.yaml" \
-    || die "sources push failed."
   rm -r "$TRIAL_DIR"
   next
 }
@@ -667,9 +645,10 @@ stage_14() {
   poll=$(curl -s -X POST --max-time 120 -H "Authorization: Bearer $TRIAL_WORKER_TOKEN" "$TRIAL_RSS_URL/poll" || true)
   say "/poll: $poll"
   feeds=$(grep -oE '"feeds":[0-9]+' <<<"$poll" | cut -d: -f2 || true)
-  # A trial with no source of its own waits for onboarding, so feeds 0 is the
-  # expected answer there; with sources pushed, feeds 0 means they did not land.
-  [[ "$feeds" == "$SOURCE_COUNT" ]] || die "/poll reports feeds '$feeds', sources push had $SOURCE_COUNT."
+  # A feed count is the receipt that the bearer was taken and D1 read. A new
+  # trial has no source until its tester's onboarding, so 0 is the expected
+  # count; a stage run again after it counts the tester's picks.
+  [[ -n "$feeds" ]] || die "/poll answered without a feed count."
   if [[ "$feeds" == 0 ]]; then
     note "/poll feeds = 0: no source yet, so the trial waits for onboarding."
   else
@@ -710,46 +689,14 @@ stage_16() {
     say "CYRIS_UI_TOKEN is in $APP_ENV."
   fi
   step "Put it in a password manager item shared with the tester; never chat or email."
-  step "The tester finishes /settings: Discord webhook, mail sender/recipient, anything else."
+  step "The tester signs in and walks /onboarding: sources, votes, notifications, then the first issue."
   pause "Shared? Press Enter"
   if command -v pbcopy >/dev/null 2>&1 && confirm "Clear the clipboard?"; then printf '' | pbcopy; fi
   warn "Keep $APP_ENV, $PROMOTE_ENV and $RSS_ENV: Cloudflare cannot read secrets back."
   next
 }
 
-# ── 17 ────────────────────────────────────────────────────────────────────
-stage_17() {
-  stage "Start the first digest"
-  ask_match PERIOD "Period, morning or evening:" '^(morning|evening)$'
-  local SESSION reply before rc=0
-  # The run's own row is the receipt. The Worker's live tail never carries the
-  # container's stdout, so the run_summary line never appears there.
-  before=$(fileval "$APP_ENV" CLOUDFLARE_API_TOKEN | uv run python scripts/trial_api.py latest-run \
-    --account-id "$ACCOUNT_ID" --d1-id "$TRIAL_D1_ID") || die "Could not read digest_runs in $TRIAL_D1_NAME."
-  SESSION=$(fileval "$APP_ENV" CYRIS_UI_TOKEN | tr -d '\n' | shasum -a 256 | cut -d' ' -f1)
-  if ! confirm "POST https://$SLUG.$DOMAIN/run?period=$PERIOD now?"; then
-    note "skipped"; next; return 0
-  fi
-  reply=$(curl -s -X POST --max-time 180 -b "cyris_session=$SESSION" "https://$SLUG.$DOMAIN/run?period=$PERIOD" || true)
-  say "Reply: $reply"
-  if grep -q '"started"' <<<"$reply"; then
-    printf '  %s✓%s run started; it takes minutes\n' "$GREEN" "$RESET"
-  else
-    warn "No 'started' reply. A cold container may still have started the run; the wait below finds it either way."
-  fi
-  say "Waiting for a digest_runs row newer than run $before:"
-  fileval "$APP_ENV" CLOUDFLARE_API_TOKEN | uv run python scripts/trial_api.py wait-run \
-    --account-id "$ACCOUNT_ID" --d1-id "$TRIAL_D1_ID" --app-worker "$TRIAL_APP_WORKER" --after "$before" \
-    || rc=$?
-  case $rc in
-    0) ;;
-    2) warn "Do not post again before the log shows the run ended; a second post starts a second run." ;;
-    *) die "Could not read digest_runs in $TRIAL_D1_NAME." ;;
-  esac
-  next
-}
-
-# ── 18 is receipts(), above. ─────────────────────────────────────────────
+# ── 17 is receipts(), above. ─────────────────────────────────────────────
 
 is_done() { [[ ",${STAGES_DONE:-}," == *",$1,"* ]]; }
 
@@ -767,8 +714,12 @@ mark_done() {
 }
 
 STAGE_FNS=(stage_1 stage_2 stage_3 stage_4 stage_5 stage_6 stage_7 stage_8 stage_9 \
-  stage_10 stage_11 stage_12 stage_13 stage_14 stage_15 stage_16 stage_17 receipts)
+  stage_10 stage_11 stage_12 stage_13 stage_14 stage_15 stage_16 receipts)
 TOTAL_STAGES=${#STAGE_FNS[@]}
+
+# A state from before the first-digest stage was dropped may list 17, now the
+# receipts' number, which a pass never skips: only the stages before it count.
+STAGES_DONE=$(printf '%s\n' ${STAGES_DONE//,/ } | awk -v last="$TOTAL_STAGES" '$1 < last' | paste -sd, -)
 
 if [[ -n "$FROM" ]]; then
   STAGES_DONE=$(printf '%s\n' ${STAGES_DONE//,/ } | awk -v from="$FROM" '$1 < from' | paste -sd, -)

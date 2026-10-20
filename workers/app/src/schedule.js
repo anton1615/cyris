@@ -75,6 +75,13 @@ async function readSchedule({ env, fetchImpl, timeoutMs }) {
   }
 }
 
+// The deployment's time zone as stored, or null when it cannot be read: what a
+// manual run's named date is checked against (router.js).
+export async function readTimeZone({ env, fetchImpl, timeoutMs = 5000 }) {
+  const schedule = await readSchedule({ env, fetchImpl, timeoutMs });
+  return schedule ? schedule.timeZone : null;
+}
+
 // Whether the Cron Trigger should wake the `run` container now. When the schedule
 // cannot be read it starts anyway and leaves the question to `--if-due`: a woken
 // container costs one idle tick, a skipped digest hour costs an issue.

@@ -11,7 +11,7 @@ Hour granularity is the contract, not a rounding: an hourly tick cannot honour
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, get_args
 
 Period = Literal["morning", "evening"]
@@ -51,6 +51,28 @@ def due_period(now: datetime, times: list[str]) -> Period | None:
     if current == later:
         return "evening"
     return None
+
+
+def first_issue_key(now: datetime, times: list[str]) -> tuple[str, Period]:
+    """The (date, period) a run started at `now` can take without a later tick replacing it.
+
+    An issue is keyed by (date, period), and the run `due_period` starts at a
+    publish hour stores its issue over any other with that key. So the first
+    issue takes today's latest publish hour that has already begun: every tick
+    left today falls on a later hour, and none of them gives that period again
+    before the date changes. While both of today's hours are still to come,
+    any key dated today is one a tick will take, so it is yesterday's evening.
+    The run is started with this date, so a run that ends after midnight keeps
+    it. `now` must already be local. Raises ValueError on a schedule
+    `validate_schedule` refuses.
+    """
+    earlier, later = (int(time.split(":")[0]) for time in validate_schedule(times))
+    today = now.date()
+    if now.hour >= later:
+        return today.isoformat(), "evening"
+    if now.hour >= earlier:
+        return today.isoformat(), "morning"
+    return (today - timedelta(days=1)).isoformat(), "evening"
 
 
 def is_latest_issue(key: tuple[str, str], issues: Iterable[tuple[str, str]]) -> bool:

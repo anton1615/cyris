@@ -144,16 +144,20 @@ Open `https://cyris-app.<subdomain>.workers.dev/login` and paste `CYRIS_UI_TOKEN
 session cookie lasts 30 days. Login sends you to `/`, the archive, which has nothing to
 serve until the first digest is published, so open `/settings` next.
 
-While `sources` is still empty, `/settings` sends you to `/onboarding`, the guided setup.
+A new deployment has no source, and none is copied in for you
+([ADR-0020](decisions/0020-new-deployments-start-from-onboarding.md)). While `sources` is
+still empty, `/settings` sends you to `/onboarding`, the guided setup.
 It walks the output language and timezone, the publish hours, your sources and the
 notifications, and saves each through the same routes `/settings` does; every step can be
 skipped, and a skipped setting keeps the value it has. The sources step lists the feeds the
 project collected and adds the ones you check; skip it to add your own later on
 `/settings` → Sources. The votes step then fetches a few older articles from those feeds,
 which can take a minute or two; mark the ones you would and would not read, and `Next`
-records them as your first votes and turns vote similarity on. `Finish` opens `/settings`,
-where the categories below are filled in. The step that builds the first issue is still a
-placeholder.
+records them as your first votes and turns vote similarity on. The last step starts the
+first issue through the same `POST /run` as step 7, with the publish hour that has already
+begun today, or yesterday's evening before the morning hour, so no later issue replaces it,
+and waits for the run to say where the issue is or why it failed. `Finish`, or `Skip` on that step, opens `/settings`, where the
+categories below are filled in.
 
 The first request after a deploy starts the container, so the page can take a minute;
 right after the very first deploy, container routes can fail for several minutes
@@ -182,9 +186,9 @@ source every run ends having fetched nothing, logging `waiting for onboarding`.
 
 ## 7. Run the first digest now
 
-The hourly tick starts the pipeline only on the publish hours. To get a digest without
-waiting, `POST /run` with a period. `/settings` has no button for it, so use curl with
-the session cookie:
+The hourly tick starts the pipeline only on the publish hours. The onboarding's last step
+starts the first digest for you (step 6); to start another without waiting, `POST /run`
+with a period. `/settings` has no button for it, so use curl with the session cookie:
 
 ```sh
 APP=https://cyris-app.<subdomain>.workers.dev
@@ -202,7 +206,8 @@ curl -X POST -b "cyris_session=$(printf %s "$CYRIS_UI_TOKEN" | shasum -a 256 | c
 ```
 
 It answers `{"started":"run", …}` at once; the run takes minutes. `period` is
-`morning` or `evening`. A plain `POST /run` without a period behaves like the cron
+`morning` or `evening`, and the issue is dated today unless `&date=YYYY-MM-DD` names
+today or yesterday. A plain `POST /run` without a period behaves like the cron
 tick: outside the publish hours the reply is still `{"started":"run", …}`, and the log
 (step 8) says `Not a digest hour`.
 

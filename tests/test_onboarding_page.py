@@ -1,5 +1,9 @@
 """/onboarding: who is sent to the wizard, its six steps, and what its five saves write.
 
+The last step starts no write of its own: it starts a run through the app
+Worker's `POST /run?period=&date=`, with the key `GET /api/onboarding/first-issue`
+picks; that route's own answers are `tests/test_onboarding_first_issue.py`'s.
+
 Each settings step posts the body the settings form posts, to the route
 `settings_fields.json` names for that field, and the sources step posts each
 picked feed to `POST /api/sources` as the list holds it. The votes step's own
@@ -35,10 +39,9 @@ SETTINGS_JS = (STATIC / "settings.js").read_text()
 CATALOG = json.loads((Path(cyris.__file__).parent / "onboarding_feeds.json").read_text())["feeds"]
 
 # The six steps, in the order the milestone sets: the three that write settings,
-# the one that writes sources, the one that writes votes, and the one a later
-# ticket fills in.
+# the one that writes sources, the one that writes votes, and the one that
+# starts the first issue.
 STEPS = ["language", "schedule", "sources", "votes", "notify", "first-issue"]
-COMING_NEXT = ["first-issue"]
 
 
 class FakeSettings:
@@ -196,29 +199,22 @@ class TestTheFrame:
 
         assert json.loads(f"[{listed[1]}]") == STEPS
 
-    def test_the_steps_still_to_come_are_marked_as_placeholders(self, page: str) -> None:
-        marked = re.findall(r'<section class="step" data-step="([^"]+)" data-coming-next', page)
-
-        assert marked == COMING_NEXT
-
-    @pytest.mark.parametrize("step", COMING_NEXT)
-    def test_a_placeholder_step_says_so_and_says_what_to_do_meanwhile(
-        self, page: str, step: str
-    ) -> None:
-        panel = re.search(
-            rf'<section class="step" data-step="{step}"[^>]*>(.*?)</section>', page, re.S
-        )
-        assert panel, f"no {step} panel"
-
-        assert "Coming next" in panel[1]
+    def test_no_step_is_a_placeholder_any_more(self, page: str) -> None:
+        assert "data-coming-next" not in page
+        assert "Coming next" not in page
 
     def test_the_wizard_moves_with_back_skip_and_next(self, page: str) -> None:
         nav = re.search(r'<div class="step-nav">(.*?)</div>', page, re.S)
         assert nav, "no step navigation"
-        pattern = r'<button class="btn [^"]*" type="button" id="([^"]+)">([^<]+)<'
+        pattern = r'<button class="btn [^"]*" type="button" id="([^"]+)"( hidden)?>([^<]+)<'
         buttons = re.findall(pattern, nav[1])
 
-        assert buttons == [("o-back", "Back"), ("o-skip", "Skip"), ("o-next", "Next")]
+        assert buttons == [
+            ("o-back", "", "Back"),
+            ("o-skip", "", "Skip"),
+            ("o-next", "", "Next"),
+            ("o-start", " hidden", "Start the first issue"),
+        ]
 
     def test_the_last_step_leaves_for_settings_with_the_exit_mark(self, page: str) -> None:
         nav = re.search(r'<div class="step-nav">(.*?)</div>', page, re.S)
@@ -307,6 +303,39 @@ class TestItWritesWhatTheSettingsFormWrites:
 
     def test_the_wizard_posts_to_no_route_the_settings_page_does_not(self) -> None:
         assert set(_body_keys(ONBOARDING_JS)) <= set(_settings_bodies())
+
+    def test_the_wizard_starts_a_run_only_through_the_workers_own_route(self) -> None:
+        """The run path any manual run takes; the wizard opens none of its own."""
+        start_run = re.search(r"async function startRun.*?\n\}", ONBOARDING_JS, re.S)[0]
+        starts = re.findall(r"fetch\(`(/run[^`]*)`", ONBOARDING_JS)
+
+        assert starts == ["/run?${query}"]
+        assert (
+            "const query = `period=${encodeURIComponent(period)}"
+            "&date=${encodeURIComponent(date)}`;" in start_run
+        )
+        assert (
+            'method: "POST"' in re.search(r"async function startRun.*?\n\}", ONBOARDING_JS, re.S)[0]
+        )
+
+    def test_the_run_takes_the_key_the_server_picked(self) -> None:
+        start = re.search(r"async function startIssue\(\) \{(.*?)\n\}", ONBOARDING_JS, re.S)
+        assert start, "no startIssue in onboarding.js"
+
+        assert 'getJson("/api/onboarding/first-issue")' in start[1]
+        assert "await startRun(ISSUE.period, ISSUE.date);" in start[1]
+        assert start[1].index("planIssue(ISSUE, retry)") < start[1].index("startRun(")
+
+    def test_skipping_the_last_step_leaves_through_finish(self) -> None:
+        handler = re.search(
+            r'\$\("o-skip"\)\.addEventListener\("click", \(\) => \{(.*?)\n\}\);',
+            ONBOARDING_JS,
+            re.S,
+        )
+        assert handler, "no Skip handler"
+
+        assert '$("o-finish").click();' in handler[1]
+        assert "startIssue" not in handler[1] and "startRun" not in handler[1]
 
     def test_the_wizard_writes_sources_and_votes_only_through_its_own_routes(self) -> None:
         """Besides the settings routes: the form's `POST /api/sources`, and the votes step's two."""

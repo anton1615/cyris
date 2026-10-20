@@ -326,6 +326,15 @@ store saw them. The RSS Worker read has a bound of its own, the Worker's row cei
 row carries the feed's full content and the Worker holds the whole result in memory. A read that
 fills the ceiling logs a warning, since the window's earliest-buffered rows then stay unstored.
 
+An issue is keyed by `(date, period)`, and a run stores its issue over any other with its key
+(`adapters/store/digests.py`). The hourly tick (`cyris run --if-due`) takes the period from the
+schedule and the date from its own clock in `general.timezone`. A manual run (`POST /run?period=`,
+`cyris run --period`) names the period, and may name the date too (`&date=`, `--date`), which only
+`--if-due` refuses; the app Worker takes a named date only when it is today or yesterday in the
+deployment's time zone, and refuses it with 503 when it cannot read that zone. The
+onboarding's first issue is the one caller that names a date (§6). Without one, the pipeline dates
+the issue when it writes it.
+
 Each source carries a **tier**, which decides how much attention it gets:
 
 | Tier | Treatment |
@@ -489,7 +498,7 @@ table `schema.sql` creates must appear in the rows below, so a new table cannot 
 | Promote votes | **KV** (`workers/promote`) | same | Transient queue, drained at each digest run |
 | Inbound newsletters | **KV** (`workers/newsletter`) | same | Transient queue, drained and ACKed per run |
 | Deployed site's file list | **D1 `pages_manifest`** | same | path → Pages asset hash, a few KB. The *bytes* are Cloudflare's, not ours. A failed cleanup after a save can leave an older stamped generation in the table; readers ignore it, since the newest `updated_at` wins |
-| Digest runs | **D1 `digest_runs`** | same | One row per `run_digest` call on every path — `no_articles`, `no_pending`, `error` included — with status, period, dry-run flag, fetch counts, the image's `CYRIS_GIT_SHA`, the degraded judgement and the whole `run_summary` as JSON. Written after the log line, inside its own guard. D1 only: a `json` run writes nothing and keeps only stdout |
+| Digest runs | **D1 `digest_runs`** | same | One row per `run_digest` call on every path — `no_articles`, `no_pending`, `error` included — with status, period, dry-run flag, fetch counts, the image's `CYRIS_GIT_SHA`, the degraded judgement and the whole `run_summary` as JSON; a run that raised also carries `error`, the text its failure alert sends. Written after the log line, inside its own guard. Besides `cyris doctor`, the onboarding first-issue step reads the newest row back (`GET /api/onboarding/first-issue`, §6) to tell the reader how the run it started ended. D1 only: a `json` run writes nothing and keeps only stdout |
 | Digest content | **D1 `digests`** | same | One row per issue, keyed `(date, period)`, last run wins: the final `DigestContent` as JSON (its `area_order` included, so a re-render keeps the sections it was published with) plus `raw_page`, the flag saying whether that run's digest page linked a raw companion page — the two inputs the digest page renders from. The raw companion page is rebuilt from `digest_inputs`, not from this row, with each article's state as it is now. Deleted only by `scripts/prune_archive.py`, for named issues (see docs/operations.md). D1 only: a `json` run keeps no copy |
 | Digest inputs | **D1 `digest_inputs`** | same | One row per issue, keyed `(date, period)`, last write wins: the URLs a publishing run fed the pipeline, in order, as a JSON array. Written by a non-dry run only, before publishing; a dry run and a rerun write nothing. A URL record, not article state: a rerun reads each article by URL as it is now, and votes, vote-similarity seeds, settings, tracked topics, areas and the embedding model are read live too, so a rerun shows their current values. A row whose article `cyris articles clean` deleted drops out of the rerun. An issue recorded before this table has no row, so it cannot be rerun. Deleted only by `scripts/prune_archive.py`, for named issues (see docs/operations.md). D1 only: a `json` run keeps no copy |
 | Vote-similarity pool | **D1 `vote_similarity_shadow`** | same | One row per candidate a run judged against the reader's votes, keyed `(run_at, candidate_url)`: the nearest upvoted and downvoted article with each cosine, and the embedding model. `run_at` is the run's `started_at`, which `digest_runs.summary` also carries, and its `vote_similarity_judged` is the run's row count. Raw data with no verdict: the suppression decision and its threshold are not stored. Written by `run_digest` right after `judge_by_votes`, inside its own guard, from the cosines that call already computed, so it costs no embedding call; a run whose similarity pass skipped, and a dry run, write nothing. Nothing reads it yet. D1 only: a `json` run keeps no copy |
@@ -848,7 +857,8 @@ one goes down in the same sitting.
 
 **The image carries three roles, and `CYRIS_ROLE` picks one** (`docker/entrypoint.sh`). `run` does
 one `cyris run --if-due` (or `--period`, when a manual `POST /run?period=` set
-`CYRIS_RUN_PERIOD`) plus one `promote-sync` and exits, so the instance stops billing without
+`CYRIS_RUN_PERIOD`, with `--date` when its `&date=` set `CYRIS_RUN_DATE`) plus one `promote-sync`
+and exits, so the instance stops billing without
 waiting for a sleep timer — `promote-sync` runs even when the run fails, and the pass exits with
 the run's status. A SIGTERM ends the pass instead: it exits 143 and skips what has not started
 (below); `ui` serves `/settings`; the default is the
@@ -924,6 +934,8 @@ digest stays static is [ADR-0010](decisions/0010-the-digest-stays-static-behind-
 /triage*                                   404
 /settings · /onboarding · /labels          CYRIS_UI_TOKEN cookie; Access too if
 /api/* · /static/*                         CYRIS_UI_ACCESS_HOST matches this host
+POST /run?period=[&date=]                  same lock; the Worker starts the `run` role
+                                           itself (a date: today or yesterday, §3.2)
 ```
 
 `/settings` and `/onboarding` are two views of one deployment's state: an empty `sources` table is
@@ -942,6 +954,20 @@ marked article and votes on it in the container, through `record_votes` as `/lab
 through the promote Worker; the press is a person's, so it may stamp `triaged_at` (§4 *Article
 store*). A marked article the read no longer finds is left out and named back as `missing`; only
 when none is found does it record nothing. The step then turns vote similarity on through `/api/settings/vote-similarity`.
+
+The first-issue step starts no run of its own: it posts the app Worker's `POST /run?period=&date=`,
+the manual-run route (§3.2), with the key `GET /api/onboarding/first-issue` picks
+(`first_issue_key` in `service_layer/schedule.py`). A scheduled run stores its issue over any other
+with its key, so the key is today's latest publish hour already begun, which no tick left that day
+gives again, or, while both of today's hours are still to come, yesterday's evening, since any key
+dated today is one a tick will take. The date is sent with the run, so a run that ends after
+midnight keeps it. The step starts none when an issue already holds the key, or when there is no
+source. Yesterday's evening is an ordinary key: the archive sorts it before today's morning,
+`is_latest_issue` reads it as the newest until that issue lands, and its Pages slug and raw page
+carry its date; the notification subjects carry that date too. The same route reads the newest
+`digest_runs` row (§4), which the page polls until a row newer than the one it saw before posting
+says how the run ended: a link to the issue and the archive, or the status and the run's `error`.
+It needs D1, as the wizard does.
 
 Votes go through the Worker's same-origin `POST /api/vote`, which attaches `CYRIS_PROMOTE_TOKEN`
 server-side; no page carries the token. The vote buttons render only when a probe of

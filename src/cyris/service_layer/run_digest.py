@@ -70,6 +70,10 @@ class RunOptions:
     dry_run: bool = False
     force: bool = False
     rerun_of: str | None = None
+    # The issue's date, YYYY-MM-DD, when a manual run names one; None dates it
+    # today in the deployment's timezone. The onboarding's first issue names
+    # yesterday when both of today's publish hours are still to come.
+    date: str | None = None
 
 
 @dataclass
@@ -284,6 +288,13 @@ async def run_digest(deps: "Deps", options: RunOptions) -> RunReport:
         raise
     finally:
         summary["wall_seconds"] = round(time.monotonic() - started, 2)
+        if failure is not None:
+            # What the failure alert says, kept with the run: the onboarding's
+            # first issue tells the reader why the run it started failed.
+            try:
+                summary["error"] = failure_alert_text(failure)
+            except Exception:  # noqa: BLE001 - str() of the failure raised; its type still says something
+                summary["error"] = type(failure).__name__
         logger.info("run_summary %s", json.dumps(summary, ensure_ascii=False, default=str))
         if deps.record_run is not None:
             # Raising in `finally` would replace the run's own exception, or turn
@@ -650,7 +661,7 @@ async def _run_digest(deps: "Deps", options: RunOptions, summary: dict) -> RunRe
         cfg.sources,
         period=options.period,
         timezone=tz,
-        date=options.rerun_of,
+        date=options.rerun_of or options.date,
         article_scores=article_scores,
         preference=order,
     )

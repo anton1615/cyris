@@ -180,6 +180,9 @@ class TriageServer:
         source_titles=None,
         llm_factory=None,
         onboarding_articles=None,
+        digest_store=None,
+        run_log=None,
+        clock=None,
     ) -> None:
         self._host = host
         self._port = port
@@ -218,6 +221,13 @@ class TriageServer:
         # (`bootstrap.build_onboarding_articles`); absent on a `backend = "json"`
         # deployment, which has no wizard.
         self._onboarding_articles = onboarding_articles
+        # D1's stored issues and `digest_runs`, which the wizard's first issue
+        # reads its key's state and its run's outcome from; both absent on a
+        # `backend = "json"` deployment, which has no wizard.
+        self._digest_store = digest_store
+        self._run_log = run_log
+        # The time the first issue's key is picked at; a probe pins it.
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._settings_page = render_settings_page()
         self._labels_page = render_labels_page()
         self._onboarding_page = render_onboarding_page()
@@ -237,6 +247,7 @@ class TriageServer:
         self._app.router.add_get("/api/onboarding/feeds", self._handle_get_onboarding_feeds)
         self._app.router.add_post("/api/onboarding/cards", self._handle_post_onboarding_cards)
         self._app.router.add_post("/api/onboarding/votes", self._handle_post_onboarding_votes)
+        self._app.router.add_get("/api/onboarding/first-issue", self._handle_get_first_issue)
         self._app.router.add_get("/api/topics", self._handle_get_topics)
         self._app.router.add_post("/api/topics", self._handle_post_topic)
         self._app.router.add_delete("/api/topics/{name}", self._handle_delete_topic)
@@ -945,6 +956,67 @@ class TriageServer:
         logger.info("Onboarding votes: %d up, %d down", len(accepted), len(rejected))
         return web.json_response(
             {"ok": True, "accepted": accepted, "rejected": rejected, "missing": missing}
+        )
+
+    async def _handle_get_first_issue(self, request: web.Request) -> web.Response:
+        """What the wizard's last step needs to start the first issue and wait for it.
+
+        `date` and `period` are the key a run started now can take without a
+        tick later today storing over its issue (`first_issue_key`): today's
+        latest publish hour already begun, or yesterday's evening before both.
+        `today` is the deployment's own date, for the page to say which it is.
+        `published` says an issue already holds that key, which a new run would
+        replace. `run` is the newest recorded run, so the page can tell the one
+        it starts by its id. The run itself is started by the app Worker's
+        `POST /run?period=&date=`, as any manual run is; nothing here starts one.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        from cyris.service_layer.schedule import first_issue_key, validate_schedule
+
+        if self._run_log is None or self._digest_store is None or self._source_store is None:
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": "This deployment keeps no run log to wait on "
+                    "(store backend is not D1).",
+                },
+                status=409,
+            )
+        timezone = self._values.get("general.timezone")
+        times = self._values.get("general.digest_schedule")
+        try:
+            now = self._clock().astimezone(ZoneInfo(str(timezone)))
+            date, period = first_issue_key(now, times)
+            hours = validate_schedule(times)
+        except (ValueError, TypeError, ZoneInfoNotFoundError) as e:
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": f"The publish hours or the timezone cannot be read ({e}). "
+                    "Fix them on the first two steps, then come back.",
+                },
+                status=409,
+            )
+        try:
+            sources = len(self._effective_sources())
+            published = (date, period) in self._digest_store.issues()
+            run = self._run_log.newest()
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            logger.warning("Could not read the first issue's state", exc_info=True)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+        return web.json_response(
+            {
+                "ok": True,
+                "date": date,
+                "period": period,
+                "today": now.strftime("%Y-%m-%d"),
+                "published": published,
+                "sources": sources,
+                "timezone": timezone,
+                "hours": hours,
+                "run": run,
+            }
         )
 
     async def _handle_delete_source(self, request: web.Request) -> web.Response:

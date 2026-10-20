@@ -478,9 +478,11 @@ sources live in a file the app never writes, has no wizard at all: this page sen
 - **Back, Skip and Next** sit below the step in that order, two secondary buttons and one primary.
   `Next` saves what changed on this step and moves on; `Skip` moves on and saves nothing, so a
   skipped setting keeps the value it had. `Back` is left out on the first step. On the last step
-  `Next` and `Skip` are gone and a primary `Finish` link leads to `/settings?from=onboarding` — the
-  mark that lets a deployment whose table is still empty through, rather than sending it back here.
-  The site bar's `Settings` link carries the same mark on this page, so it leaves the wizard too.
+  `Next` is gone: the step's own primary button takes its place, and a primary `Finish` link leads
+  to `/settings?from=onboarding` — the mark that lets a deployment whose table is still empty
+  through, rather than sending it back here. `Skip` there leaves through that same link and starts
+  nothing. The site bar's `Settings` link carries the same mark on this page, so it leaves the
+  wizard too.
 - One notice sits beside the buttons (`role="status"`): what a save is doing while it is out, then
   its result, shown on the step the reader has moved to. A refusal keeps the reader on the step, says
   why in `--warn`, and marks the field it is about as failed validation, as settings does; an empty
@@ -519,8 +521,22 @@ sources live in a file the app never writes, has no wizard at all: this page sen
   embedder the deployment already stores, unless it is on already; when that save is refused, the
   reader stays on the step, the notice says the votes were recorded and why vote similarity is still
   off, and `Next` tries only that again. `Skip`, and `Next` with no card marked, write nothing.
-- The step that builds the first issue says `Coming next` and what to do meanwhile. It carries no
-  field and writes nothing until its own ticket lands, so it offers only `Finish`.
+- **First issue** builds an issue now rather than at the next publish hour. While the server says
+  which issue it would be (`GET /api/onboarding/first-issue`), a small line marked `aria-busy` says
+  so, and `Back` and `Skip` show. Then one small line says what `Start the first issue`, a primary
+  button in `Next`'s place, builds: the date and period of today's latest publish hour already
+  begun, so no later issue that day replaces it, or, while both of today's hours are still to come,
+  yesterday's evening, with the line saying it is dated yesterday and naming today's two hours and
+  the timezone. `Start` posts the app Worker's own `POST /run?period=&date=`, the route any manual
+  run takes. With nothing to start, the line says why and `Finish` takes `Skip`'s and `Start`'s
+  place: there is no source, or an issue already holds that date and period. While the run is out,
+  the notice is marked `aria-busy`, names the issue and the time so far, and says the reader can
+  leave with `Finish`, the only button left; it reads the run's record again every few seconds. A
+  run that published ends in a notice naming the issue's date and period, with two links, `Read it`
+  to the issue and `archive` to the archive. Any other end is an error notice saying how the run
+  ended and why, with the run's own error when it raised, and `Start` reads `Try again` beside
+  `Finish`; a run with no record after the run container's 15-minute cap is reported the same way.
+  A reload while the run is out goes on waiting for it rather than offering a second run.
 
 ### email
 
