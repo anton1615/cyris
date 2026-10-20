@@ -143,20 +143,28 @@
       </div>
     </section>
 
-    {# Placeholder, until the first-issue ticket lands: this step starts nothing. #}
-    <section class="step" data-step="first-issue" data-coming-next hidden>
+    {# The run is the app Worker's own POST /run?period=, the route any manual run
+       takes. GET /api/onboarding/first-issue picks the period a later tick today
+       cannot replace, and reads the run's outcome back from digest_runs. #}
+    <section class="step" data-step="first-issue" hidden>
       <div class="step-head">
         <h2 class="heading">First issue</h2>
-        <p class="small">Coming next: the first issue, built from the sources and votes of the steps above. Until then, Finish opens Settings, where Run builds one.</p>
+        <p class="small">Build an issue now from your feeds and votes, instead of waiting for the next publish hour.</p>
+        <details class="more"><summary>More</summary><p class="small">It is dated today and takes the publish hour that has already passed, so no later issue today replaces it. It runs as a scheduled issue does, notifications included, and takes a few minutes. Skip leaves without one, and the next publish hour brings the first issue.</p></details>
+        <p class="small" id="o-issue-loading" aria-busy="true">Checking which issue comes first…</p>
       </div>
+      <p class="small" id="o-issue-plan" hidden></p>
     </section>
 
     <div class="step-nav">
       <button class="btn secondary" type="button" id="o-back">Back</button>
       <button class="btn secondary" type="button" id="o-skip">Skip</button>
       <button class="btn primary" type="button" id="o-next">Next</button>
-      {# The way out, on the last step alone. The mark is what keeps /settings from
-         sending a deployment whose sources table is still empty straight back here. #}
+      {# The last step's own action: it starts the run, and once a run fails it tries again. #}
+      <button class="btn primary" type="button" id="o-start" hidden>Start the first issue</button>
+      {# The way out, on the last step alone, once there is no run to start or one
+         has been started. The mark is what keeps /settings from sending a
+         deployment whose sources table is still empty straight back here. #}
       <a class="btn primary" id="o-finish" href="/settings?from=onboarding" hidden>Finish</a>
       <div class="notice" id="o-result" role="status" hidden></div>
     </div>

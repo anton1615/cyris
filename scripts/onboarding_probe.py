@@ -9,7 +9,10 @@ home, `sources` table and article store are in memory, so what a step wrote can
 be read back afterwards, with the Discord probe, the embedder probe and the mail
 send answered offline. The votes step's cards come from the real card reader
 and draw over a fake RSS edge, which answers each feed in the table with the
-same articles every time, as a buffer read again would.
+same articles every time, as a buffer read again would. The first-issue step
+starts its run through a stand-in for the app Worker's `POST /run`, which records
+the period it was given and writes the run's row to an in-memory `digest_runs`,
+and the step's clock is pinned, so the period it picks is known.
 
 Every check carries a sabotage that breaks the thing it reads. `--self-test`
 runs each check clean, where it must pass, and sabotaged, where it must fail,
@@ -34,6 +37,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from aiohttp import web
 from cdp_probe import (
@@ -67,6 +71,10 @@ KINDS = (
     "cards",
     "cards-largest",
     "cards-slow",
+    "first-issue",
+    "first-issue-slow",
+    "first-issue-fails",
+    "first-issue-early",
 )
 
 # What the reader types, and what each step must then store.
@@ -130,6 +138,29 @@ ARTICLES_PER_FEED = 6
 # How long the `cards-slow` read takes: long enough to look at the wait.
 SLOW_SECONDS = 3
 _NOW = datetime.now(UTC)
+
+# The first-issue fixtures' clock: 10:30 in the probe's Asia/Taipei, between its
+# 08:00 and 20:00, so the step takes the morning; `first-issue-early` is 06:30,
+# before both, so it takes none.
+TAIPEI = ZoneInfo(PROBE_VALUES["general.timezone"])
+ISSUE_DATE = "2026-10-20"
+BETWEEN = datetime(2026, 10, 20, 10, 30, tzinfo=TAIPEI)
+EARLY = datetime(2026, 10, 20, 6, 30, tzinfo=TAIPEI)
+ISSUE_PERIOD = "morning"
+DIGEST_URL = f"https://cyris.example/{ISSUE_DATE}-{ISSUE_PERIOD}"
+ARCHIVE_URL = "https://cyris.example/"
+FAILURE = "RuntimeError: the Gemini key was refused"
+# What each first-issue fixture's runs end as, one per POST /run in order; a POST
+# past the end starts a run that never records a row, as one still going.
+RUN_ENDS = {
+    "first-issue": ["ok"],
+    "first-issue-slow": [],
+    "first-issue-fails": ["error", "ok"],
+    "first-issue-early": [],
+}
+# How long a check waits for the page to read a run's row: the page reads every
+# 5 seconds (POLL_MS in onboarding.js).
+RUN_READ_MS = 15000
 
 
 def feed_articles(name: str) -> list[Article]:
@@ -228,6 +259,41 @@ class FakeArticleStore:
         return self._set(urls, triaged_at=triaged_at.isoformat())
 
 
+class FakeRunLog:
+    """Stands in for `D1RunLog`: rows in the order they were recorded, the newest read back.
+
+    It opens with one earlier run, so the page has to tell its own run's row
+    from one already there.
+    """
+
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+        self.record("ok", "evening", digest_url="https://cyris.example/2026-10-19-evening")
+
+    def record(self, status: str, period: str, **summary) -> None:
+        self.rows.append(
+            {
+                "id": len(self.rows) + 1,
+                "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "status": status,
+                "period": period,
+                "digest_url": summary.get("digest_url"),
+                "error": summary.get("error"),
+                "failed_sources": [],
+            }
+        )
+
+    def newest(self) -> dict | None:
+        return self.rows[-1] if self.rows else None
+
+
+class FakeDigestStore:
+    """Stands in for `D1DigestStore`'s list of stored issues; none for the first issue's key."""
+
+    def issues(self) -> list[tuple[str, str]]:
+        return [("2026-10-19", "evening")]
+
+
 class FakeRssEdge:
     """The run's RSS `FetchSource`, answering each feed it is asked for but `QUIET`."""
 
@@ -253,6 +319,8 @@ class Fixture:
     sources: FakeSourceStore | None = None
     # The article rows the votes step wrote; None on a `json` deployment.
     articles: FakeArticleStore | None = None
+    # The period of each POST /run, in order.
+    runs: list[str] = field(default_factory=list)
 
 
 def build_fixture(kind: str) -> Fixture:
@@ -265,7 +333,9 @@ def build_fixture(kind: str) -> Fixture:
     writable table at all, which is a `backend = "json"` deployment: it has no
     wizard. `cards` holds `CARDS_TABLE`, so the votes step deals `CARDS` and
     names `QUIET`; `cards-largest` is it at the largest type size, and
-    `cards-slow` takes `SLOW_SECONDS` to read its feeds.
+    `cards-slow` takes `SLOW_SECONDS` to read its feeds. The `first-issue`
+    ones hold `A_SOURCE` and a clock pinned at `BETWEEN`, and their runs end as
+    `RUN_ENDS` says; `first-issue-early`'s clock is at `EARLY`.
     """
     if kind not in KINDS:
         raise ValueError(f"unknown fixture {kind!r}")
@@ -273,6 +343,9 @@ def build_fixture(kind: str) -> Fixture:
     table = {"Simon Willison": A_SOURCE} if kind == "has-sources" else {}
     if kind.startswith("cards"):
         table = dict(CARDS_TABLE)
+    if kind.startswith("first-issue"):
+        table = {A_SOURCE.name: A_SOURCE}
+    run_log = None if kind == "json" else FakeRunLog()
     refuse = {REFUSED["name"]} if kind == "refuses-one" else set()
     store = None if kind == "json" else FakeSourceStore(table, refuse)
     articles = None if kind == "json" else FakeArticleStore()
@@ -283,6 +356,9 @@ def build_fixture(kind: str) -> Fixture:
         source_store=store,
         article_store=articles,
         onboarding_articles=None if kind == "json" else OnboardingArticles(edge),
+        digest_store=None if kind == "json" else FakeDigestStore(),
+        run_log=run_log,
+        clock=(lambda: EARLY) if kind == "first-issue-early" else (lambda: BETWEEN),
     )
     if kind.endswith("-largest"):
         server._onboarding_page = at_largest_type_scale(server._onboarding_page)
@@ -293,7 +369,27 @@ def build_fixture(kind: str) -> Fixture:
         return web.json_response({"authorized": True})
 
     server._app.router.add_get("/api/vote", signed_in)
-    return Fixture(server._app, settings, settings.calls, store, articles)
+    fixture = Fixture(server._app, settings, settings.calls, store, articles)
+    ends = list(RUN_ENDS.get(kind, []))
+
+    # The app Worker's `POST /run?period=`, which the container does not serve
+    # either: it starts the run and answers at once, and the run records its row.
+    async def start_run(request: web.Request) -> web.Response:
+        period = request.query.get("period")
+        if period not in ("morning", "evening"):
+            return web.json_response(
+                {"error": "period must be one of morning, evening"}, status=400
+            )
+        fixture.runs.append(period)
+        if ends:
+            status = ends.pop(0)
+            url = f"https://cyris.example/{ISSUE_DATE}-{period}" if status == "ok" else None
+            error = FAILURE if status == "error" else None
+            run_log.record(status, period, digest_url=url, error=error)
+        return web.json_response({"started": "run", "at": datetime.now(UTC).isoformat()})
+
+    server._app.router.add_post("/run", start_run)
+    return fixture
 
 
 @contextlib.contextmanager
@@ -364,6 +460,39 @@ document.addEventListener("DOMContentLoaded", () => {
 }"""
 
 
+# The wizard's way out, kept on the page: a press on Finish records where it leads
+# in `window.__left` instead of leaving, so the check can read it afterwards.
+STAY = """{
+document.addEventListener("click", (e) => {
+  const finish = e.target.closest && e.target.closest("#o-finish");
+  if (!finish) return;
+  e.preventDefault();
+  window.__left = finish.getAttribute("href");
+}, true);
+}"""
+
+# A sabotage: Skip on the last step presses Start, so a skipped first issue runs after all.
+SKIP_STARTS = """{
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("o-skip").addEventListener("click", (e) => {
+    e.stopImmediatePropagation();
+    document.getElementById("o-start").click();
+  }, true);
+});
+}"""
+
+# A sabotage: the run is started for the evening, which the 20:00 tick stores over.
+RUN_EVENING = """{
+const realFetch = window.fetch;
+window.fetch = (input, init) => {
+  if (String(input).startsWith("/run?")) {
+    input = String(input).replace("period=morning", "period=evening");
+  }
+  return realFetch(input, init);
+};
+}"""
+
+
 def dead(button: str) -> str:
     """A sabotage: the button is swapped for a copy, which carries none of its listeners."""
     return f"""$("#{button}").replaceWith($("#{button}").cloneNode(true));"""
@@ -408,7 +537,14 @@ const cardsDrawn = () => waitFor(
 const cardTitle = (row) => $(".title", row).textContent;
 const cardSource = (row) => $(".label", row).textContent;
 const vote = (index, answer) => { $(`button[data-vote="${answer}"]`, cardRows()[index]).click(); };
-"""
+// The first-issue step, read: its plan, or the reason it could not be read.
+const issueRead = () => waitFor(
+  () => !visible($("#o-issue-loading")) && (visible($("#o-issue-plan")) || visible(notice())),
+  "the first issue's plan");
+const plan = () => $("#o-issue-plan").textContent;
+// The run's outcome, read from its row: the page reads one every few seconds.
+const runEnded = () => waitFor(settled, "the run's outcome", RUN_READ_MS);
+""".replace("RUN_READ_MS", str(RUN_READ_MS))
 )
 
 
@@ -471,6 +607,17 @@ def _votes(*, up: tuple[int, ...] = (), down: tuple[int, ...] = ()) -> Callable:
 _NOTHING_VOTED = _votes()
 
 
+def _runs(*periods: str) -> Callable[[Fixture], str | None]:
+    """A receipt: `POST /run` took exactly these periods, in order, and nothing was written."""
+
+    def receipt(fixture: Fixture) -> str | None:
+        if fixture.runs == list(periods) and fixture.calls == [] and not fixture.sources.writes:
+            return None
+        return f"runs: {fixture.runs}, settings: {fixture.calls}, sources: {fixture.sources.writes}"
+
+    return receipt
+
+
 def _pick(*entries: dict) -> str:
     return "\n".join(f"pick({json.dumps(entry['name'])});" for entry in entries)
 
@@ -526,20 +673,162 @@ _CHECKS: list[Check] = [
         sabotage="""$('#o-steps li[data-step="sources"]').hidden = true;""",
     ),
     Check(
-        id="a-step-still-to-come-says-so",
-        fixture="empty",
-        path=PAGE,
+        id="first-issue-starts-a-run-no-later-tick-replaces",
+        fixture="first-issue",
+        path=f"{PAGE}#first-issue",
         act="""
             await loaded();
-            await skipTo("first-issue");
+            await issueRead();
+            press("o-start");
+            await runEnded();
+        """,
+        script=f"""
+            expect(plan().includes("{ISSUE_DATE} {ISSUE_PERIOD} issue"), `plan: ${{plan()}}`);
+            const text = notice().textContent;
+            expect(!notice().classList.contains("err"), `an error: ${{text}}`);
+            expect(text.includes("Your first issue is published."), `notice: ${{text}}`);
+            expect(!visible($("#o-start")), "Start still shows once the issue is out");
+            expect(visible($("#o-finish")), "no way out once the issue is out");
+        """,
+        sabotage_preload=RUN_EVENING,
+        receipt=_runs(ISSUE_PERIOD),
+    ),
+    Check(
+        id="first-issue-says-where-to-read-it",
+        fixture="first-issue",
+        path=f"{PAGE}#first-issue",
+        act="""
+            await loaded();
+            await issueRead();
+            press("o-start");
+            await runEnded();
+        """,
+        script=f"""
+            const links = $$("#o-result a").map((a) => [a.textContent, a.getAttribute("href")]);
+            const wanted = [["Read it", "{DIGEST_URL}"], ["archive", "{ARCHIVE_URL}"]];
+            expect(same(links, wanted), `links: ${{JSON.stringify(links)}}`);
+        """,
+        sabotage="""$("#o-result a").removeAttribute("href");""",
+        receipt=_runs(ISSUE_PERIOD),
+    ),
+    Check(
+        id="first-issue-shows-the-run-while-it-is-out",
+        fixture="first-issue-slow",
+        path=f"{PAGE}#first-issue",
+        act="""
+            await loaded();
+            await issueRead();
+            press("o-start");
+            await waitFor(() => notice().textContent.startsWith("Building"), "the wait");
+        """,
+        script=f"""
+            const text = notice().textContent;
+            expect(visible(notice()), "nothing says the run is out");
+            expect(notice().getAttribute("aria-busy") === "true", "the wait is not busy");
+            expect(text.includes("Building the {ISSUE_DATE} {ISSUE_PERIOD} issue"),
+              `notice: ${{text}}`);
+            expect(!visible($("#o-start")), "Start shows while the run is out");
+            expect(!visible($("#o-back")) && !visible($("#o-skip")),
+              "Back or Skip shows while the run is out");
+            expect(visible($("#o-finish")), "no way out while the run is out");
+        """,
+        sabotage="""notice().removeAttribute("aria-busy");""",
+        receipt=_runs(ISSUE_PERIOD),
+    ),
+    Check(
+        id="first-issue-says-why-its-run-failed",
+        fixture="first-issue-fails",
+        path=f"{PAGE}#first-issue",
+        act="""
+            await loaded();
+            await issueRead();
+            press("o-start");
+            await runEnded();
+        """,
+        script=f"""
+            const text = notice().textContent;
+            expect(notice().classList.contains("err"), `not an error: ${{text}}`);
+            expect(text.includes("The run stopped with an error."), `notice: ${{text}}`);
+            expect(text.includes({json.dumps(FAILURE)}), `notice: ${{text}}`);
+            const again = $("#o-start");
+            expect(visible(again) && again.textContent === "Try again",
+              `no Try again: ${{again.textContent}}`);
+            expect(visible($("#o-finish")), "no way out after the failure");
+        """,
+        sabotage="""$("#o-start").hidden = true;""",
+        receipt=_runs(ISSUE_PERIOD),
+    ),
+    Check(
+        id="first-issue-tries-again-after-a-failure",
+        fixture="first-issue-fails",
+        path=f"{PAGE}#first-issue",
+        act="""
+            await loaded();
+            await issueRead();
+            press("o-start");
+            await runEnded();
+        """,
+        # After the act, so the failed run's Try again is the one swapped.
+        sabotage=dead("o-start"),
+        gestures=({"press": "#o-start", "pointer": "mouse"}, {"release": True}),
+        script="""
+            await waitFor(() => notice().textContent.includes("published"), "the retry",
+              RUN_READ_MS);
+            expect(!notice().classList.contains("err"), `an error: ${notice().textContent}`);
+        """.replace("RUN_READ_MS", str(RUN_READ_MS)),
+        receipt=_runs(ISSUE_PERIOD, ISSUE_PERIOD),
+    ),
+    Check(
+        id="first-issue-skipped-starts-no-run",
+        fixture="first-issue",
+        path=f"{PAGE}#first-issue",
+        preload=STAY,
+        act="""
+            await loaded();
+            await issueRead();
+            await waitFor(() => visible($("#o-skip")) && visible($("#o-start")), "Skip and Start");
+        """,
+        gestures=({"press": "#o-skip", "pointer": "mouse"}, {"release": True}),
+        script="""
+            await waitFor(() => window.__left, "the way out");
+            expect(window.__left === "/settings?from=onboarding", `left for ${window.__left}`);
+            // Long enough for a run the press started to reach the server.
+            await sleep(500);
+        """,
+        sabotage_preload=SKIP_STARTS,
+        receipt=_runs(),
+    ),
+    Check(
+        id="first-issue-before-the-morning-waits-for-it",
+        fixture="first-issue-early",
+        path=f"{PAGE}#first-issue",
+        act="""
+            await loaded();
+            await issueRead();
         """,
         script="""
-            const text = $('.step[data-step="first-issue"]').textContent;
-            expect(text.includes("Coming next"), `the first-issue step says: ${text}`);
-            expect(!$$(".step:not([hidden]) input").length, "the placeholder has a field");
+            expect(plan().includes("comes at 08:00 Asia/Taipei"), `plan: ${plan()}`);
+            expect(!visible($("#o-start")), "Start shows with no period to take");
+            expect(visible($("#o-finish")), "no way out");
         """,
-        sabotage="""$('.step[data-step="first-issue"] .small').textContent = "Run it now";""",
-        receipt=_both_untouched,
+        sabotage="""$("#o-start").hidden = false;""",
+        receipt=_runs(),
+    ),
+    Check(
+        id="first-issue-with-no-source-says-so",
+        fixture="empty",
+        path=f"{PAGE}#first-issue",
+        act="""
+            await loaded();
+            await issueRead();
+        """,
+        script="""
+            expect(visible($("#o-issue-plan")), "nothing says there is no source");
+            expect(plan().includes("no sources yet"), `plan: ${plan()}`);
+            expect(!visible($("#o-start")), "Start shows with no source to read");
+        """,
+        sabotage="""$("#o-issue-plan").hidden = true;""",
+        receipt=_runs(),
     ),
     Check(
         id="sources-step-lists-every-entry",
@@ -951,17 +1240,19 @@ _CHECKS: list[Check] = [
     ),
     Check(
         id="skip-walks-to-the-last-step",
-        fixture="empty",
+        fixture="first-issue",
         path=PAGE,
         act="""
             await loaded();
             await skipTo("first-issue");
+            await issueRead();
         """,
         script="""
             expect(progress() === "Step 6 of 6", `progress: ${progress()}`);
-            expect(!visible($("#o-next")) && !visible($("#o-skip")),
-              "Next or Skip still shows on the last step");
-            expect(visible($("#o-finish")), "Finish is hidden on the last step");
+            expect(!visible($("#o-next")), "Next still shows on the last step");
+            expect(visible($("#o-start")) && visible($("#o-skip")),
+              "Start or Skip is hidden on the last step");
+            expect(!visible($("#o-finish")), "Finish shows before the run is started or skipped");
         """,
         sabotage="""location.hash = "#notify";""",
         receipt=_calls(),
@@ -1189,7 +1480,10 @@ _CHECKS: list[Check] = [
         id="finish-leaves-for-settings",
         fixture="empty",
         path=f"{PAGE}#first-issue",
-        act="await loaded();",
+        act="""
+            await loaded();
+            await issueRead();
+        """,
         script="""
             const finish = $("#o-finish");
             expect(visible(finish), "Finish is hidden on the last step");
@@ -1296,6 +1590,23 @@ _CHECKS: list[Check] = [
             expect(!problem, problem);
         """,
         sabotage="""cardRows()[0].style.minWidth = "600px";""",
+    ),
+    Check(
+        id="fits-first-issue-375",
+        fixture="first-issue",
+        path=f"{PAGE}#first-issue",
+        width=375,
+        act="""
+            await loaded();
+            await issueRead();
+            press("o-start");
+            await runEnded();
+        """,
+        script="""
+            const problem = overflow("onboarding");
+            expect(!problem, problem);
+        """,
+        sabotage="""notice().style.minWidth = "600px";""",
     ),
     Check(
         id="tap-votes-375",

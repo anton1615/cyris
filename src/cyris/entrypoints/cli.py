@@ -942,7 +942,9 @@ def triage_ui(
     from cyris.adapters.store.areas import D1AreaStore
     from cyris.adapters.store.blind_labels import D1BlindLabels
     from cyris.adapters.store.d1_store import D1ArticleStore
+    from cyris.adapters.store.digests import D1DigestStore
     from cyris.adapters.store.feed_health import D1FeedHealth
+    from cyris.adapters.store.runs import D1RunLog
     from cyris.adapters.store.source_store import D1SourceStore
     from cyris.adapters.store.source_titles import D1SourceTitles
     from cyris.adapters.store.tracked_topics import D1TrackedTopicStore
@@ -979,6 +981,8 @@ def triage_ui(
             source_titles=D1SourceTitles(d1) if d1 else None,
             llm_factory=_llm_from_values,
             onboarding_articles=build_onboarding_articles(cfg) if d1 else None,
+            digest_store=D1DigestStore(d1) if d1 else None,
+            run_log=D1RunLog(d1, "") if d1 else None,
         )
         await server.start()
         typer.echo(f"Settings:  http://{host}:{port}/settings")

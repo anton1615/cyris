@@ -40,6 +40,7 @@
   {"path": "/api/onboarding/feeds", "method": "GET", "kind": "container", "unauth_status": 401, "container_route": "/api/onboarding/feeds"},
   {"path": "/api/onboarding/cards", "method": "POST", "kind": "container", "unauth_status": 401, "container_route": "/api/onboarding/cards"},
   {"path": "/api/onboarding/votes", "method": "POST", "kind": "container", "unauth_status": 401, "container_route": "/api/onboarding/votes"},
+  {"path": "/api/onboarding/first-issue", "method": "GET", "kind": "container", "unauth_status": 401, "container_route": "/api/onboarding/first-issue"},
   {"path": "/api/topics", "method": "GET", "kind": "container", "unauth_status": 401, "container_route": "/api/topics"},
   {"path": "/api/topics", "method": "POST", "kind": "container", "unauth_status": 401},
   {"path": "/api/topics/demo", "method": "DELETE", "kind": "container", "unauth_status": 401, "container_route": "/api/topics/{name}"},

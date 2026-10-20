@@ -11,7 +11,7 @@ Hour granularity is the contract, not a rounding: an hourly tick cannot honour
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, get_args
 
 Period = Literal["morning", "evening"]
@@ -19,6 +19,12 @@ Period = Literal["morning", "evening"]
 # The order a day's issues are published in: `due_period` gives the first label to
 # the earlier hour. The archive sorts a day's issues by it.
 PERIOD_ORDER: tuple[str, ...] = get_args(Period)
+
+# How long a run started now may take to date its issue: the run container's
+# own cap (`RUN_SLEEP_AFTER` in workers/app/src/index.js). An issue is dated when
+# the pipeline writes it, not when the run starts, so a run started closer than
+# this to midnight could carry tomorrow's date.
+RUN_CAP = timedelta(minutes=15)
 
 
 def validate_schedule(times: list[str]) -> list[str]:
@@ -50,6 +56,28 @@ def due_period(now: datetime, times: list[str]) -> Period | None:
         return "morning"
     if current == later:
         return "evening"
+    return None
+
+
+def first_issue_period(now: datetime, times: list[str]) -> Period | None:
+    """The period a run started at `now` can take without a later tick replacing its issue.
+
+    An issue is keyed by (date, period), and the run that `due_period` starts at
+    a publish hour stores its issue over any other with that key. So the first
+    issue takes the latest publish hour that has already begun today: every
+    tick left today falls on a later hour, and none of them gives that period
+    again before the date changes. None while both hours are still to come, and
+    within `RUN_CAP` of midnight, where the run could finish on the next date;
+    the next morning's scheduled issue is then the first. `now` must already be
+    local. Raises ValueError on a schedule `validate_schedule` refuses.
+    """
+    earlier, later = (int(time.split(":")[0]) for time in validate_schedule(times))
+    if (now + RUN_CAP).date() != now.date():
+        return None
+    if now.hour >= later:
+        return "evening"
+    if now.hour >= earlier:
+        return "morning"
     return None
 
 

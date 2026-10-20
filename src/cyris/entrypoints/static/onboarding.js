@@ -6,8 +6,9 @@
 // votes step deals cards from those feeds (POST /api/onboarding/cards) and
 // writes the marked ones as votes (POST /api/onboarding/votes), then turns vote
 // similarity on through /api/settings/vote-similarity, the Model form's route.
-// The first-issue step is a placeholder until its own ticket lands
-// (onboarding.html.j2): it writes nothing, so Next on it only moves on.
+// The first-issue step starts a run through the app Worker's POST /run?period=,
+// the route any manual run takes, with the period GET /api/onboarding/first-issue
+// picks, and reads the run's outcome back from that same route.
 const $ = (id) => document.getElementById(id);
 
 // The six steps, in order. Each one's hash opens it, so a reload keeps the place.
@@ -72,16 +73,18 @@ function route() {
   $("o-progress").textContent = `Step ${index + 1} of ${STEPS.length}`;
   const last = index === STEPS.length - 1;
   $("o-back").hidden = index === 0;
-  // Nothing is left to save or to skip on the last step: Finish, the link out
-  // of the wizard, is the only thing to press.
-  $("o-skip").hidden = last;
+  $("o-skip").hidden = false;
+  // Nothing is left to save on the last step: its own button starts the run,
+  // and Finish, the link out of the wizard, takes Next's place.
   $("o-next").hidden = last;
+  $("o-start").hidden = true;
   $("o-finish").hidden = !last;
   hideNotice();
   if (pending) show("ok", pending);
   pending = null;
   window.scrollTo(0, 0);
   if (step === "votes") loadCards();
+  if (last) loadIssue();
 }
 
 addEventListener("hashchange", route);
@@ -472,6 +475,229 @@ async function saveVotes() {
   return lines.join("\n");
 }
 
+// The first-issue step's state: "loading" while the route is read, "ready" with
+// a run to start, "closed" with none to start, then "running", "done" or "failed".
+let issueState = "loading";
+// The route's last answer, and the run this page started while it is out.
+let ISSUE = null;
+let running = null;
+// Redraws the step's notice, which a step change clears. A state with no notice
+// of its own leaves the one shown, such as the result of the step before.
+let issueNotice = () => {};
+
+// One read every few seconds while a run is out: the run takes minutes.
+const POLL_MS = 5000;
+// The run container's own cap (RUN_SLEEP_AFTER in workers/app/src/index.js):
+// a run with no row by then is not coming.
+const RUN_WAIT_MS = 15 * 60 * 1000;
+// The run this tab started, kept so a reload goes on waiting for it rather than
+// offering to start a second one.
+const RUNNING_KEY = "cyris-onboarding-first-issue";
+
+// What each way a run can end, other than with its issue published, tells the reader.
+const RUN_ENDS = {
+  publish_failed: "The issue was built, but publishing it to the archive failed.",
+  no_articles: "None of your feeds had an article in the window the run reads.",
+  no_pending: "Every article in the window was already decided, so the run had nothing new.",
+  error: "The run stopped with an error.",
+};
+
+function drawIssueNav() {
+  if (stepOf() !== STEPS[STEPS.length - 1]) return;
+  const open = ["loading", "ready"].includes(issueState);
+  $("o-back").hidden = issueState === "running";
+  $("o-skip").hidden = !open;
+  $("o-start").hidden = !["ready", "failed"].includes(issueState);
+  $("o-start").textContent = issueState === "failed" ? "Try again" : "Start the first issue";
+  $("o-finish").hidden = open;
+}
+
+function setIssue(state, notice = () => {}) {
+  issueState = state;
+  issueNotice = notice;
+  drawIssueNav();
+  if (stepOf() === STEPS[STEPS.length - 1]) issueNotice();
+}
+
+function plan(text) {
+  $("o-issue-plan").textContent = text;
+  $("o-issue-plan").hidden = !text;
+}
+
+// A link the run's own answer names, so only a web address becomes one.
+function link(text, href) {
+  const a = document.createElement("a");
+  a.textContent = text;
+  if (/^https?:\/\//i.test(href)) a.href = href;
+  return a;
+}
+
+async function getJson(url) {
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    throw new Error(`Could not reach cyris (${err.message}). Check the connection and try again.`);
+  }
+  if (res.status === 401) throw SESSION_EXPIRED;
+  const data = await res.json().catch(() => ({}));
+  if (data.ok) return data;
+  throw new Error(data.error || `cyris answered ${res.status} without saying why. ` +
+    "Reload the page to try again; if it keeps failing, check the server log.");
+}
+
+// Says what Start would do with the route's answer, and whether there is a run
+// to start. A retry may replace the issue its own failed run stored.
+function planIssue(data, retry) {
+  if (!data.sources) {
+    plan("There are no sources yet, so there is nothing to build an issue from. " +
+      "Press Back to pick some, or Finish and add them later under Sources in Settings.");
+    return false;
+  }
+  if (!data.period) {
+    plan(`Your first issue comes at ${data.hours[0]} ${data.timezone}, the next morning ` +
+      "publish hour. One built now would be replaced by a scheduled issue of the same date " +
+      "and period, so the wizard leaves it to that hour.");
+    return false;
+  }
+  if (data.published && !retry) {
+    plan(`The ${data.date} ${data.period} issue is already published, and one built now ` +
+      "would replace it. Read it in the archive.");
+    return false;
+  }
+  plan(`Start builds the ${data.date} ${data.period} issue now. It takes a few minutes, ` +
+    "and no later issue today replaces it.");
+  return true;
+}
+
+// Read on every visit to the step, so the plan is the one for the time it is
+// started at; a run already out is waited on instead.
+async function loadIssue() {
+  if (["running", "done", "failed"].includes(issueState)) return setIssue(issueState, issueNotice);
+  setIssue("loading");
+  $("o-issue-loading").hidden = false;
+  let data;
+  try {
+    data = await getJson("/api/onboarding/first-issue");
+  } catch (err) {
+    plan("");
+    return setIssue("closed", () => show("err", err.message));
+  } finally {
+    $("o-issue-loading").hidden = true;
+  }
+  ISSUE = data;
+  const saved = JSON.parse(sessionStorage.getItem(RUNNING_KEY) || "null");
+  if (saved && Date.now() - saved.started < RUN_WAIT_MS) {
+    plan(`The ${saved.date} ${saved.period} issue was started from this page.`);
+    return waitForRun(saved);
+  }
+  setIssue(planIssue(data, false) ? "ready" : "closed");
+}
+
+// The app Worker's own manual run: it answers once the run container is starting.
+async function startRun(period) {
+  let res;
+  try {
+    res = await fetch(`/run?period=${encodeURIComponent(period)}`, {method: "POST"});
+  } catch (err) {
+    throw new Error(`Could not reach cyris (${err.message}). Check the connection and try again.`);
+  }
+  if (res.status === 401) throw SESSION_EXPIRED;
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.started) return data;
+  throw new Error(`The run did not start: ${data.error || `cyris answered ${res.status}`}.`);
+}
+
+function failIssue(text) {
+  sessionStorage.removeItem(RUNNING_KEY);
+  running = null;
+  setIssue("failed", () => show("err", [
+    text,
+    "Press Try again, or Finish to leave: the next publish hour brings an issue either way.",
+  ].join("\n")));
+}
+
+// The plan is read again first: the period is the one for the time the run
+// starts at, and the run is told from earlier ones by its row's id, which only grows.
+async function startIssue() {
+  const retry = issueState === "failed";
+  $("o-start").disabled = true;
+  show("busy", "Starting the run…");
+  try {
+    ISSUE = await getJson("/api/onboarding/first-issue");
+    if (!planIssue(ISSUE, retry)) {
+      hideNotice();
+      setIssue("closed");
+      return;
+    }
+    await startRun(ISSUE.period);
+  } catch (err) {
+    failIssue(err.message);
+    return;
+  } finally {
+    $("o-start").disabled = false;
+  }
+  const run = {
+    date: ISSUE.date, period: ISSUE.period, after: ISSUE.run?.id ?? 0, started: Date.now(),
+  };
+  sessionStorage.setItem(RUNNING_KEY, JSON.stringify(run));
+  waitForRun(run);
+}
+
+function elapsed(since) {
+  const seconds = Math.floor((Date.now() - since) / 1000);
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+async function waitForRun(run) {
+  running = run;
+  const busy = () => show("busy", `Building the ${run.date} ${run.period} issue: ` +
+    `${elapsed(run.started)} so far. It usually takes a few minutes. You can leave with ` +
+    "Finish: the issue still reaches the archive.");
+  setIssue("running", busy);
+  while (running === run) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    if (running !== run) return;
+    let data;
+    try {
+      data = await getJson("/api/onboarding/first-issue");
+    } catch (err) {
+      // A missed read is read again; the run goes on regardless.
+      if (err !== SESSION_EXPIRED) continue;
+      return failIssue(err.message);
+    }
+    const row = data.run;
+    if (row && row.id > run.after && row.period === run.period) return endIssue(row);
+    if (Date.now() - run.started > RUN_WAIT_MS) {
+      return failIssue(`No run has ended in ${RUN_WAIT_MS / 60000} minutes, so this one ` +
+        "did not start or stopped without a record. Its log is in the app Worker's logs.");
+    }
+    if (stepOf() === STEPS[STEPS.length - 1]) busy();
+  }
+}
+
+function endIssue(row) {
+  sessionStorage.removeItem(RUNNING_KEY);
+  running = null;
+  if (row.status !== "ok") {
+    const why = [RUN_ENDS[row.status] || `The run ended as ${row.status}.`];
+    if (row.error) why.push(row.error);
+    if (row.failed_sources.length) why.push(`Fetching failed for: ${row.failed_sources.join(", ")}.`);
+    return failIssue(why.join(" "));
+  }
+  setIssue("done", () => {
+    if (!row.digest_url) {
+      show("ok", "Your first issue is built. This deployment publishes no site, " +
+        "so it reached you only through its notifications.");
+      return;
+    }
+    show("ok", "Your first issue is published. ");
+    $("o-result").append(
+      link("Read it", row.digest_url), ", or find it with every later issue in the ",
+      link("archive", new URL("/", row.digest_url).href), ".");
+  });
+}
+
 const SAVES = {
   language: saveLanguage,
   schedule: saveSchedule,
@@ -481,7 +707,7 @@ const SAVES = {
 };
 
 // Only ever called from a step that has one after it: the last step shows
-// Finish in Next's and Skip's place.
+// its own Start and Finish in Next's place, and its Skip leaves.
 function advance() {
   const index = STEPS.indexOf(stepOf());
   location.hash = STEPS[index + 1];
@@ -510,8 +736,12 @@ $("o-next").addEventListener("click", async () => {
 
 $("o-skip").addEventListener("click", () => {
   unmark(FIELDS);
-  advance();
+  // Skipping the last step leaves through Finish itself, starting nothing.
+  if (stepOf() === STEPS[STEPS.length - 1]) $("o-finish").click();
+  else advance();
 });
+
+$("o-start").addEventListener("click", startIssue);
 
 $("o-back").addEventListener("click", () => {
   unmark(FIELDS);
