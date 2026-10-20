@@ -35,10 +35,12 @@ import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from importlib.resources import files
 from types import SimpleNamespace
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+import httpx
 from aiohttp import web
 from cdp_probe import (
     NO_SITE_BAR_AREAS,
@@ -53,6 +55,7 @@ from cdp_probe import (
 )
 from css_computed import find_browser
 
+from cyris.adapters.fetch.feed_check import FeedChecker
 from cyris.adapters.fetch.onboarding_cards import OnboardingArticles, draw_cards
 from cyris.adapters.fetch.rss_worker_source import POLL_CONCURRENCY, POLL_FEED_TIMEOUT_SECONDS
 from cyris.config import GRADE_D_KEYS
@@ -77,6 +80,7 @@ KINDS = (
     "cards",
     "cards-largest",
     "cards-slow",
+    "own-feed-slow",
     "first-issue",
     "first-issue-slow",
     "first-issue-fails",
@@ -233,6 +237,55 @@ RUN_ENDS = {
 # How long a check waits for the page to read a run's row: the page reads every
 # 5 seconds (POLL_MS in onboarding.js).
 RUN_READ_MS = 15000
+
+
+# "Add your own feed": a home page that links its feed, the feed itself, and a
+# page that links none, each answered by `FakeHttp`; any other address is
+# unreachable. The feed's title is no name the list holds.
+OWN_HOME = "https://own.test/"
+OWN_FEED = "https://own.test/feed.xml"
+OWN_NAME = "Own Probe Notes"
+BARE_HOME = "https://bare.test/"
+# What Next posts for the own feed: its name and address, no tags, the tier left
+# to the source's default.
+OWN_BODY = {"name": OWN_NAME, "url": OWN_FEED, "tags": []}
+# A listed feed outside ONE_TOPIC: pasting its address checks its row instead.
+LISTED = next(entry for entry in FEEDS if ONE_TOPIC not in entry["topics"])
+NO_FEED_LINK = json.loads(
+    (files("cyris.adapters.fetch") / "feed_check.json").read_text(encoding="utf-8")
+)["messages"]["no_feed_link"].format(url=BARE_HOME)
+_OWN_ANSWERS = {
+    OWN_HOME: (
+        "text/html",
+        '<html><head><link rel="alternate" type="application/rss+xml" href="/feed.xml">'
+        f"</head><body>{OWN_NAME}</body></html>",
+    ),
+    OWN_FEED: (
+        "application/rss+xml",
+        f'<?xml version="1.0"?><rss version="2.0"><channel><title>{OWN_NAME}</title>'
+        "<item><title>One</title><link>https://own.test/1</link></item></channel></rss>",
+    ),
+    BARE_HOME: ("text/html", "<html><head><title>Bare</title></head><body>Hi</body></html>"),
+}
+
+
+class FakeHttp:
+    """Stands in for `HttpClient` under the feed check: `_OWN_ANSWERS`, else unreachable."""
+
+    def __init__(self, delay: float = 0) -> None:
+        self.delay = delay
+
+    async def get(self, url: str) -> httpx.Response:
+        await asyncio.sleep(self.delay)
+        if url not in _OWN_ANSWERS:
+            raise httpx.ConnectError("cyris-probe: offline")
+        kind, text = _OWN_ANSWERS[url]
+        return httpx.Response(
+            200, text=text, headers={"Content-Type": kind}, request=httpx.Request("GET", url)
+        )
+
+    async def close(self) -> None:
+        pass
 
 
 def feed_articles(name: str) -> list[Article]:
@@ -407,7 +460,8 @@ def build_fixture(kind: str) -> Fixture:
     writable table at all, which is a `backend = "json"` deployment: it has no
     wizard. `cards` holds `CARDS_TABLE`, so the votes step deals `CARDS` and
     names `QUIET`; `cards-largest` is it at the largest type size, and
-    `cards-slow` takes `SLOW_SECONDS` to read its feeds. The `first-issue`
+    `cards-slow` takes `SLOW_SECONDS` to read its feeds, as `own-feed-slow`
+    takes them to check a pasted address. The `first-issue`
     ones hold `A_SOURCE` and a clock pinned at `BETWEEN`, and their runs end as
     `RUN_ENDS` says; `first-issue-early`'s clock is at `EARLY`. `no-timezone`
     is `empty` with no zone stored, and `unlisted` stores a language and a zone
@@ -432,6 +486,9 @@ def build_fixture(kind: str) -> Fixture:
         source_store=store,
         article_store=articles,
         onboarding_articles=None if kind == "json" else OnboardingArticles(edge),
+        feed_checker=None
+        if kind == "json"
+        else FeedChecker(FakeHttp(SLOW_SECONDS if kind == "own-feed-slow" else 0)),
         digest_store=None if kind == "json" else FakeDigestStore(),
         run_log=run_log,
         clock=(lambda: EARLY) if kind == "first-issue-early" else (lambda: BETWEEN),
@@ -680,6 +737,15 @@ const toTopics = async () => {
   await waitFor(topicsScreen, "the topics screen");
 };
 const picked = () => $("#o-picked").textContent;
+// "Add your own feed": its rows under Your feeds, and its own notice.
+const ownRows = () => $$("#o-own .choice");
+const ownNotice = () => $("#o-own-result");
+const ownSettled = () => visible(ownNotice()) && ownNotice().getAttribute("aria-busy") !== "true";
+const addOwn = async (url) => {
+  setValue($("#o-own-url"), url);
+  press("o-own-add");
+  await waitFor(ownSettled, "the feed check");
+};
 const pick = (name) => { rowNamed(name).querySelector("input").click(); };
 // The votes step, dealt: its cards, or the line saying there is nothing to vote on.
 const cardRows = () => $$("#o-cards .vote-card");
@@ -744,6 +810,28 @@ def _posted(*entries: dict) -> Callable[[Fixture], str | None]:
         return stored(fixture)
 
     return receipt
+
+
+def _own_posted(fixture: Fixture) -> str | None:
+    """A receipt: Next posted the own feed alone, as `OWN_BODY`, stored at the default tier."""
+    rows = [row.model_dump(mode="json") for row in fixture.sources.writes]
+    wanted = SourceConfig.model_validate(OWN_BODY).model_dump(mode="json")
+    if fixture.posted == [OWN_BODY] and rows == [wanted] and fixture.calls == []:
+        return None
+    return f"posted: {fixture.posted}, sources: {rows}, settings: {fixture.calls}"
+
+
+# A sabotage: the feed check answers that a page with no feed link is a feed.
+CHECK_PASSES = f"""{{
+const realFetch = window.fetch;
+window.fetch = (input, init) => {{
+  if (String(input).endsWith("/api/onboarding/feed-check")) {{
+    const body = {{ok: true, name: "Bare", url: {json.dumps(BARE_HOME)}}};
+    return Promise.resolve(new Response(JSON.stringify(body), {{status: 200}}));
+  }}
+  return realFetch(input, init);
+}};
+}}"""
 
 
 def _both_untouched(fixture: Fixture) -> str | None:
@@ -1023,6 +1111,165 @@ _CHECKS: list[Check] = [
         receipt=_runs(),
     ),
     Check(
+        id="own-feed-joins-your-feeds-checked",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
+            setValue($("#o-own-url"), {json.dumps(OWN_HOME)});
+        """,
+        # After the act: Add is a copy, which carries none of its listeners.
+        sabotage=dead("o-own-add"),
+        gestures=({"press": "#o-own-add", "pointer": "mouse"}, {"release": True}),
+        script=f"""
+            await waitFor(() => ownRows().length, "the own feed's row");
+            const row = ownRows()[0];
+            const name = $(".name", row).textContent;
+            expect(name === {json.dumps(OWN_NAME)}, `named ${{name}}`);
+            expect($("input", row).checked, "the own feed starts unchecked");
+            const legend = $("legend", row.closest("fieldset")).textContent;
+            expect(legend === "Your feeds", `it sits under ${{legend}}`);
+            expect(picked() === "1 feed picked.", `count: ${{picked()}}`);
+            const text = ownNotice().textContent;
+            expect(!ownNotice().classList.contains("err"), `an error: ${{text}}`);
+            expect(!$("#o-own-url").value, "the address is still in the field");
+        """,
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="own-feed-needs-no-topic",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            press("o-next");
+            await waitFor(() => visible($("#o-own-url")), "the feeds screen");
+            await addOwn({json.dumps(OWN_HOME)});
+        """,
+        script=f"""
+            expect(location.hash === "#sources/feeds", `on ${{location.hash}}`);
+            expect(!shownFeeds().length, `listed feeds with no topic: ${{shownFeeds().join("|")}}`);
+            const names = ownRows().map((row) => $(".name", row).textContent);
+            expect(same(names, [{json.dumps(OWN_NAME)}]), `own feeds: ${{names.join("|")}}`);
+        """,
+        # After the act: the own feed's row is gone, as if the screen had turned it away.
+        sabotage='$("#o-own").replaceChildren();',
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="own-feed-is-posted-by-next",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
+            await addOwn({json.dumps(OWN_HOME)});
+            press("o-next");
+            await onStep("votes");
+            await waitFor(settled, "the result notice");
+        """,
+        script=f"""
+            const text = notice().textContent;
+            expect(!notice().classList.contains("err"), `an error: ${{text}}`);
+            expect(text.includes("Added 1 feed: {OWN_NAME}."), `notice: ${{text}}`);
+        """,
+        # The home page pasted is posted in place of the feed it links.
+        sabotage_preload=rewrite_post("/api/sources", f"body.url = {json.dumps(OWN_HOME)};"),
+        receipt=_own_posted,
+    ),
+    Check(
+        id="own-feed-pressed-next-during-the-check-is-posted",
+        fixture="own-feed-slow",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
+            setValue($("#o-own-url"), {json.dumps(OWN_HOME)});
+            press("o-own-add");
+            press("o-next");
+            // Two slow fetches, the home page and its feed, before Next can save.
+            await waitFor(() => same(shownSteps(), ["votes"]), "the votes step", 15000);
+            await waitFor(settled, "the result notice");
+        """,
+        script=f"""
+            const text = notice().textContent;
+            expect(text.includes("Added 1 feed: {OWN_NAME}."), `notice: ${{text}}`);
+        """,
+        sabotage_preload=rewrite_post("/api/sources", f"body.url = {json.dumps(OWN_HOME)};"),
+        receipt=_own_posted,
+    ),
+    Check(
+        id="own-feed-refused-says-why-and-adds-nothing",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
+            await addOwn({json.dumps(BARE_HOME)});
+        """,
+        script=f"""
+            const text = ownNotice().textContent;
+            expect(ownNotice().classList.contains("err"), `not an error: ${{text}}`);
+            expect(text === {json.dumps(NO_FEED_LINK)}, `notice: ${{text}}`);
+            expect(!ownRows().length, `${{ownRows().length}} own feeds listed`);
+            expect(picked() === "0 feeds picked.", `count: ${{picked()}}`);
+            const invalid = $("#o-own-url").getAttribute("aria-invalid") === "true";
+            expect(invalid, "the field is not marked");
+        """,
+        sabotage_preload=CHECK_PASSES,
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="own-feed-shows-the-check-while-it-is-out",
+        fixture="own-feed-slow",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
+            setValue($("#o-own-url"), {json.dumps(OWN_HOME)});
+            press("o-own-add");
+            await waitFor(() => visible(ownNotice()), "the check");
+        """,
+        script=f"""
+            const text = ownNotice().textContent;
+            expect(ownNotice().getAttribute("aria-busy") === "true", "the check is not busy");
+            expect(text === "Checking {OWN_HOME}…", `notice: ${{text}}`);
+            expect($("#o-own-add").disabled, "Add is live while the check is out");
+        """,
+        sabotage="""ownNotice().removeAttribute("aria-busy");""",
+        receipt=_both_untouched,
+    ),
+    Check(
+        id="own-feed-already-listed-checks-its-row",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
+            await addOwn({json.dumps(LISTED["url"])});
+        """,
+        script=f"""
+            const row = rowNamed({json.dumps(LISTED["name"], ensure_ascii=False)});
+            expect(row && visible(row), "the listed feed is not shown");
+            expect($("input", row).checked, "the listed feed is not checked");
+            const legend = $("legend", row.closest("fieldset")).textContent;
+            expect(legend === {json.dumps(KEPT)}, `it sits under ${{legend}}`);
+            expect(!ownRows().length, "it was added a second time, as an own feed");
+            expect(picked() === "1 feed picked.", `count: ${{picked()}}`);
+        """,
+        # After the act: the row is unchecked again, and leaves with its pick.
+        sabotage=f"""pick({json.dumps(LISTED["name"], ensure_ascii=False)});""",
+        receipt=_both_untouched,
+    ),
+    Check(
         id="sources-step-shows-no-feed-before-a-topic",
         fixture="empty",
         path=PAGE,
@@ -1039,7 +1286,8 @@ _CHECKS: list[Check] = [
             expect(chosen.length === 0, `${{chosen.length}} topics start chosen`);
             expect(!shownFeeds().length, `feeds before a topic: ${{shownFeeds().join("|")}}`);
             expect(visible($("#o-feeds-hint")), "nothing says to pick a topic");
-            expect($("#o-next").disabled, "Next is live with no topic chosen");
+            // The feeds screen also takes the reader's own feed, which needs no topic.
+            expect(!$("#o-next").disabled, "Next waits for a topic");
         """,
         sabotage=_choose(ONE_TOPIC),
         receipt=_both_untouched,
@@ -2322,6 +2570,43 @@ _CHECKS: list[Check] = [
         sabotage="""notice().style.minWidth = "600px";""",
     ),
     Check(
+        id="fits-own-feed-375",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        width=375,
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
+            await addOwn({json.dumps(OWN_HOME)});
+            await addOwn({json.dumps(BARE_HOME)});
+        """,
+        script="""
+            expect(ownRows().length === 1 && ownNotice().classList.contains("err"),
+              "the own feed or the refusal is missing");
+            const problem = overflow("onboarding");
+            expect(!problem, problem);
+        """,
+        sabotage="""$(".add-feed").style.minWidth = "600px";""",
+    ),
+    Check(
+        id="tap-own-feed-375",
+        fixture="empty",
+        path=f"{PAGE}#sources",
+        width=375,
+        act=f"""
+            await loaded();
+            await feedsDrawn();
+            {_feeds_of(ONE_TOPIC)}
+            await addOwn({json.dumps(OWN_HOME)});
+        """,
+        script="""expectTapTargets("#o-own-url, #o-own-add, #o-own .choice");""",
+        sabotage=restyle(
+            "#o-own-add, #o-own .choice { height: 30px !important; min-height: 0 !important;"
+            " padding: 0 !important; line-height: 1 !important; }"
+        ),
+    ),
+    Check(
         id="tap-votes-375",
         fixture="cards",
         path=f"{PAGE}#votes",
@@ -2393,7 +2678,8 @@ _CHECKS: list[Check] = [
 _CHECKS += [
     largest_twin(check, check.id.replace("fits-", "fits-largest-"), f"{check.fixture}-largest")
     for check in _CHECKS
-    if check.id in ("fits-375", "fits-topics-375", "fits-sources-375", "fits-votes-375")
+    if check.id
+    in ("fits-375", "fits-topics-375", "fits-sources-375", "fits-votes-375", "fits-own-feed-375")
 ]
 
 CHECKS = _CHECKS

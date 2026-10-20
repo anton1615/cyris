@@ -2,6 +2,8 @@
 
 import httpx
 
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
 
 class HttpClient:
     """Async HTTP client with the project's shared timeout and User-Agent."""
@@ -10,9 +12,7 @@ class HttpClient:
         self._client = httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
-            headers={
-                "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-            },
+            headers={"User-Agent": USER_AGENT},
         )
 
     async def get(self, url: str) -> httpx.Response:

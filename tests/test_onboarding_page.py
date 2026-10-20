@@ -349,11 +349,13 @@ class TestItWritesWhatTheSettingsFormWrites:
         assert "startIssue" not in handler[1] and "startRun" not in handler[1]
 
     def test_the_wizard_writes_sources_and_votes_only_through_its_own_routes(self) -> None:
-        """Besides the settings routes: the form's `POST /api/sources`, and the votes step's two."""
+        """Besides the settings routes: the form's `POST /api/sources`, the feed check,
+        and the votes step's two."""
         routes = set(re.findall(r'post\(\s*"([^"]+)"', ONBOARDING_JS))
 
         assert routes - set(_body_keys(ONBOARDING_JS)) == {
             "/api/sources",
+            "/api/onboarding/feed-check",
             "/api/onboarding/cards",
             "/api/onboarding/votes",
         }

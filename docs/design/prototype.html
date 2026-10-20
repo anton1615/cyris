@@ -328,6 +328,9 @@ details.more summary::after { content: ""; position: absolute; inset: calc(-1 * 
 .vote-card .title { font-weight: 600; font-size: calc(18px * var(--type-scale)); line-height: 1.3; text-decoration: none; overflow-wrap: anywhere; }
 .vote-card .title:hover { text-decoration: underline; }
 .vote-card .seg { justify-self: start; margin-top: var(--s-1); }
+.add-feed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.add-feed .input { flex: 1 1 14em; width: auto; min-width: 0; }
+#o-own .sources-check { margin-top: var(--s-4); }
 
 .form { display: grid; gap: var(--s-6); max-width: var(--measure); }
 .field { display: grid; gap: var(--s-2); }
@@ -845,7 +848,9 @@ table.src td.areas-pos-cell { width: 1%; }
      topics are chosen. #onboarding/feeds is the step's second screen, after a Next
      that added one feed and not another: the chosen topics' feeds show under them,
      here three of those, and the added feed's own topics were chosen before and are
-     not now, so it stays, checked, under its own heading first; the count of the
+     not now, so it stays, checked, under its own heading first; below them the
+     reader has added one feed of their own by its address, which the server
+     checked and named, and which sits checked under Your feeds; the count of the
      picks sits above the buttons. Its settings steps save through the settings
      routes and its sources step through POST /api/sources; the topics and the feed
      list are the server's. #onboarding/votes is the next step: the cards the server dealt from
@@ -929,8 +934,23 @@ table.src td.areas-pos-cell { width: 1%; }
           <legend class="label">World</legend>
           <label class="choice"><input type="checkbox"><span class="name">BBC News</span><span class="label">news</span></label>
         </fieldset>
+        <div class="field">
+          <label class="label" for="o-own-url">Add your own feed</label>
+          <div class="add-feed">
+            <input class="input" id="o-own-url" type="url" inputmode="url" placeholder="https://example.com/feed.xml" autocomplete="off">
+            <button class="btn secondary" type="button">Add</button>
+          </div>
+          <p class="small">A feed's address, or a site's home page that links one. It is named by the feed's own title.</p>
+          <div class="notice" role="status">Slow Reads is under Your feeds, checked: Next adds it with the others.</div>
+        </div>
+        <div id="o-own">
+          <fieldset class="sources-check">
+            <legend class="label">Your feeds</legend>
+            <label class="choice"><input type="checkbox" checked><span class="name">Slow Reads</span><span class="label"></span></label>
+          </fieldset>
+        </div>
       </div>
-      <p class="small" aria-live="polite">2 feeds picked.</p>
+      <p class="small" aria-live="polite">3 feeds picked.</p>
     </section>
 
     <div class="step-nav">

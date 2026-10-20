@@ -169,6 +169,18 @@ def load_onboarding_topics() -> list[dict[str, str]]:
     return _onboarding_catalog()["topics"]
 
 
+async def _revalidate_static(request: web.Request, response: web.StreamResponse) -> None:
+    """Make the browser ask before reusing a page's CSS or JS.
+
+    `add_static` sends an ETag and a Last-Modified but no Cache-Control, so a
+    browser falls back to heuristic freshness and pairs a new page with the
+    stylesheet it cached before the release. `no-cache` still lets it keep the
+    file: each use is a conditional request, answered 304 while the ETag holds.
+    """
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+
+
 class TriageServer:
     """Serves /settings, /onboarding, /labels and the settings, sources, labels and build APIs."""
 
@@ -190,6 +202,7 @@ class TriageServer:
         source_titles=None,
         llm_factory=None,
         onboarding_articles=None,
+        feed_checker=None,
         digest_store=None,
         run_log=None,
         clock=None,
@@ -231,6 +244,9 @@ class TriageServer:
         # (`bootstrap.build_onboarding_articles`); absent on a `backend = "json"`
         # deployment, which has no wizard.
         self._onboarding_articles = onboarding_articles
+        # The wizard's check of a feed the reader pastes
+        # (`bootstrap.build_feed_checker`); absent where there is no wizard.
+        self._feed_checker = feed_checker
         # D1's stored issues and `digest_runs`, which the wizard's first issue
         # reads its key's state and its run's outcome from; both absent on a
         # `backend = "json"` deployment, which has no wizard.
@@ -255,6 +271,7 @@ class TriageServer:
         self._app.router.add_post("/api/sources", self._handle_post_source)
         self._app.router.add_delete("/api/sources/{name}", self._handle_delete_source)
         self._app.router.add_get("/api/onboarding/feeds", self._handle_get_onboarding_feeds)
+        self._app.router.add_post("/api/onboarding/feed-check", self._handle_post_feed_check)
         self._app.router.add_post("/api/onboarding/cards", self._handle_post_onboarding_cards)
         self._app.router.add_post("/api/onboarding/votes", self._handle_post_onboarding_votes)
         self._app.router.add_get("/api/onboarding/first-issue", self._handle_get_first_issue)
@@ -281,6 +298,7 @@ class TriageServer:
         # A local `cyris triage-ui` has no Pages behind it.
         self._app.router.add_get("/favicon.svg", self._handle_favicon)
         self._app.router.add_static("/static", STATIC_DIR)
+        self._app.on_response_prepare.append(_revalidate_static)
         self._runner: web.AppRunner | None = None
 
     async def _handle_build(self, request: web.Request) -> web.Response:
@@ -844,6 +862,56 @@ class TriageServer:
                 "feeds": load_onboarding_feeds() if awaiting else [],
             }
         )
+
+    async def _handle_post_feed_check(self, request: web.Request) -> web.Response:
+        """Check a feed the reader pasted, or the feed a pasted home page links; writes nothing.
+
+        `taken` is what the page already lists, as `{name, url}`; the sources
+        table is added to it here. The answer's `name` is the feed's own title,
+        made distinct from every taken name, and `url` is the feed's address,
+        which the page then posts to `POST /api/sources` with the rest.
+        """
+        from cyris.adapters.fetch.feed_check import FeedCheckError
+
+        if self._feed_checker is None:
+            return web.json_response(
+                {"ok": False, "error": "This deployment has no wizard to add feeds from."},
+                status=409,
+            )
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        url = body.get("url") if isinstance(body, dict) else None
+        listed = body.get("taken", []) if isinstance(body, dict) else None
+        if (
+            not isinstance(url, str)
+            or not isinstance(listed, list)
+            or not all(
+                isinstance(t, dict)
+                and isinstance(t.get("name"), str)
+                and isinstance(t.get("url") or "", str)
+                for t in listed
+            )
+        ):
+            return web.json_response(
+                {"ok": False, "error": 'The body is {"url", "taken": [{"name", "url"}]}.'},
+                status=400,
+            )
+        taken = [(t["name"], t.get("url") or "") for t in listed]
+        try:
+            taken += [(s.name, s.url or "") for s in self._effective_sources().values()]
+        except Exception:  # noqa: BLE001 - the page's own list still guards the names
+            logger.warning("Could not read the sources table for a feed check", exc_info=True)
+        try:
+            feed = await self._feed_checker.check(url, taken)
+        except FeedCheckError as e:
+            return web.json_response(
+                {"ok": False, "error": str(e), "name": e.name},
+                status=409 if e.name else 422,
+            )
+        logger.info("Feed check passed: %s", feed.url)
+        return web.json_response({"ok": True, "name": feed.name, "url": feed.url})
 
     def _no_card_reader(self) -> web.Response | None:
         """The refusal of a deployment the vote cards cannot read or write for, else None."""
@@ -1726,3 +1794,5 @@ class TriageServer:
     async def stop(self) -> None:
         if self._runner:
             await self._runner.cleanup()
+        if self._feed_checker is not None:
+            await self._feed_checker.close()

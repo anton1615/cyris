@@ -180,7 +180,7 @@ test.
 | Wiring | Targets | Swap difficulty |
 |---|---|---|
 | **Via Protocol** (`ports.py`) | `LLMClient`, `ArticleRepository`, `FetchSource`, `Embedder` | **Low** — swapping the implementation never touches the core |
-| **Direct injection** (no Protocol) | `HtmlDigestWriter`, `publish`, `sync_promotions`, `append_usage`, `notify`, `send_email`, `send_email_alert`, `D1TagStore`, `D1StoryStore`, `D1DigestStore`, `D1DigestInputStore`, `D1AreaStore`, `D1SourceTitles`, `ask_clef` (`ClefClient`), `page_serves` | **Medium** — the core calls them directly; a second backend needs a Protocol first |
+| **Direct injection** (no Protocol) | `HtmlDigestWriter`, `publish`, `sync_promotions`, `append_usage`, `notify`, `send_email`, `send_email_alert`, `D1TagStore`, `D1StoryStore`, `D1DigestStore`, `D1DigestInputStore`, `D1AreaStore`, `D1SourceTitles`, `ask_clef` (`ClefClient`), `page_serves`, `FeedChecker` (the wizard's feed check, `bootstrap.build_feed_checker`) | **Medium** — the core calls them directly; a second backend needs a Protocol first |
 
 `ports.py`'s rule: *only genuine IO boundaries get a Protocol; single-implementation components are
 injected directly.*
@@ -555,6 +555,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | `cyris config show` registry: the rows it lists beyond `settings_fields.json` and `B_GRADE_ENV_VARS`, and every label it prints | A | `src/cyris/diagnostics/config_show.json` | done 2026-10-08 — the image ships `src/` only, so `.env.example` cannot be read at runtime; `tests/test_deploy_inputs.py` holds the secret list to it, and each code constant is named as `module:attribute` so the value shown is the one the code runs with |
 | Mail vocabulary: forward/reply subject prefixes, "view in browser" markers | A | `adapters/fetch/keywords.json`, loaded by `keywords.py` | unchanged — data so a new locale is not a code edit; the regex structure around the tokens stays in code |
 | Onboarding's feed picker: an ordered topic table (id, label), and name, url, tier, tags, language and topics per entry | A | `src/cyris/onboarding_feeds.json` | catalog added 2026-10-20, read by the onboarding picker ([cold-start-onboarding.md](milestones/cold-start-onboarding.md)) — the image ships `src/` only, so it sits beside `keywords.json` rather than in a `.example` file outside it. Collected by the project, not a reader: each entry is a publisher's own feed (never an RSS hub or an aggregator, except Hacker News through hnrss.org, which has no feed of its own), reads as a `SourceConfig` at `tier: filter` plus the list's own `topics` (one or two of the table's ids: what the feed is about, not its form; `tags` stay the pipeline's), and passed both parsers (`workers/rss/src/parse.js` and feedparser) with an article inside 8 days when `scripts/validate_feed_catalog.py` last ran for real. The container reads it for `GET /api/onboarding/feeds`, which sends the topic table and the entries as written only while `sources` is empty, and the wizard's sources step shows the topics on one screen, then the chosen topics' feeds on the next, and writes each of the reader's picks, less its `topics`, through the existing `POST /api/sources`, so no stored source carries them; after that a deployment's feeds live only in its own `sources` (D1) or `sources.yaml`, same as any other source, so a stale catalog entry costs nothing beyond onboarding. `tests/test_onboarding_feeds.py` holds every entry to the shape, each entry's topics to the table and each topic to at least one entry; `scripts/validate_feed_catalog.py` is a reviewer-run gate on real feeds, not a test, because it asks about the network rather than the code |
+| Onboarding feed check vocabulary: the `<link rel="alternate">` types a home page names its feed with (RSS and Atom), the page Content-Types, and every refusal the reader sees | A | `src/cyris/adapters/fetch/feed_check.json`, loaded by `feed_check.py` | added 2026-10-20 — data so a feed type or a reworded refusal is not a code edit, as `keywords.json` is; the order of the fetches and the attributes read stay in code. `MAX_BYTES` = 5 MiB (counted as it arrives: the check asks for `Accept-Encoding: identity` and refuses an answer encoded anyway, which could inflate past any cap), `MAX_REDIRECTS` = 5 and `CHECK_DEADLINE_SECONDS` = 60 in `feed_check.py` are A as well: the check fetches a reader-typed address from inside the deployment, so the caps bound what one press can make it read and how long the reader waits on it. `CONNECT_TIMEOUT_SECONDS` = 10 is per address, so a host whose IPv6 route silently drops still leaves time for its IPv4 address |
 | Onboarding vote cards: `CARDS_PER_SOURCE` = 3 and `CARDS_TOTAL` = 12, drawn from the oldest half of each feed's articles inside `BUFFER_DAYS` = 8 | A | `adapters/fetch/onboarding_cards.py` | added 2026-10-20 ([cold-start-onboarding.md](milestones/cold-start-onboarding.md)) — each card asks the reader for a decision, and the poll's wait budget allows 12 feeds, so three per source says what a source is about when the pick is small, and the total holds a full pick to one card per feed: 36 cards read as a triage session to the owner's walk on 2026-10-20. The older half only, because a voted article leaves the first issue's candidates and the newest are what that issue is for; 8 days is the rss Worker's `RETENTION_DAYS`, the buffer's depth. `tests/test_onboarding_cards.py` holds both counts to this row and the reach to the Worker's `RETENTION_DAYS` |
 | Onboarding poll wait: `POLL_CONCURRENCY` 4 and `POLL_FEED_TIMEOUT_SECONDS` 20 per batch, plus `POLL_WRITE_MARGIN_SECONDS` 30 | A | `adapters/fetch/rss_worker_source.py` | added 2026-10-20 — a mirror of the Worker's `CONCURRENCY` and `FETCH_TIMEOUT_MS`, which bound a `POST /poll` at ceil(N / 4) × 20 seconds for N feeds (60 for 12), with the margin for its buffer writes; `tests/test_onboarding_cards.py` holds the two equal. The wizard's feeds screen warns, without stopping the reader, once more feeds are picked than one minute of polling fetches (`SLOW_PICKS` = 12 in `static/onboarding.js`), and `tests/test_onboarding_page.py` holds it to these two. A poll that outlasts it, or fails, still deals what the buffer already held, and the step says the poll failed |
 | Project link and favicon on the rendered pages | A | `PROJECT_URL` and `FAVICON` in `adapters/output/html_digest.py` | done 2026-10-02 — the upstream project's site, not this deployment's: a fork's pages still credit where they came from, so neither a deployment nor a reader setting changes it. The favicon is a copy of `website/assets/favicon.svg`, because the image ships `src/` only; `tests/test_ui_spec.py` holds the two copies equal, and every publish deploys it, on the manifest path and the local-directory path alike |
@@ -938,6 +939,11 @@ POST /run?period=[&date=]                  same lock; the Worker starts the `run
                                            itself (a date: today or yesterday, §3.2)
 ```
 
+The container answers `/static/*`, the pages' CSS and JS, with `Cache-Control: no-cache`, and the
+Worker passes a non-HTML response through untouched. A browser therefore revalidates each file by
+its ETag on every use, a 304 while it holds, instead of pairing a new page with a stylesheet it
+cached by heuristic before a release.
+
 `/settings` and `/onboarding` are two views of one deployment's state: an empty `sources` table is
 the waiting-for-onboarding state (§5 *RSS + newsletter source list*), so the container sends
 `/settings` to the guided setup while the table is empty. `/onboarding` stays open on a D1
@@ -945,7 +951,17 @@ deployment once the table has a source, because the wizard's own sources step wr
 reload on a later step must not leave the wizard. A `json` deployment, whose sources live in a file
 nothing writes, never sees the wizard. The wizard writes settings through the `/api/settings/*`
 routes the settings page writes them with, and sources through `POST /api/sources`; its read of its
-own, `GET /api/onboarding/feeds`, serves the grade-A feed list (§5). The votes step adds two routes
+own, `GET /api/onboarding/feeds`, serves the grade-A feed list (§5). A feed the list lacks goes
+through `POST /api/onboarding/feed-check` first: `FeedChecker` (`adapters/fetch/feed_check.py`,
+wired by `bootstrap.build_feed_checker`) fetches the pasted address once through `GuardedHttp`,
+which reaches only public addresses (each redirect hop's host is resolved and checked, and the
+connect uses the address it checked, so a name cannot resolve public for the check and private for
+the connect; no proxy is read from the environment; an answer is cut at `MAX_BYTES`, the whole
+check at `CHECK_DEADLINE_SECONDS`; an error is named by its status alone), follows a home page's first RSS or Atom `<link rel="alternate">` once, parses with
+feedparser as `RssSource` does, and answers the feed's own title and final address only when it
+holds an article; a name another listed or stored source has takes the feed's host after it, and a
+feed already listed is refused with that source's name. It writes nothing: the page posts the
+answer through `POST /api/sources` with the picks. The votes step adds two routes
 and no state of its own. `POST /api/onboarding/cards` polls the rss Worker and deals cards from the
 buffer through the run's own RSS edge (§3.1), writing nothing but the buffer; it names each feed the
 read found no article for, counted by `source_name` in the read. `POST /api/onboarding/votes` reads

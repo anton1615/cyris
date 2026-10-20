@@ -975,6 +975,7 @@ def triage_ui(
     from cyris.adapters.store.tracked_topics import D1TrackedTopicStore
     from cyris.bootstrap import (
         build_d1_client,
+        build_feed_checker,
         build_onboarding_articles,
         build_settings,
         load_effective_config,
@@ -1006,6 +1007,7 @@ def triage_ui(
             source_titles=D1SourceTitles(d1) if d1 else None,
             llm_factory=_llm_from_values,
             onboarding_articles=build_onboarding_articles(cfg) if d1 else None,
+            feed_checker=build_feed_checker() if d1 else None,
             digest_store=D1DigestStore(d1) if d1 else None,
             run_log=D1RunLog(d1, "") if d1 else None,
         )

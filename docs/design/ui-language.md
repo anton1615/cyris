@@ -511,9 +511,9 @@ sources live in a file the app never writes, has no wizard at all: this page sen
   A topic is what a feed is about, never its form.
   - **Topics** are toggle tiles (§4) in a group labelled `Topics`, in the list's order, none pressed
     at first: each is the topic's label over how many feeds it holds. Until one is pressed, one small
-    line below them says to pick a topic to see its feeds or to skip the step, and `Next` is
-    disabled, unless a feed picked earlier is still checked. `Next` opens the feeds screen and saves
-    nothing; `Back` goes to the step before.
+    line below them says to pick topics to see their feeds, and that `Next` with none picked goes
+    straight to adding an own feed. `Next` is never disabled here: it opens the feeds screen and
+    saves nothing; `Back` goes to the step before.
   - **Feeds** shows one checklist (§4) per chosen topic, legended with its label, in the topics'
     order; their rows start unchecked, and each is the entry's name, as the list writes it, and its
     tags on the right, in the list's order. A feed sits under the first of its own topics that is
@@ -526,9 +526,27 @@ sources live in a file the app never writes, has no wizard at all: this page sen
     Votes step fetches every picked feed before it deals cards, which takes about a minute for 12
     and longer for more. It warns and blocks nothing; 12 is what the poll's wait holds to a minute
     (`docs/architecture.md` §5, *Onboarding poll wait*).
+  - **Add your own feed** sits below the checklists on the feeds screen, for a feed the list lacks:
+    a field (§4) labelled `Add your own feed`, its URL input and a secondary `Add` button side by
+    side and wrapping one under the other when the row is too narrow, one small help line, and a
+    notice of its own below them (`role="status"`), beside the button it reports on. The reader
+    pastes a feed's address or a site's home page; `Add`, or Enter in the input, asks the server
+    (`POST /api/onboarding/feed-check`), which follows a home page to the first RSS or Atom feed it
+    links and names the feed by its own title. While it asks, `Add` is disabled and the notice,
+    marked `aria-busy`, says `Checking <address>…`. A feed that passes joins a checklist legended
+    `Your feeds` right below the field, checked, and counts in `N feeds picked`; the input empties
+    and the notice says `Next` adds it with the others. A refusal says why in `--warn`, in the
+    server's words (unreachable, the HTTP status, not a feed, a home page that links none, a feed
+    with no article), marks the input as failed validation, and adds nothing. A feed the list
+    already holds is not added twice: its row is checked instead, under its topic or under
+    `Picked, outside the chosen topics`, and the notice says so. A name another listed or stored
+    source has takes the feed's host after it, in parentheses. An own feed unchecked keeps its row.
+    `Next` posts each checked own feed with the list's picks, one `POST /api/sources` each, its
+    body `{name, url, tags: []}` with the tier left to a source's default, and its row takes the
+    same `Added` and `Not added` states. Own feeds are not kept across a reload.
   - The chosen topics are kept for the tab (`sessionStorage`), so a reload opens the step on the
     same topics and feeds; a feed's own check is not kept, so a reload on the feeds screen with no
-    topic kept opens the topics screen.
+    topic kept shows only the own-feed field.
   - `Next` on the feeds screen writes each checked feed through `POST /api/sources`, one request per
     feed, with the entry less its `topics` as its body (topics are the list's grouping, not a
     source's field), so the stored source is the list's own, tags and tier included; the busy notice

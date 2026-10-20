@@ -1353,6 +1353,15 @@ EXPECTED_ONBOARDING_IDS = {
     "first-issue-before-the-morning-takes-yesterdays-evening",
     "first-issue-with-no-source-says-so",
     "fits-first-issue-375",
+    "own-feed-joins-your-feeds-checked",
+    "own-feed-needs-no-topic",
+    "own-feed-is-posted-by-next",
+    "own-feed-pressed-next-during-the-check-is-posted",
+    "own-feed-refused-says-why-and-adds-nothing",
+    "own-feed-shows-the-check-while-it-is-out",
+    "own-feed-already-listed-checks-its-row",
+    "fits-own-feed-375",
+    "tap-own-feed-375",
 }
 
 
@@ -1504,6 +1513,28 @@ def _onboarding_server(fixture):
         r for r in fixture.app.router.routes() if r.resource.canonical == "/api/onboarding/cards"
     ]
     return route.handler.__self__
+
+
+async def test_the_onboarding_probe_own_feed_fixture_answers_each_address_offline():
+    """The home page leads to `OWN_NAME`, the bare page is refused, a listed feed is named."""
+    probe = onboarding_probe
+    server = _onboarding_server(probe.build_fixture("empty"))
+    taken = [{"name": e["name"], "url": e["url"]} for e in probe.FEEDS]
+
+    async def check(url: str) -> tuple[int, dict]:
+        response = await server._handle_post_feed_check(_Body({"url": url, "taken": taken}))
+        return response.status, json.loads(response.text)
+
+    assert await check(probe.OWN_HOME) == (
+        200,
+        {"ok": True, "name": probe.OWN_NAME, "url": probe.OWN_FEED},
+    )
+    status, body = await check(probe.BARE_HOME)
+    assert (status, body["error"]) == (422, probe.NO_FEED_LINK)
+    status, body = await check(probe.LISTED["url"])
+    assert (status, body["name"]) == (409, probe.LISTED["name"])
+    assert probe.ONE_TOPIC not in probe.LISTED["topics"]
+    assert probe.OWN_NAME not in {e["name"] for e in probe.FEEDS}
 
 
 async def test_the_onboarding_probe_cards_fixture_deals_its_cards_and_names_the_quiet_feed():
