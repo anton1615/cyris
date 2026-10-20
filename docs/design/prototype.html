@@ -347,6 +347,7 @@ details.more summary::after { content: ""; position: absolute; inset: calc(-1 * 
 .input[aria-invalid="true"] { border-color: var(--warn); }
 .select[aria-invalid="true"] { border-color: var(--warn); }
 .input:focus, .select:focus { border-color: var(--accent); outline: none; }
+.input:disabled, .select:disabled { cursor: default; opacity: .4; }
 textarea.input { height: auto; padding-block: var(--s-3); line-height: 1.5; resize: vertical; }
 details.more summary { cursor: pointer; font-family: var(--font-mono); font-size: calc(12px * var(--type-scale)); letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); list-style: none; }
 details.more summary::before { content: "+ "; }
@@ -982,8 +983,7 @@ Press Next to try again, or Skip to go on without them.</div>
     <section class="step">
       <div class="step-head">
         <h2 class="heading">Votes</h2>
-        <p class="small">A few older articles from your feeds. Mark the ones you would read and the ones you would not; a card you leave alone counts for nothing.</p>
-        <details class="more"><summary>More</summary><p class="small">Next records each marked card as a vote, so the first issue leaves those articles out and orders the rest by them. It also turns on vote similarity, which the votes need to have any effect. The newest articles are not drawn, so the first issue keeps them.</p></details>
+        <p class="small">A few older articles from your feeds: mark the ones you would read and the ones you would not, and leave the rest. Next records each mark as a vote, so the first issue leaves those articles out, and turns on vote similarity, which the votes need to have any effect.</p>
       </div>
       <div class="notice err">No articles came back from this feed: BBC News. They stay in your sources and the first issue reads them again; check them under Sources in Settings.</div>
       <div class="panel">
@@ -1033,8 +1033,7 @@ Press Next to try again, or Skip to go on without them.</div>
     <section class="step">
       <div class="step-head">
         <h2 class="heading">First issue</h2>
-        <p class="small">Build an issue now from your feeds and votes, instead of waiting for the next publish hour.</p>
-        <details class="more"><summary>More</summary><p class="small">It takes today's latest publish hour that has already begun, or yesterday's evening while both of today's are still to come, so no later issue replaces it. It runs as a scheduled issue does, notifications included, and takes a few minutes. Skip leaves without one, and the next publish hour brings the first issue.</p></details>
+        <p class="small">Build an issue now from your feeds and votes, instead of waiting for the next publish hour. It runs as a scheduled issue does, notifications included, and Skip leaves the first issue to that hour.</p>
       </div>
       <p class="small">Start builds the 2026-10-19 evening issue now, dated yesterday: neither of today's publish hours, 08:00 and 20:00 Asia/Taipei, has begun, and an issue dated today would be replaced by them. It takes a few minutes.</p>
     </section>
@@ -1097,8 +1096,7 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
                 <label class="choice"><input type="radio" name="embedding-provider" id="e-workers" value="workers_ai" checked><span class="name">workers_ai</span><span class="label">Key ready</span></label>
                 <label class="choice"><input type="radio" name="embedding-provider" id="e-gemini" value="gemini"><span class="name">gemini</span><span class="label">Key ready</span></label>
               </div>
-              <p class="small">The embedder vote similarity compares articles with.</p>
-              <details class="more"><summary>More</summary><p class="small">Its similarity cutoff is not set here: it follows the provider, because each model's scores run on their own scale.</p></details>
+              <p class="small">The embedder vote similarity compares articles with. Its similarity cutoff comes with the model, so it is not set here.</p>
             </fieldset>
             <div class="field">
               <label class="label" for="embedding-model-input">Embedding model</label>
@@ -1108,8 +1106,7 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
             <div class="field">
               <label class="label" for="vote-enabled">Vote similarity</label>
               <select class="select" id="vote-enabled"><option value="false" selected>Off</option><option value="true">On</option></select>
-              <p class="small">Drop candidates close to an article you voted down.</p>
-              <details class="more"><summary>More</summary><p class="small">Preview what it would drop with <code>cyris vote-sim</code> before turning it on. Turning it on checks the embedder first.</p></details>
+              <p class="small">Drop candidates close to an article you voted down. Preview what it would drop with <code>cyris vote-sim</code>; turning it on checks the embedder first.</p>
             </div>
             <div class="field">
               <label class="label" for="vote-seeds">Votes compared</label>
@@ -1137,7 +1134,7 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
                 <div class="field"><label class="small" for="evening">Evening</label><input class="input narrow" id="evening" type="number" min="0" max="23" value="20"></div>
               </div>
               <div class="notice err" id="hours-error" hidden></div>
-              <details class="more"><summary>More</summary><p class="small">Whole hours in the timezone below. The tick is hourly, so half hours are refused rather than rounded down.</p></details>
+              <p class="small">Whole hours from 0 to 23, in the timezone below; half hours are refused.</p>
             </div>
             <div class="field">
               <label class="label" for="timezone">Timezone</label>
@@ -1159,31 +1156,28 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
               <label class="label" for="output-language">Output language</label>
               <select class="select" id="output-language"><option value="zh-Hant" selected>繁體中文 (Traditional Chinese)</option><option value="zh-Hans">简体中文 (Simplified Chinese)</option><option value="en">English</option><option value="ja">日本語 (Japanese)</option><option value="ko">한국어 (Korean)</option><option value="fr">français (French)</option><option value="de">Deutsch (German)</option><option value="es">español (Spanish)</option></select>
               <p class="small">The language headlines and summaries are written in.</p>
-              <details class="more"><summary>More</summary><p class="small">Each one is stored as its BCP 47 tag, such as zh-Hant or en. A tag stored outside this list is kept, shown as the tag itself, and passed to the model as written.</p></details>
             </div>
             <div class="field">
               <label class="label" for="style-prompt">Style</label>
               <textarea class="input" id="style-prompt" rows="4"></textarea>
-              <p class="small">Your tone or focus for the summaries, in your own words.</p>
-              <details class="more"><summary>More</summary><p class="small">Empty means none.</p></details>
+              <p class="small">Your tone or focus for the summaries, in your own words; empty means none.</p>
             </div>
             <div class="field">
               <label class="label" for="type-scale">Type size</label>
               <select class="select" id="type-scale"><option value="0.875">Smaller</option><option value="1" selected>Default</option><option value="1.125">Larger</option></select>
-              <p class="small">How large the text is on every page.</p>
-              <details class="more"><summary>More</summary><p class="small">It applies within a minute, to issues already published too, except those rendered before this setting existed and pages opened on pages.dev directly.</p></details>
+              <p class="small">How large the text is on every page. It applies within a minute, to issues already published too.</p>
             </div>
             <div class="field">
               <label class="label" for="rank-by-preference">Order by your votes</label>
-              <select class="select" id="rank-by-preference"><option value="false">Off</option><option value="true" selected>On</option></select>
-              <p class="small">Put the headlines and Features closest to what you voted up first.</p>
-              <details class="more"><summary>More</summary><p class="small">It works while vote similarity is on (Model). When an issue is full, the headlines it leaves out stay for the next issue; none is dropped. Off keeps the model's order.</p></details>
+              <select class="select" id="rank-by-preference" disabled><option value="false" selected>Off</option><option value="true">On</option></select>
+              <p class="small">Put the headlines and Features closest to what you voted up first. Headlines a full issue leaves out stay for the next one.</p>
+              <p class="small" id="rank-needs">Needs vote similarity on, under Model.</p>
             </div>
             <div class="field">
               <label class="label" for="preference-source">Order judged by</label>
-              <select class="select" id="preference-source"><option value="cosine">Title similarity</option><option value="clef">Clef</option></select>
-              <p class="small">Who decides which headlines are closest to your votes.</p>
-              <details class="more"><summary>More</summary><p class="small">Clef needs a Workers AI token. An issue Clef cannot fully score uses title similarity.</p></details>
+              <select class="select" id="preference-source"><option value="cosine">Title similarity</option><option value="clef" disabled>Clef</option></select>
+              <p class="small">Who decides which headlines are closest to your votes. An issue Clef cannot fully score uses title similarity.</p>
+              <p class="small" id="clef-needs">Clef needs a Workers AI token: set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN (or CLOUDFLARE_EMBEDDING_API_TOKEN).</p>
             </div>
             <div class="actions-line">
               <button class="btn primary" type="submit" disabled>Save</button>
@@ -1208,8 +1202,7 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
             <div class="field">
               <label class="label" for="max-articles">Articles per run</label>
               <input class="input narrow" id="max-articles" type="number" min="1" aria-invalid="true">
-              <p class="small">How many of the window's newest articles one run scores and digests, across all sources.</p>
-              <details class="more"><summary>More</summary><p class="small">Newest by publish time. Set it above a window's volume and every article in it runs.</p></details>
+              <p class="small">How many of the window's newest articles, by publish time, one run scores and digests across all sources.</p>
             </div>
             <div class="field">
               <label class="label" for="featured-threshold">Top story score</label>
@@ -1228,14 +1221,12 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
                 <div class="field"><label class="small" for="summarize-snippet">Summary</label><input class="input narrow" id="summarize-snippet" type="number" min="1" value="1000"></div>
                 <div class="field"><label class="small" for="filter-snippet">News clustering and headlines</label><input class="input narrow" id="filter-snippet" type="number" min="1" value="500"></div>
               </div>
-              <p class="small">How much of each article the model reads at each step.</p>
-              <details class="more"><summary>More</summary><p class="small">More costs more per call.</p></details>
+              <p class="small">How much of each article the model reads at each step; more costs more per call.</p>
             </div>
             <div class="field">
               <label class="label" for="reasoning-effort">Reasoning effort</label>
               <select class="select" id="reasoning-effort"><option value="default">Default</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
-              <p class="small">How hard the model thinks before it answers.</p>
-              <details class="more"><summary>More</summary><p class="small">Default keeps what each provider did before this setting: low on OpenAI, the model's own level on Gemini, Anthropic and AI Gateway. Workers AI always runs at low. Low, Medium and High send that level to every other provider, so models compare evenly. Gemini 2.5 gets a thinking budget instead. More effort costs more tokens and time. Save checks the level with one call to the current model.</p></details>
+              <p class="small">How hard the model thinks before it answers; more costs more tokens and time. Default keeps each provider's own level, except low on OpenAI; Workers AI always runs at low, and Save checks the level with one call.</p>
             </div>
             <div class="actions-line">
               <button class="btn primary" type="submit" disabled>Save</button>
@@ -1254,9 +1245,8 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
             <div class="field">
               <label class="label" for="webhook">Discord webhook</label>
               <input class="input" id="webhook" type="text" value="https://discord.com/api/webhooks/1398…/••••••••" autocomplete="off">
-              <p class="small">To change it, paste the whole URL.</p>
+              <p class="small">To change it, paste the whole URL; it is saved once Discord confirms it exists. Turn off clears it: runs then finish without a message.</p>
               <p class="small" id="notify-state" hidden>Notifications are off.</p>
-              <details class="more"><summary>More</summary><p class="small">It is saved only after Discord confirms it exists. Turn off clears it: runs then finish without a message.</p></details>
             </div>
             <div class="actions-line">
               <button class="btn primary" type="submit" disabled>Save</button>
@@ -1353,7 +1343,7 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
         <div class="tab" data-tab="tracking" hidden>
           <div class="tab-head">
             <h2 class="heading">Tracking</h2>
-            <p class="small">Topics each issue lists every close article for, under Tracking.</p>
+            <p class="small">Topics each issue lists every close article for, under Tracking; a topic set for another embedding model is skipped.</p>
           </div>
           <div class="toolbar">
             <button class="btn primary" type="button">+ Add topic</button>
@@ -1388,8 +1378,7 @@ Press Try again, or Finish to leave: the next publish hour brings an issue eithe
       </div>
       <div class="field" data-for="rss"><label class="label" for="e-url">Feed URL</label><input class="input" id="e-url" type="text"></div>
       <div class="field" data-for="newsletter"><label class="label" for="e-email">Sender match</label><input class="input" id="e-email" type="text" placeholder="from:hi@example.com">
-        <p class="small">Maps a sender to this source.</p>
-        <details class="more"><summary>More</summary><p class="small">Email routing itself stays in the Cloudflare dashboard.</p></details></div>
+        <p class="small">Maps a sender to this source; email routing itself stays in the Cloudflare dashboard.</p></div>
       <div class="field" data-for="newsletter"><label class="label" for="e-home">Homepage</label><input class="input" id="e-home" type="text"></div>
       <div class="field"><label class="label" for="e-tags">Tags</label><input class="input" id="e-tags" type="text" placeholder="comma separated"></div>
       <div class="field-row">
@@ -1885,6 +1874,15 @@ $("#propose-areas").onclick = () => {
   }, 600);
 };
 renderAreas();
+
+/* ---- settings dependencies: the vote order waits for vote similarity (§4 field) ---- */
+const voteOrderNeeds = () => {
+  const on = $("#vote-enabled").value === "true";
+  $("#rank-by-preference").disabled = !on;
+  $("#rank-needs").hidden = on;
+};
+$("#vote-enabled").addEventListener("change", voteOrderNeeds);
+voteOrderNeeds();
 
 /* ---- settings forms: dirty tracking + save ---- */
 $$("form.tab").forEach((form) => {
