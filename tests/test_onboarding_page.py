@@ -512,7 +512,7 @@ class TestThePickSourcesStep:
     def test_the_list_is_the_catalog_as_written(self) -> None:
         assert load_onboarding_feeds() == CATALOG
         assert load_onboarding_topics() == TOPICS
-        assert len(CATALOG) == 27
+        assert len(CATALOG) == 62
 
     async def test_each_picked_entry_is_stored_as_the_list_holds_it(self, serve) -> None:
         """What the page posts, the entry less `topics`, is stored with its tags and tier."""
