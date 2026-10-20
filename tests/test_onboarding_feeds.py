@@ -2,13 +2,16 @@
 
 docs/milestones/cold-start-onboarding.md sets the shape this file holds the catalog to:
 a `SourceConfig` per entry, `tier: filter`, at least one tag each, and both a 繁中 and an
-English entry so onboarding has something to offer either reader. Whether a URL still
+English entry so onboarding has something to offer either reader. The list's own `topics`
+table groups the entries: each entry names one or two of its ids, each topic holds at least
+one entry, and `topics` is the list's field, never a `SourceConfig`'s. Whether a URL still
 answers is `scripts/validate_feed_catalog.py`'s question, not this file's — a reviewer-run
 gate, not a test, because it asks about the network rather than the code
 (`tests/CLAUDE.md` R3).
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -22,6 +25,10 @@ CATALOG_PATH = Path(__file__).resolve().parents[1] / "src" / "cyris" / "onboardi
 
 def _raw_feeds() -> list[dict]:
     return json.loads(CATALOG_PATH.read_text())["feeds"]
+
+
+def _topics() -> list[dict]:
+    return json.loads(CATALOG_PATH.read_text())["topics"]
 
 
 def test_every_entry_reads_as_a_source_config() -> None:
@@ -67,3 +74,37 @@ def test_no_area_is_pre_assigned() -> None:
 def test_names_are_unique() -> None:
     names = [SourceConfig.model_validate(entry).name for entry in _raw_feeds()]
     assert len(names) == len(set(names)), "duplicate source name"
+
+
+def test_every_topic_has_a_lowercase_ascii_id_and_a_label() -> None:
+    topics = _topics()
+    assert topics, "no topic table"
+    for topic in topics:
+        assert set(topic) == {"id", "label"}, f"{topic}: fields"
+        assert re.fullmatch(r"[a-z]+", topic["id"]), f"{topic['id']!r}: not lowercase ascii"
+        assert topic["label"].strip(), f"{topic['id']}: no label"
+    ids = [topic["id"] for topic in topics]
+    assert len(ids) == len(set(ids)), "duplicate topic id"
+
+
+def test_every_entry_names_one_or_two_topics_from_the_table() -> None:
+    known = {topic["id"] for topic in _topics()}
+    for entry in _raw_feeds():
+        topics = entry.get("topics", [])
+        assert 1 <= len(topics) <= 2, f"{entry['name']}: {len(topics)} topics"
+        assert len(topics) == len(set(topics)), f"{entry['name']}: a topic named twice"
+        assert set(topics) <= known, f"{entry['name']}: unknown topic {set(topics) - known}"
+
+
+def test_every_topic_holds_at_least_one_entry() -> None:
+    held = {topic for entry in _raw_feeds() for topic in entry.get("topics", [])}
+    empty = [topic["id"] for topic in _topics() if topic["id"] not in held]
+    assert empty == [], f"topics with no feed: {empty}"
+
+
+def test_topics_are_the_lists_own_field_not_a_source_configs() -> None:
+    """A stored source must not carry the list's grouping: the page strips it before posting."""
+    assert "topics" not in SourceConfig.model_fields
+    for entry in _raw_feeds():
+        stored = SourceConfig.model_validate(entry).model_dump(mode="json")
+        assert "topics" not in stored, f"{entry['name']}: topics reached the source"

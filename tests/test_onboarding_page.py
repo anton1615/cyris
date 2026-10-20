@@ -6,9 +6,10 @@ picks; that route's own answers are `tests/test_onboarding_first_issue.py`'s.
 
 Each settings step posts the body the settings form posts, to the route
 `settings_fields.json` names for that field, and the sources step posts each
-picked feed to `POST /api/sources` as the list holds it. The votes step's own
-two routes are `tests/test_onboarding_votes.py`'s; here it is held to sending
-only marked cards, and to turning vote similarity on with the Model form's body.
+picked feed to `POST /api/sources` as the list holds it, less the list's own
+`topics`. The votes step's own two routes are `tests/test_onboarding_votes.py`'s;
+here it is held to sending only marked cards, and to turning vote similarity on
+with the Model form's body.
 What a browser actually sends is checked by `scripts/onboarding_probe.py`; here
 the shapes of those bodies are held to the settings page's own, and the stored
 sources to the list's entries.
@@ -28,6 +29,7 @@ from cyris.domain.models import SourceConfig
 from cyris.entrypoints.triage_server import (
     TriageServer,
     load_onboarding_feeds,
+    load_onboarding_topics,
     render_onboarding_page,
 )
 
@@ -36,7 +38,15 @@ pytestmark = pytest.mark.unit
 STATIC = Path(cyris.entrypoints.__file__).parent / "static"
 ONBOARDING_JS = (STATIC / "onboarding.js").read_text()
 SETTINGS_JS = (STATIC / "settings.js").read_text()
-CATALOG = json.loads((Path(cyris.__file__).parent / "onboarding_feeds.json").read_text())["feeds"]
+_CATALOG = json.loads((Path(cyris.__file__).parent / "onboarding_feeds.json").read_text())
+CATALOG = _CATALOG["feeds"]
+TOPICS = _CATALOG["topics"]
+
+
+def _as_posted(entry: dict) -> dict:
+    """What the page posts for a picked entry: the entry without the list's `topics`."""
+    return {key: value for key, value in entry.items() if key != "topics"}
+
 
 # The six steps, in the order the milestone sets: the three that write settings,
 # the one that writes sources, the one that writes votes, and the one that
@@ -471,21 +481,21 @@ class TestThePickSourcesStep:
         response = await client.get("/api/onboarding/feeds")
 
         assert response.status == 200
-        assert await response.json() == {"awaiting": True, "feeds": CATALOG}
+        assert await response.json() == {"awaiting": True, "topics": TOPICS, "feeds": CATALOG}
 
     async def test_a_table_with_a_source_is_offered_no_list(self, serve) -> None:
         client = await serve(_server(table={"Feed": A_SOURCE}))
 
         response = await client.get("/api/onboarding/feeds")
 
-        assert await response.json() == {"awaiting": False, "feeds": []}
+        assert await response.json() == {"awaiting": False, "topics": [], "feeds": []}
 
     async def test_a_json_deployment_is_offered_no_list(self, serve) -> None:
         client = await serve(_server(table=None))
 
         response = await client.get("/api/onboarding/feeds")
 
-        assert await response.json() == {"awaiting": False, "feeds": []}
+        assert await response.json() == {"awaiting": False, "topics": [], "feeds": []}
 
     async def test_a_failed_source_read_is_an_error_not_a_full_table(self, serve) -> None:
         """Read as "has sources", a failure would tell the reader sources exist."""
@@ -498,24 +508,37 @@ class TestThePickSourcesStep:
 
     def test_the_list_is_the_catalog_as_written(self) -> None:
         assert load_onboarding_feeds() == CATALOG
+        assert load_onboarding_topics() == TOPICS
         assert len(CATALOG) == 27
 
     async def test_each_picked_entry_is_stored_as_the_list_holds_it(self, serve) -> None:
-        """What the page posts, the entry unchanged, reaches the store with its tags and tier."""
+        """What the page posts, the entry less `topics`, is stored with its tags and tier."""
         store = FakeSourceStore({})
         client = await serve(_server(table={}, store=store))
         offered = (await (await client.get("/api/onboarding/feeds")).json())["feeds"]
+        posted = [_as_posted(entry) for entry in offered]
 
-        for entry in offered:
-            response = await client.post("/api/sources", json=entry)
+        for body in posted:
+            assert "topics" not in body
+            response = await client.post("/api/sources", json=body)
             assert response.status == 200, await response.text()
 
         assert [
-            s.model_dump(mode="json", include=set(e))
-            for s, e in zip(store.upserts, CATALOG, strict=True)
-        ] == CATALOG
+            s.model_dump(mode="json", include=set(body))
+            for s, body in zip(store.upserts, posted, strict=True)
+        ] == posted
         assert [s.area_id for s in store.upserts] == [None] * len(CATALOG)
         assert {s.type for s in store.upserts} == {"rss"}
+
+    async def test_an_entry_posted_with_its_topics_still_stores_none(self, serve) -> None:
+        """Were the page to send `topics`, the stored row would still not carry them."""
+        store = FakeSourceStore({})
+        client = await serve(_server(table={}, store=store))
+
+        response = await client.post("/api/sources", json=CATALOG[0])
+
+        assert response.status == 200, await response.text()
+        assert "topics" not in store.upserts[0].model_dump(mode="json")
 
     async def test_the_list_is_gone_once_a_pick_is_stored(self, serve) -> None:
         client = await serve(_server(table={}))
@@ -523,7 +546,7 @@ class TestThePickSourcesStep:
         await client.post("/api/sources", json=CATALOG[0])
         response = await client.get("/api/onboarding/feeds")
 
-        assert await response.json() == {"awaiting": False, "feeds": []}
+        assert await response.json() == {"awaiting": False, "topics": [], "feeds": []}
 
     def test_the_script_posts_each_entry_unchanged(self) -> None:
         assert 'post("/api/sources", row.entry)' in ONBOARDING_JS
@@ -536,6 +559,13 @@ class TestThePickSourcesStep:
     def test_no_entry_is_written_into_the_page_or_its_script(self, field: str) -> None:
         page = render_onboarding_page()
         written = [e[field] for e in CATALOG if e[field] in page or e[field] in ONBOARDING_JS]
+
+        assert written == []
+
+    @pytest.mark.parametrize("field", ["id", "label"])
+    def test_no_topic_is_written_into_the_page_or_its_script(self, field: str) -> None:
+        page = render_onboarding_page()
+        written = [t[field] for t in TOPICS if t[field] in page or t[field] in ONBOARDING_JS]
 
         assert written == []
 

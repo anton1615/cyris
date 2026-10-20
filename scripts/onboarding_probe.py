@@ -130,6 +130,12 @@ REFUSED, TAKEN = FEEDS[1], FEEDS[0]
 REFUSAL = "D1 is busy; try again"
 MISNAMED = f"Added 1 of 2 feeds. {TAKEN['name']}: {REFUSAL}"
 
+
+def as_posted(entry: dict) -> dict:
+    """What the page posts for a picked entry: the entry without the list's own `topics`."""
+    return {key: value for key, value in entry.items() if key != "topics"}
+
+
 # The `cards` table: the two picks, which the fake RSS edge answers, and a
 # third feed it answers with nothing, which the step must name.
 QUIET = next(entry for entry in FEEDS if entry not in PICKS)
@@ -581,9 +587,11 @@ def _calls(*wanted: dict) -> Callable[[Fixture], str | None]:
 def _sources(*wanted: dict) -> Callable[[Fixture], str | None]:
     """A receipt: the table stored exactly these list entries, field for field, in order.
 
-    Each stored row is read back in the entry's own fields, so a tag or a tier
-    the page changed shows, and with no area, which the list cannot know.
+    Each stored row is read back in the entry's own fields but `topics`, which
+    is the list's and not a source's, so a tag or a tier the page changed shows,
+    and with no area, which the list cannot know.
     """
+    wanted = tuple(as_posted(entry) for entry in wanted)
 
     def receipt(fixture: Fixture) -> str | None:
         rows = fixture.sources.writes
