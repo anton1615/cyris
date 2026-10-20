@@ -66,7 +66,6 @@
         <label class="label" for="o-output-language">Output language</label>
         <select class="select" id="o-output-language"></select>
         <p class="small">The language headlines and summaries are written in.</p>
-        <details class="more"><summary>More</summary><p class="small">Each one is stored as its BCP 47 tag, such as zh-Hant or en. A tag stored outside this list is kept, shown as the tag itself, and passed to the model as written.</p></details>
       </div>
       <div class="field">
         <label class="label" for="o-timezone">Timezone</label>
@@ -89,7 +88,7 @@
       <div class="field">
         <label class="label" for="o-evening">Evening</label>
         <input class="input" id="o-evening" type="number" min="0" max="23" autocomplete="off">
-        <details class="more"><summary>More</summary><p class="small">Whole hours in the timezone of the step before. The tick is hourly, so half hours are refused rather than rounded down.</p></details>
+        <p class="small">Whole hours from 0 to 23, in the timezone of the step before; half hours are refused.</p>
       </div>
     </section>
 
@@ -137,8 +136,7 @@
     <section class="step" data-step="votes" hidden>
       <div class="step-head">
         <h2 class="heading">Votes</h2>
-        <p class="small">A few older articles from your feeds. Mark the ones you would read and the ones you would not; a card you leave alone counts for nothing.</p>
-        <details class="more"><summary>More</summary><p class="small">Next records each marked card as a vote, so the first issue leaves those articles out and orders the rest by them. It also turns on vote similarity, which the votes need to have any effect. The newest articles are not drawn, so the first issue keeps them.</p></details>
+        <p class="small">A few older articles from your feeds: mark the ones you would read and the ones you would not, and leave the rest. Next records each mark as a vote, so the first issue leaves those articles out, and turns on vote similarity, which the votes need to have any effect.</p>
         <p class="small" id="o-cards-loading" aria-busy="true" hidden>Fetching the latest articles from your feeds. This can take a minute or two…</p>
       </div>
       <div class="notice err" id="o-cards-empty" hidden></div>
@@ -155,14 +153,12 @@
       <div class="field">
         <label class="label" for="o-discord-webhook">Discord webhook</label>
         <input class="input" id="o-discord-webhook" type="text" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
-        <p class="small">Paste the whole URL.</p>
-        <details class="more"><summary>More</summary><p class="small">It is saved only after Discord confirms it exists.</p></details>
+        <p class="small">Paste the whole URL; it is saved once Discord confirms it exists.</p>
       </div>
       <div class="field">
         <label class="label" for="o-email-to">Email to</label>
         <input class="input" id="o-email-to" type="email" placeholder="you@example.com" autocomplete="off">
-        <p class="small">Leave it empty to send no mail.</p>
-        <details class="more"><summary>More</summary><p class="small">It must be a verified destination address in Cloudflare Email Routing. It is saved only after a test message reaches it.</p></details>
+        <p class="small">Leave it empty to send no mail. It must be a verified destination in Cloudflare Email Routing, and is saved once a test message reaches it.</p>
       </div>
       <div class="field">
         <label class="label" for="o-email-from">Email from</label>
@@ -177,8 +173,7 @@
     <section class="step" data-step="first-issue" hidden>
       <div class="step-head">
         <h2 class="heading">First issue</h2>
-        <p class="small">Build an issue now from your feeds and votes, instead of waiting for the next publish hour.</p>
-        <details class="more"><summary>More</summary><p class="small">It takes today's latest publish hour that has already begun, or yesterday's evening while both of today's are still to come, so no later issue replaces it. It runs as a scheduled issue does, notifications included, and takes a few minutes. Skip leaves without one, and the next publish hour brings the first issue.</p></details>
+        <p class="small">Build an issue now from your feeds and votes, instead of waiting for the next publish hour. It runs as a scheduled issue does, notifications included, and Skip leaves the first issue to that hour.</p>
         <p class="small" id="o-issue-loading" aria-busy="true">Checking which issue comes first…</p>
       </div>
       <p class="small" id="o-issue-plan" hidden></p>

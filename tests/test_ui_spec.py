@@ -1250,7 +1250,7 @@ def test_a_third_sentence_is_reported() -> None:
     assert _longer_than_two_sentences(planted) == ["One. Two. Three."]
 
 
-@pytest.mark.parametrize("page", ["settings"])
+@pytest.mark.parametrize("page", ["settings", "onboarding"])
 def test_help_is_one_or_two_sentences(page: str) -> None:
     """§4 field: help is in view and short; the background goes to the docs."""
     assert _longer_than_two_sentences(_source(page)) == []
@@ -1315,7 +1315,7 @@ def test_a_fold_of_help_or_a_bare_more_is_reported() -> None:
     assert _folds_off_spec(planted) == ["More", "More", "Notes"]
 
 
-@pytest.mark.parametrize("page", ["settings"])
+@pytest.mark.parametrize("page", ["settings", "onboarding"])
 def test_a_fold_holds_settings_and_names_them(page: str) -> None:
     """§4 settings fold: help is never folded, and no summary is a bare More."""
     assert _folds_off_spec(_source(page)) == []
