@@ -822,21 +822,23 @@ table.src td.areas-pos-cell { width: 1%; }
 </section>
 
 <!-- ============ ONBOARDING ============ -->
-<!-- The guided setup of a new deployment, shown mid-way: one step done, one open,
-     four to come. Its three settings steps save through the settings routes; the
-     sources, votes and first-issue steps are placeholders in the app too. -->
+<!-- The guided setup of a new deployment, shown mid-way: two steps done, the
+     sources step open after a Next that added one feed and not another, three to
+     come. Its settings steps save through the settings routes and its sources step
+     through POST /api/sources; the feed list is the server's, here four of its
+     entries. The votes and first-issue steps are placeholders in the app too. -->
 <section data-view="onboarding" hidden>
   <main class="page narrow">
     <div class="page-head">
-      <span class="label">Step 2 of 6</span>
+      <span class="label">Step 3 of 6</span>
       <h1 class="display">Set up <em>cyris</em></h1>
       <p class="small">Six steps to your first issue. Skip any of them: a skipped step keeps its current value, and everything here can be changed later in Settings.</p>
     </div>
 
     <ol class="steps">
       <li class="label done">Language</li>
-      <li class="label" aria-current="step">Publish hours</li>
-      <li class="label">Sources</li>
+      <li class="label done">Publish hours</li>
+      <li class="label" aria-current="step">Sources</li>
       <li class="label">Votes</li>
       <li class="label">Notifications</li>
       <li class="label">First issue</li>
@@ -844,25 +846,25 @@ table.src td.areas-pos-cell { width: 1%; }
 
     <section class="step">
       <div class="step-head">
-        <h2 class="heading">Publish hours</h2>
-        <p class="small">When each day's two issues are published.</p>
+        <h2 class="heading">Sources</h2>
+        <p class="small">The feeds this deployment reads. Each one is a publisher's own feed; pick the ones you read.</p>
       </div>
-      <div class="field">
-        <label class="label" for="o-morning">Morning</label>
-        <input class="input" id="o-morning" type="number" min="0" max="23" value="8">
-      </div>
-      <div class="field">
-        <label class="label" for="o-evening">Evening</label>
-        <input class="input" id="o-evening" type="number" min="0" max="23" value="20">
-        <details class="more"><summary>More</summary><p class="small">Whole hours in the timezone of the step before. The tick is hourly, so half hours are refused rather than rounded down.</p></details>
-      </div>
+      <fieldset class="sources-check">
+        <legend class="label">Feeds</legend>
+        <label class="choice unavailable"><input type="checkbox" checked disabled><span class="name">報導者</span><span class="label">Added · news · investigative</span></label>
+        <label class="choice"><input type="checkbox" checked aria-invalid="true"><span class="name">iThome</span><span class="label">Not added · tech</span></label>
+        <label class="choice"><input type="checkbox"><span class="name">BBC News</span><span class="label">news</span></label>
+        <label class="choice"><input type="checkbox"><span class="name">The Verge</span><span class="label">tech</span></label>
+      </fieldset>
     </section>
 
     <div class="step-nav">
       <button class="btn secondary" type="button">Back</button>
       <button class="btn secondary" type="button">Skip</button>
       <button class="btn primary" type="button">Next</button>
-      <div class="notice" role="status">Output language: en, Timezone: Europe/Lisbon. Effective next run.</div>
+      <div class="notice err" role="status">Added 1 of 2 feeds. This one was not added:
+iThome: D1 is busy; try again
+Press Next to try again, or Skip to go on without them.</div>
     </div>
   </main>
 </section>
