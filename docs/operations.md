@@ -260,9 +260,15 @@ re-run. When the live archive lists none of the named pages, it prints `Nothing 
   change on 2026-10-16). `wrangler secret put` with no terminal stores an empty value and still
   reports success, so pipe the value in: `printf '%s' "$value" | bunx wrangler secret put <NAME>
   --env-file /dev/null`.
-- **Logs** are in Workers Logs for 7 days (`bunx wrangler tail cyris-app --env-file
-  /dev/null` for live output). The permanent record of runs and spend is D1:
-  `digest_runs` and `usage_log`.
+- **Logs** are in Workers Logs for 7 days; the container's own lines are under Containers →
+  the application → Logs ([step 8 of the install](install-cloudflare.md#8-read-the-runs-log)).
+  The permanent record of runs and spend is D1: `digest_runs` and `usage_log`.
+- **A container application whose log switch was set before wrangler 4.151** keeps it in the
+  legacy `configuration.observability` field, and its container lines reach no log (seen on
+  2026-10-21 on production and trial1). Newer wrangler keeps writing a field it finds enabled,
+  so upgrading alone moves nothing: deploy once with `[observability] enabled = false`, then
+  once with it back on. `bunx wrangler containers info <application id> --env-file /dev/null`
+  shows the switch at the top level when it is done.
 - **Failure alerts** go to every configured channel, Discord and email, after the run is recorded, when a run raises inside `run_digest` or fetches nothing while a source failed. The alert carries the error or the failed sources, and the time the run started. A scheduled run that stops before `run_digest`, on incomplete settings or a failed build of its dependencies, sends `Digest run could not start` with the error, on a digest hour only, because every hourly tick hits the same failure. Settings that cannot name the schedule or a channel send nothing, and neither does a D1 the container cannot read or a container that never starts. A dry run, a run started by hand, and a SIGTERM-cancelled run send no alert either. A run that never reached `run_digest` leaves no `digest_runs` row, so read Workers Logs for those.
 - **One failing feed** sends no alert while other sources still deliver. `cyris doctor` warns
   about each RSS feed that has failed three polls in a row or stored no article in 30 days,

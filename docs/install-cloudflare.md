@@ -214,11 +214,10 @@ tick: outside the publish hours the reply is still `{"started":"run", …}`, and
 ## 8. Read the run's log
 
 The container's output goes only to Workers Logs, kept 7 days on Workers Paid. Open
-the dashboard at Workers & Pages → `cyris-app` → Observability, or stream it live:
-
-```sh
-bunx wrangler tail cyris-app --env-file /dev/null
-```
+the dashboard at Workers & Pages → Containers → `cyris-app-cyriscontainer` → Logs, where its
+lines carry the dataset `containers`. `bunx wrangler tail cyris-app --env-file /dev/null`
+streams only the Worker's own lines, never the container's
+([workers-sdk#12587](https://github.com/cloudflare/workers-sdk/issues/12587)).
 
 Every run ends with one `run_summary` JSON line: status, counts, LLM spend and wall
 time. A run with no source yet logs that it is waiting for onboarding instead: it
