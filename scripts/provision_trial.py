@@ -19,6 +19,7 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -34,10 +35,15 @@ RSS = "workers/rss/wrangler.toml"
 
 _LABEL = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
 _DOMAIN = rf"^{_LABEL}(\.{_LABEL})+$"
+SLUG = r"[a-z][a-z0-9]{1,19}"
 
 
 class DriftError(Exception):
     pass
+
+
+class ProductionNameError(Exception):
+    """A rendered trial config names a resource that is production's, or not this trial's."""
 
 
 def _pattern(regex: str, what: str):
@@ -222,6 +228,104 @@ def _names(slug: str, n: dict[str, str]) -> dict[str, str]:
     }
 
 
+def rendered_paths(slug: str) -> dict[str, str]:
+    """Where `render` writes a trial's three configs, relative to the repo root."""
+    return {
+        "app": f"wrangler.trial-{slug}.toml",
+        "promote": f"workers/promote/wrangler.trial-{slug}.toml",
+        "rss": f"workers/rss/wrangler.trial-{slug}.toml",
+    }
+
+
+def production_names() -> set[str]:
+    """Every resource name and id the tracked templates give production."""
+    n = _template_names()
+    d1 = _rss_d1()
+    kv = _get(PROMOTE, _load(PROMOTE), "kv_namespaces", 0, "id")
+    return {*n.values(), d1["database_name"], d1["database_id"], kv}
+
+
+def load_rendered(slug: str) -> dict[str, dict]:
+    """A trial's three rendered configs, parsed, once each names only this trial's resources.
+
+    The scripts that act on a live trial (`reset_trial.py`, `deploy_trial.py`) call
+    this before any wrangler command, so a slug that fails the naming rule, a config
+    that was never rendered, or one edited to name a production resource stops them.
+    """
+    if not re.fullmatch(SLUG, slug):
+        raise ProductionNameError(f"slug {slug!r} must match {SLUG}")
+    want = _names(slug, _template_names())
+    taken = production_names()
+    out: dict[str, dict] = {}
+    for kind, rel in rendered_paths(slug).items():
+        try:
+            out[kind] = tomllib.loads((ROOT / rel).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raise ProductionNameError(
+                f"{rel} not found: run this from the checkout that provisioned {slug},"
+                " or render its configs with `provision_trial.py render` first"
+            ) from None
+    d1 = (out["rss"].get("d1_databases") or [{}])[0]
+    kv = (out["promote"].get("kv_namespaces") or [{}])[0]
+    containers = out["app"].get("containers") or [{}]
+    named = {
+        f"{rendered_paths(slug)['app']} name": (out["app"].get("name"), want["app"]),
+        f"{rendered_paths(slug)['app']} containers[0].name": (
+            containers[0].get("name"),
+            want["container"],
+        ),
+        f"{rendered_paths(slug)['promote']} name": (out["promote"].get("name"), want["promote"]),
+        f"{rendered_paths(slug)['rss']} name": (out["rss"].get("name"), want["rss"]),
+        f"{rendered_paths(slug)['rss']} database_name": (d1.get("database_name"), want["d1"]),
+    }
+    for label, (got, expected) in named.items():
+        if got in taken:
+            raise ProductionNameError(f"{label} is {got!r}, a production name")
+        if got != expected:
+            raise ProductionNameError(f"{label} is {got!r}, expected {expected!r}")
+    for label, got in (
+        (f"{rendered_paths(slug)['rss']} database_id", d1.get("database_id")),
+        (f"{rendered_paths(slug)['promote']} kv_namespaces[0].id", kv.get("id")),
+    ):
+        if not got or got in taken:
+            raise ProductionNameError(f"{label} is {got!r}, production's or empty")
+    return out
+
+
+def env_file(rel: str) -> dict[str, str]:
+    """A KEY=value file the wizard wrote at the repo root, last line wins; {} when absent."""
+    path = ROOT / rel
+    if not path.exists():
+        return {}
+    pairs = (line.split("=", 1) for line in path.read_text(encoding="utf-8").splitlines())
+    return {kv[0]: kv[1] for kv in pairs if len(kv) == 2}
+
+
+def wizard_state(slug: str) -> dict[str, str]:
+    """The wizard's saved inputs, ids and image for a trial."""
+    return env_file(f".env.trial-{slug}-wizard")
+
+
+def wrangler(config: str, *args: str) -> list[str]:
+    """Every wrangler call on a trial: its own config, and never this checkout's `.env`."""
+    return ["bunx", "wrangler", *args, "--config", config, "--env-file", "/dev/null"]
+
+
+def wrangler_env(slug: str, base: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment wrangler runs in: the login, never a token the shell exported.
+
+    A `CLOUDFLARE_API_TOKEN` beats both `--env-file /dev/null` and the OAuth login
+    (docs/trial-deployment.md), so it is dropped. The account comes from the
+    wizard's state, as the wizard itself exports it.
+    """
+    env = dict(base if base is not None else os.environ)
+    env.pop("CLOUDFLARE_API_TOKEN", None)
+    account = wizard_state(slug).get("ACCOUNT_ID")
+    if account:
+        env["CLOUDFLARE_ACCOUNT_ID"] = account
+    return env
+
+
 def cmd_names(args) -> int:
     n = _template_names()
     t = _names(args.slug, n)
@@ -240,10 +344,11 @@ def cmd_render(args, parser) -> int:
     if args.d1_id == _rss_d1()["database_id"]:
         parser.error("argument --d1-id: that is the template's database id, not a trial's own")
     t = _names(args.slug, n)
+    paths = rendered_paths(args.slug)
     outputs = {
-        f"wrangler.trial-{args.slug}.toml": _render_app(args, n, t),
-        f"workers/promote/wrangler.trial-{args.slug}.toml": _render_promote(args, n, t),
-        f"workers/rss/wrangler.trial-{args.slug}.toml": _render_rss(args, n, t),
+        paths["app"]: _render_app(args, n, t),
+        paths["promote"]: _render_promote(args, n, t),
+        paths["rss"]: _render_rss(args, n, t),
     }
     for rel, text in outputs.items():
         (ROOT / rel).write_text(text, encoding="utf-8")
@@ -254,9 +359,7 @@ def cmd_render(args, parser) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    slug = _pattern(
-        r"[a-z][a-z0-9]{1,19}", "lowercase letter then 1-19 lowercase letters or digits"
-    )
+    slug = _pattern(SLUG, "lowercase letter then 1-19 lowercase letters or digits")
     for name in ("names", "render"):
         p = sub.add_parser(name)
         p.add_argument("--slug", required=True, type=slug)

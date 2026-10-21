@@ -247,9 +247,14 @@ class CompoundSelectLimitedD1(SqliteD1):
 
     LIMIT = 5
 
-    def query(self, sql, params=None):
+    @classmethod
+    def refuse_compound(cls, sql: str) -> None:
+        """Raise as D1 does for a statement past the ceiling; also used by the wrangler fakes."""
         from cyris.adapters.store.d1 import D1Error
 
-        if sql.upper().count(" UNION ALL ") >= self.LIMIT:
+        if sql.upper().count(" UNION ALL ") >= cls.LIMIT:
             raise D1Error("HTTP 400: too many terms in compound SELECT: SQLITE_ERROR")
+
+    def query(self, sql, params=None):
+        self.refuse_compound(sql)
         return super().query(sql, params)
