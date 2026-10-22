@@ -88,11 +88,13 @@ name = "CYRIS"
 tag = "v1"
 new_sqlite_classes = ["CyrisContainer"]
 
-# The Preview `staging` (`wrangler preview --name staging`): this Worker under
-# its own URL, Durable Object namespace and container application, where a
-# checkout is tried before production gets it. A Preview takes the migrations
-# and observability above but no container and no binding, so both are stated
-# again. Cron Triggers never reach a Preview: it runs a digest only on POST /run.
+# The Preview `staging`: this Worker under its own URL, Durable Object namespace
+# and container application, where a checkout is tried before production gets
+# it. It deploys from a copy of this file with the commit added as `image_vars`
+# (docs/architecture.md §6); deployed from this file, /api/build answers "".
+# A Preview takes the migrations and observability above but no container and
+# no binding, so both are stated again. Cron Triggers never reach a Preview: it
+# runs a digest only on POST /run.
 #
 # No [previews.vars]: CYRIS_APP_WORKER_NAME would name this Worker, whose custom
 # domains are production's, and a Preview run would link its digest to them.

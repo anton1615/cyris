@@ -848,6 +848,26 @@ with the baked `CYRIS_GIT_SHA`, and `cyris doctor --deployment <url>` signs in w
 `CYRIS_UI_TOKEN`, reads it and counts how far local HEAD is ahead, warning rather than failing.
 It also prints the sha, time and status of the last non-preview run from D1 `digest_runs`.
 
+**The `staging` Preview builds its image from the checkout, with the commit rendered in.**
+`wrangler preview` builds the Dockerfile that `[[previews.containers]]` names, on the machine that
+runs it, and passes that entry's `image_vars` as build arguments. The commit `/api/build` reports
+must therefore be one of those arguments. The tracked `wrangler.toml` cannot carry it, because it
+would name the wrong commit from the next one on.
+
+A deploy renders `wrangler.preview-staging.toml` at the repo root (gitignored): a copy of
+`wrangler.toml` whose `[[previews.containers]]` gains `image_vars = { GIT_SHA = "<HEAD>" }`. Then
+it runs:
+
+```sh
+wrangler preview --config wrangler.preview-staging.toml --name staging --env-file /dev/null
+```
+
+A plain `wrangler preview` from the tracked file deploys too, but its image answers
+`{"git_sha": ""}`. The render is done by hand for now. A script that renders and deploys belongs
+to the Preview environment's reset-and-redeploy card (`preview-env-reset-redeploy`).
+`tests/test_preview_config.py` keeps `image_vars` out of the tracked file and holds the rendered
+name ignored.
+
 **The container's stdout is the only log, and it is kept for seven days.** `[observability]` in
 `wrangler.toml` is what sends it to Workers Logs (Paid plan: 20M events/month included, 7-day
 retention); without that block a finished run's output exists nowhere, which is why the sleep bug
@@ -999,7 +1019,7 @@ there is no JWT check, is [ADR-0009](decisions/0009-a-token-cookie-always-and-ac
 
 Cloudflare Access is an optional second layer on the hostname named by `CYRIS_UI_ACCESS_HOST` (grade B). It decides *who* — email policy, MFA, audit log — and is a dashboard step. Access stays off `workers.dev`, where scripts sign in with the cookie alone. Forks skip it. Deployments that attach a custom domain from the dashboard set `CYRIS_UI_ACCESS_HOST` to that hostname; `/api/vote` on that host stays Access-only so a reader who already passed Access does not log in a second time. On every other hostname, including the workers.dev URL that `workers_dev = true` may re-enable beside the custom domain, the cookie is required. The archive is public unless `CYRIS_PRIVATE_ARCHIVE` (grade B, Worker-only) is `"true"`: then a reader without the cookie is sent to `/login` before the Worker proxies a byte of Pages, and signs in to the page they asked for.
 
-`wrangler.toml` ships with `workers_dev = true` and no `routes`, so a clone deploys unmodified. Custom domains are attached from the dashboard or API, which means the file is then not the sole source of truth for routing; a trial config rendered by `scripts/provision_trial.py` is the other way, its `[[routes]]` attaching the trial's hostname on deploy. The `staging` Preview (`[previews]` in `wrangler.toml`, deployed with `wrangler preview --name staging`) gets no route from the file either: it answers at `staging.<host>` once a custom domain `<host>` is attached from the dashboard for Preview traffic only. A Preview gets no cron, so it runs a digest only on `POST /run`.
+`wrangler.toml` ships with `workers_dev = true` and no `routes`, so a clone deploys unmodified. Custom domains are attached from the dashboard or API, which means the file is then not the sole source of truth for routing; a trial config rendered by `scripts/provision_trial.py` is the other way, its `[[routes]]` attaching the trial's hostname on deploy. The `staging` Preview (`[previews]` in `wrangler.toml`, deployed from the rendered copy described above) gets no route from the file either: it answers at `staging.<host>` once a custom domain `<host>` is attached from the dashboard for Preview traffic only. A Preview gets no cron, so it runs a digest only on `POST /run`.
 
 Cyris does not validate `Cf-Access-Jwt-Assertion`.
 
