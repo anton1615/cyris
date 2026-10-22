@@ -241,21 +241,6 @@ def test_the_dry_run_prints_every_table_count_before_anything(reset) -> None:
     assert "KV PROMOTIONS" in out[25] and "2 pending votes" in out[25]
 
 
-def test_a_satellites_only_slug_is_surveyed_without_an_app_config(reset, tree: Path) -> None:
-    (tree / f"wrangler.trial-{SLUG}.toml").unlink()
-    with (tree / f".env.trial-{SLUG}-wizard").open("a", encoding="utf-8") as state:
-        state.write("SATELLITES_ONLY=yes\n")
-    wrangler = FakeWrangler()
-
-    code, out = _main(reset, wrangler)
-
-    assert code == 0, out
-    assert out[0].startswith(f"D1 cyris-app-{SLUG} ({RSS_CONFIG})")
-    counts = dict(re.fullmatch(r"  (\w+)\s+(\d+)", line).groups() for line in out[1:17])
-    assert set(counts) == set(reset.CLEARED)
-    assert wrangler.writes() == []
-
-
 def test_a_table_the_database_lacks_is_reported_and_not_sent(reset) -> None:
     wrangler = FakeWrangler()
     wrangler.db.execute("DROP TABLE blind_labels")

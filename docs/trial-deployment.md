@@ -27,42 +27,6 @@ skipped, and `<slug> --from N` redoes stage N and every one after it. `<slug> re
 runs only the closing checks; use it after the next scheduled publish hour to see the first scheduled
 run, and once a week to read what the trial spent.
 
-## Satellites only
-
-```sh
-bash scripts/trial-wizard.sh <slug> --satellites
-```
-
-provisions the resources an app needs, for an app deployed outside these scripts: the D1,
-the KV namespace, the Pages project, the vote and rss Workers, the secrets files and the
-settings push, with no app Worker, no container application, no custom domain and no
-tester. These scripts deploy no such app; a Workers Preview of production's app Worker is
-planned as one, in a separate change (today `wrangler.toml` keeps preview URLs off). An app's
-onboarding cards come from an rss Worker that reads `sources` from the D1 it binds, so an
-app with a D1 of its own needs an rss Worker on that D1, which is what this provisions.
-
-- **No second app.** A full trial on the same resources would add an app Worker whose hourly
-  cron starts a container on each digest hour against the same D1, Pages project and vote
-  KV. Once the other app has sources, the trial app would publish its own issues from them,
-  drain the votes and write `digest_runs` while the other app is being tested. The container time
-  is small (two runs a day, [hosting-and-cost.md](hosting-and-cost.md)); the second
-  publisher is the reason.
-- **What it skips.** Stage 1 has no Access check and stage 2 asks for no domain, tester
-  email or image; stages 12, 15 and 16 (the app deploy, the tester's mail, the hand-over)
-  are marked done unseen; stage 14 redeploys nothing. The app's secrets file is still
-  written, with the ids and Worker URLs the app will need.
-- **It stays satellites-only.** The flag is saved in the wizard state as
-  `SATELLITES_ONLY=yes`, so a later run, `--from N` or `receipts`, needs no flag. A slug
-  that shows any trace of a full trial is refused: a stage done, a saved domain or image, or
-  a rendered app config, since `--from 1` empties the stages before its first prompt.
-  `scripts/provision_trial.py render-satellites` writes the vote and rss configs and no app
-  config; its `render` refuses the slug, and so does `scripts/deploy_trial.py`, since an app
-  config would give it an app Worker.
-- **Its receipts** list the resources with their ids, run `scripts/reset_trial.py` dry, and
-  run `cyris doctor` without `--deployment`, saying whether its `settings` check passed.
-  `scripts/reset_trial.py` works on the slug unchanged: it reads only the vote and rss
-  configs.
-
 ## Which account
 
 Either works; the first trial (2026-10-06) runs on production's.
