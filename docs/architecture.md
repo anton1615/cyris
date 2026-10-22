@@ -742,8 +742,12 @@ issues in one week were lost that way. When the last digest hour began less than
 `CATCH_UP_HOURS` (3) ago and D1 `digest_runs` holds no `ok`, non-dry row of its period with a
 `finished_at` since that hour began, the Worker starts the container with that period and the
 hour's own date (`cyris run --period P --date D`) and logs the pair. An `error` row is not done,
-so a failed run is retried too, at most twice. A catch-up reads `digest_runs` over the same REST
-call as the schedule, which it reads once per tick; when either read fails it starts nothing,
+so a failed run is retried too, at most twice. `digest_runs` gets its row only when a run ends,
+so a run still in flight would look missed; none can be at the next tick, an hour after it began,
+because `RUN_SLEEP_AFTER` (§6) caps a run at 15 minutes, and were one still up, `start()` on the
+running `run` instance returns without starting another (`startContainerIfNotRunning` in
+`@cloudflare/containers`). A catch-up reads `digest_runs` with a second D1 REST query after the
+schedule read, which happens once per tick; when either read fails it starts nothing,
 unlike a digest hour, because a missed catch-up loses nothing the lost run had not already lost.
 Any other status without an `ok` row (a quiet window's `no_articles`, an onboarding wait that
 records no row) is retried as well; that costs two container passes, not an issue. The
