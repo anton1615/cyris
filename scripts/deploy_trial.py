@@ -28,9 +28,6 @@ deploy.yml's: a warm instance keeps answering from the image it started with.
 --dry-run resolves the image, renders the config and runs `wrangler deploy
 --dry-run` for each Worker it would deploy; it deploys nothing and saves nothing.
 
-A slug the wizard provisioned with `--satellites` has no app Worker, so it is
-refused before any command: rendering its app config would create one.
-
 Usage:
   deploy_trial.py --slug S [--rss] [--promote] [--app-only] [--dry-run] [--wait SECONDS]
 """
@@ -304,10 +301,6 @@ def main(
         return 2
     try:
         provision_trial.load_rendered(args.slug)
-        if provision_trial.satellites_only(args.slug):
-            raise DeployError(
-                f"{args.slug} is satellites-only: it has no app Worker to stage a release on"
-            )
         step = Deploy(args, run or _runner(wrangler_env(args.slug)), say)
         commit = step.commit()
         # Read before anything deploys, so a deploy that cannot be checked never starts.

@@ -323,17 +323,3 @@ def test_no_ui_token_stops_before_any_deploy(deploy, tree: Path, capsys) -> None
     assert code == 1
     assert "CYRIS_UI_TOKEN" in capsys.readouterr().err
     assert runner.deploys() == []
-
-
-def test_a_satellites_only_slug_is_refused_before_any_call(deploy, tree: Path, capsys) -> None:
-    (tree / APP_CONFIG).unlink()
-    with (tree / f".env.trial-{SLUG}-wizard").open("a", encoding="utf-8") as state:
-        state.write("SATELLITES_ONLY=yes\n")
-    runner = FakeRunner()
-
-    code, *_ = _main(deploy, runner)
-
-    assert code == 1
-    assert "satellites-only" in capsys.readouterr().err
-    assert runner.calls == []
-    assert not (tree / APP_CONFIG).exists()

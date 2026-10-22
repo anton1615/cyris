@@ -195,10 +195,7 @@ finish() {
 #   bash scripts/trial-wizard.sh <slug>            every stage not done yet
 #   bash scripts/trial-wizard.sh <slug> --from N   stage N and every one after it, again
 #   bash scripts/trial-wizard.sh <slug> receipts   only the closing receipts stage
-#   bash scripts/trial-wizard.sh <slug> --satellites   D1, KV, Pages, the vote and rss
-#                                                  Workers and the settings, no app Worker
 # State lives in .env.trial-<slug>-wizard at the repo root, beside the secrets files.
-# A slug started with --satellites stays satellites-only on every later run.
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
@@ -209,9 +206,9 @@ MODE="${2:-all}"
 FROM=""
 if [[ "$MODE" == --from ]]; then FROM="${3:-}"; fi
 if [[ ! "$SLUG" =~ ^[a-z][a-z0-9]{1,19}$ || "$SLUG" == wizard ]] \
-  || [[ "$MODE" != all && "$MODE" != receipts && "$MODE" != --from && "$MODE" != --satellites ]] \
+  || [[ "$MODE" != all && "$MODE" != receipts && "$MODE" != --from ]] \
   || [[ "$MODE" == --from && ! "$FROM" =~ ^([1-9]|1[0-6])$ ]]; then
-  echo "Usage: bash scripts/trial-wizard.sh <slug> [receipts | --from N | --satellites]"
+  echo "Usage: bash scripts/trial-wizard.sh <slug> [receipts | --from N]"
   echo "slug: 2-20 lowercase letters or digits, starting with a letter, not 'wizard'."
   echo "N: a stage from 1 to 16."
   exit 1
@@ -242,24 +239,6 @@ STAGES_DONE="${STAGES_DONE:-}"
 
 die() { printf '\n  %s✗ %s%s\n  Fix it, then re-run: bash scripts/trial-wizard.sh %s\n\n' "$RED" "$1" "$RESET" "$SLUG"; exit 1; }
 next() { printf '\n'; pause "Press Enter for the next stage"; }
-
-# Satellites only: the resources an app needs, for an app that is not a trial app
-# Worker (docs/trial-deployment.md). No app Worker, container, domain or tester.
-if [[ "$MODE" == --satellites ]]; then
-  if [[ "${SATELLITES_ONLY:-}" != yes ]]; then
-    # Not STAGES_DONE alone: `--from 1` empties it before the first prompt, so an
-    # abort there leaves a full trial looking new. Its domain, image and app config stay.
-    if [[ -n "${STAGES_DONE:-}${DOMAIN:-}${IMAGE_TAG:-}${IMAGE_DIGEST:-}" || -e "$APP_CFG" ]]; then
-      die "$SLUG was started as a full trial; it cannot turn satellites-only."
-    fi
-    write_env SATELLITES_ONLY yes
-    SATELLITES_ONLY=yes
-  fi
-  MODE=all
-fi
-satellites() { [[ "${SATELLITES_ONLY:-}" == yes ]]; }
-# Stages a satellites-only slug has nothing to do in: the app, the tester's mail, the hand-over.
-SATELLITE_SKIPS="12,15,16"
 
 # show_run LOGNAME CMD... prints the command, runs it with output teed to a log.
 show_run() {
@@ -350,31 +329,15 @@ receipts() {
   printf '\n%s  usage_log, last 7 days%s\n' "$BOLD" "$RESET"
   show_run d1-usage bunx wrangler d1 execute "$TRIAL_D1_NAME" --remote --config "$RSS_CFG" --env-file /dev/null \
     --command "SELECT date(logged_at) AS day, count(*) AS runs, sum(api_calls) AS calls, round(sum(cost_usd), 4) AS usd FROM usage_log WHERE logged_at >= date('now', '-7 day') GROUP BY day ORDER BY day" || warn "query failed"
-  if satellites; then
-    printf '\n%s  resources%s\n' "$BOLD" "$RESET"
-    say "D1:            $TRIAL_D1_NAME  ${TRIAL_D1_ID:-}"
-    say "KV:            $TRIAL_KV_TITLE  ${TRIAL_KV_ID:-}"
-    say "Pages project: $TRIAL_PAGES_PROJECT"
-    say "Vote Worker:   $TRIAL_PROMOTE_WORKER  ${TRIAL_PROMOTE_URL:-}"
-    say "rss Worker:    $TRIAL_RSS_WORKER  ${TRIAL_RSS_URL:-}"
-    printf '\n%s  reset_trial.py dry run%s\n' "$BOLD" "$RESET"
-    show_run reset uv run python scripts/reset_trial.py --slug "$SLUG" || warn "the reset dry run failed"
-  else
-    printf '\n%s  login redirect%s\n' "$BOLD" "$RESET"
-    if login_redirect; then printf '  %s✓%s 302 → /login\n' "$GREEN" "$RESET"; else warn "no 302 → /login on https://$SLUG.$DOMAIN/"; fi
-  fi
+  printf '\n%s  login redirect%s\n' "$BOLD" "$RESET"
+  if login_redirect; then printf '  %s✓%s 302 → /login\n' "$GREEN" "$RESET"; else warn "no 302 → /login on https://$SLUG.$DOMAIN/"; fi
   printf '\n%s  production archive still public%s\n' "$BOLD" "$RESET"
   local code
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://cyris-digest.pages.dev/ || true)
   if [[ "$code" == 200 ]]; then printf '  %s✓%s https://cyris-digest.pages.dev/ → 200\n' "$GREEN" "$RESET"; else warn "https://cyris-digest.pages.dev/ → $code"; fi
+  printf '\n%s  cyris doctor --deployment%s\n' "$BOLD" "$RESET"
+  note "Expected image: ${IMAGE_TAG:-unknown}, the last one deployed to this trial (by this wizard or scripts/deploy_trial.py). 'publishing' fails until the first digest exists; that is not a blocker."
   local dir
-  if satellites; then
-    printf '\n%s  cyris doctor%s\n' "$BOLD" "$RESET"
-    note "No app Worker to date, so no --deployment. 'publishing' fails until the first digest exists; that is not a blocker."
-  else
-    printf '\n%s  cyris doctor --deployment%s\n' "$BOLD" "$RESET"
-    note "Expected image: ${IMAGE_TAG:-unknown}, the last one deployed to this trial (by this wizard or scripts/deploy_trial.py). 'publishing' fails until the first digest exists; that is not a blocker."
-  fi
   dir=$(mktemp -d)
   {
     echo "CYRIS_STORE_BACKEND=d1"
@@ -382,20 +345,9 @@ receipts() {
     echo "CYRIS_PROMOTE_PUBLISH_ENABLED=true"
     grep -E '^(CYRIS_STORE_DATABASE_ID|CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_API_TOKEN|CYRIS_PROMOTE_PAGES_PROJECT|GEMINI_API_KEY|CYRIS_UI_TOKEN|CYRIS_RSS_WORKER_URL|CYRIS_WORKER_TOKEN|CYRIS_PROMOTE_WORKER_URL|CYRIS_PROMOTE_TOKEN)=' "$APP_ENV"
   } > "$dir/.env"
-  if satellites; then
-    (cd "$dir" && env -i HOME="$HOME" PATH="$PATH" uv run --project "$REPO" cyris doctor) | tee "$dir/doctor.log" \
-      || warn "doctor exited non-zero; read the lines above"
-  else
-    (cd "$dir" && env -i HOME="$HOME" PATH="$PATH" uv run --project "$REPO" cyris doctor --deployment "https://$SLUG.$DOMAIN") | tee "$dir/doctor.log" \
-      || warn "doctor exited non-zero; read the lines above"
-  fi
-  if grep -q '^✓ settings — ' "$dir/doctor.log"; then
-    printf '  %s✓%s doctor finds every required setting in D1\n' "$GREEN" "$RESET"
-  else
-    warn "doctor's settings check did not pass; its line above names each missing key"
-  fi
+  (cd "$dir" && env -i HOME="$HOME" PATH="$PATH" uv run --project "$REPO" cyris doctor --deployment "https://$SLUG.$DOMAIN") || warn "doctor exited non-zero; read the lines above"
   rm -r "$dir"
-  satellites || note "Still by hand: a tester's vote, then cyris promote-sync, then triaged_at set in this D1."
+  note "Still by hand: a tester's vote, then cyris promote-sync, then triaged_at set in this D1."
   next
 }
 
@@ -413,15 +365,11 @@ fi
 
 # ── 1 ─────────────────────────────────────────────────────────────────────
 stage_1() {
-  if satellites; then
-    stage "Before you start: the wrangler login"
-  else
-    stage "Before you start: Access policy and the wrangler login"
-    say "A wildcard Access policy on the trial's domain would give the tester a second login."
-    open_url "https://one.dash.cloudflare.com/"
-    step "Zero Trust → Access → Applications: check no policy covers <slug>.<domain> (e.g. *.<domain>)."
-    pause "Checked, no policy covers it? Press Enter"
-  fi
+  stage "Before you start: Access policy and the wrangler login"
+  say "A wildcard Access policy on the trial's domain would give the tester a second login."
+  open_url "https://one.dash.cloudflare.com/"
+  step "Zero Trust → Access → Applications: check no policy covers <slug>.<domain> (e.g. *.<domain>)."
+  pause "Checked, no policy covers it? Press Enter"
   say "Log wrangler in as the account the trial belongs to."
   if confirm "Log wrangler in now? (No if it already is, as that account)"; then
     bunx wrangler login --env-file /dev/null || die "Login did not finish."
@@ -432,17 +380,12 @@ stage_1() {
 # ── 2 ─────────────────────────────────────────────────────────────────────
 stage_2() {
   stage "Inputs"
-  # The Workers and the settings push need no domain, and no tester gets mail.
-  if satellites; then
-    TESTER_EMAIL=""
-  else
-    ask_match DOMAIN "Domain on the trial account's Cloudflare (e.g. example.com):" '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$'
-  fi
+  ask_match DOMAIN "Domain on the trial account's Cloudflare (e.g. example.com):" '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$'
   ask_match ACCOUNT_ID "Trial account id (32 hex):" '^[0-9a-f]{32}$'
-  satellites || ask TESTER_EMAIL "Tester's email for digests (empty = no mail):"
+  ask TESTER_EMAIL "Tester's email for digests (empty = no mail):"
   ask_match OUTPUT_LANGUAGE "Tester's output language, BCP 47 (zh-Hant, en, ja, ...):" '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$'
   ask_match MAX_ARTICLES "Article cap per digest, agreed with the tester (below 400):" '^([1-9][0-9]?|[1-3][0-9][0-9])$'
-  satellites || write_env DOMAIN "$DOMAIN"
+  write_env DOMAIN "$DOMAIN"
   write_env ACCOUNT_ID "$ACCOUNT_ID"
   write_env TESTER_EMAIL "$TESTER_EMAIL"
   write_env OUTPUT_LANGUAGE "$OUTPUT_LANGUAGE"
@@ -452,9 +395,7 @@ stage_2() {
   WHOAMI=$(bunx wrangler whoami --env-file /dev/null 2>&1 || true)
   grep -q "$ACCOUNT_ID" <<<"$WHOAMI" || die "The logged-in wrangler cannot see account $ACCOUNT_ID. Log in as that account (stage 1)."
   printf '  %s✓%s wrangler can reach account %s\n' "$GREEN" "$RESET" "$ACCOUNT_ID"
-  if satellites; then
-    note "Satellites only: no app Worker, so no image to pick."
-  elif [[ -z "${IMAGE_DIGEST:-}" ]]; then
+  if [[ -z "${IMAGE_DIGEST:-}" ]]; then
     git fetch --tags
     IMAGE_TAG=$(git tag -l 'image/*' --sort=-creatordate | head -1)
     IMAGE_DIGEST=$(git tag -l --format='%(contents)' "$IMAGE_TAG" | grep -o 'sha256:[0-9a-f]\{64\}' || true)
@@ -481,12 +422,8 @@ stage_2() {
 stage_3() {
   stage "Resource names"
   derive_names
-  if satellites; then
-    note "Satellites only: no app Worker and no container."
-  else
-    say "App Worker:     $TRIAL_APP_WORKER"
-    say "Container:      $TRIAL_CONTAINER"
-  fi
+  say "App Worker:     $TRIAL_APP_WORKER"
+  say "Container:      $TRIAL_CONTAINER"
   say "Vote Worker/KV: $TRIAL_PROMOTE_WORKER"
   say "D1:             $TRIAL_D1_NAME"
   say "Pages project:  $TRIAL_PAGES_PROJECT"
@@ -580,33 +517,25 @@ stage_7() {
 # ── 8 ─────────────────────────────────────────────────────────────────────
 stage_8() {
   stage "Render the trial's configs"
-  local configs=("$PROMOTE_CFG" "$RSS_CFG")
-  if satellites; then
-    show_run render uv run python scripts/provision_trial.py render-satellites --slug "$SLUG" \
-      --kv-id "$TRIAL_KV_ID" --d1-id "$TRIAL_D1_ID" || die "render failed."
-    [[ ! -e "$APP_CFG" ]] || die "$APP_CFG exists, but a satellites-only slug has no app config."
-  else
-    show_run render uv run python scripts/provision_trial.py render --slug "$SLUG" --domain "$DOMAIN" \
-      --account-id "$ACCOUNT_ID" --image-digest "$IMAGE_DIGEST" --kv-id "$TRIAL_KV_ID" --d1-id "$TRIAL_D1_ID" \
-      || die "render failed."
-    configs=("$APP_CFG" "${configs[@]}")
-  fi
-  for f in "${configs[@]}"; do
+  show_run render uv run python scripts/provision_trial.py render --slug "$SLUG" --domain "$DOMAIN" \
+    --account-id "$ACCOUNT_ID" --image-digest "$IMAGE_DIGEST" --kv-id "$TRIAL_KV_ID" --d1-id "$TRIAL_D1_ID" \
+    || die "render failed."
+  for f in "$APP_CFG" "$PROMOTE_CFG" "$RSS_CFG"; do
     [[ -f "$f" ]] || die "$f was not written."
     git check-ignore -q "$f" || die "$f is not gitignored."
   done
-  printf '  %s✓%s %s configs written, all gitignored\n' "$GREEN" "$RESET" "${#configs[@]}"
+  printf '  %s✓%s three configs written, all gitignored\n' "$GREEN" "$RESET"
   next
 }
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
 stage_9() {
-  stage "Dry-run the configs"
+  stage "Dry-run all three configs"
   (cd workers/rss && bun install --frozen-lockfile) || die "bun install in workers/rss failed."
-  satellites || show_run dry-app bunx wrangler deploy --dry-run --config "$APP_CFG" --env-file /dev/null || die "App dry run failed."
+  show_run dry-app bunx wrangler deploy --dry-run --config "$APP_CFG" --env-file /dev/null || die "App dry run failed."
   show_run dry-promote bunx wrangler deploy --dry-run --config "$PROMOTE_CFG" --env-file /dev/null || die "Vote Worker dry run failed."
   show_run dry-rss bunx wrangler deploy --dry-run --config "$RSS_CFG" --env-file /dev/null || die "rss Worker dry run failed."
-  printf '\n  %s✓%s every dry run passed\n' "$GREEN" "$RESET"
+  printf '\n  %s✓%s all three dry runs passed\n' "$GREEN" "$RESET"
   next
 }
 
@@ -729,12 +658,8 @@ stage_14() {
   in_file "$APP_ENV" write_env CYRIS_RSS_WORKER_URL "$TRIAL_RSS_URL"
   grep -qx "CYRIS_WORKER_TOKEN=$TRIAL_WORKER_TOKEN" "$APP_ENV" || die "CYRIS_WORKER_TOKEN did not land."
   grep -qx "CYRIS_RSS_WORKER_URL=$TRIAL_RSS_URL" "$APP_ENV" || die "CYRIS_RSS_WORKER_URL did not land."
-  if satellites; then
-    note "No app Worker to redeploy: the app these satellites serve reads them from $APP_ENV."
-  else
-    say "Redeploy so the app reads them."
-    deploy_app_and_wait app-rss
-  fi
+  say "Redeploy so the app reads them."
+  deploy_app_and_wait app-rss
   next
 }
 
@@ -802,11 +727,7 @@ if [[ -n "$FROM" ]]; then
   save_progress
 fi
 
-if satellites; then
-  banner "cyris trial satellites, no app Worker: $SLUG"
-else
-  banner "cyris trial deployment: $SLUG"
-fi
+banner "cyris trial deployment: $SLUG"
 
 if [[ -n "${STAGES_DONE:-}" ]]; then
   say "Stages ${STAGES_DONE//,/, } were done earlier and are skipped."
@@ -816,7 +737,6 @@ fi
 
 for ((n = 1; n <= TOTAL_STAGES; n++)); do
   if is_done "$n"; then continue; fi
-  if satellites && [[ ",$SATELLITE_SKIPS," == *",$n,"* ]]; then mark_done "$n"; continue; fi
   _STAGE_INDEX=$((n - 1))
   "${STAGE_FNS[$((n - 1))]}"
   # receipts reads only, so it runs again on every pass.
