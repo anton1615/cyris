@@ -6,6 +6,11 @@ decision-makers: ""
 
 # A token cookie guards the app always, and Cloudflare Access is an optional second layer
 
+> Superseded in part by [ADR-0021](0021-previews-answer-only-on-a-preview-only-custom-domain.md)
+> (2026-10-22). Previews of the app Worker answer on a custom domain attached for Preview traffic
+> only, so the bullet "Preview URLs stay disabled" below now holds for Version URLs and Previews'
+> `workers.dev` URLs, not for Previews. Both layers still stand, and layer 1 guards every Preview.
+
 ## Context and Problem Statement
 
 The app Worker fronts a write surface: `/settings`, `/api/*` and the vote endpoint change what
@@ -42,7 +47,9 @@ the first layer must deploy with the Worker, or a fork on `*.workers.dev` is an 
   it. Verifying the JWT again defends only against someone who can already route traffic to the
   origin, which makes it a second copy of layer 1, not a third layer. On `workers.dev` the header
   is not a credential.
-* **Preview URLs stay disabled**, because a second public hostname is a second door.
+* **Preview URLs stay disabled**, because a second public hostname is a second door. Amended by
+  ADR-0021: `preview_urls = false` still keeps Version URLs and Previews' `workers.dev` URLs off,
+  but each Preview answers on a Preview-only custom domain, behind the `CYRIS_UI_TOKEN` cookie.
 
 ### Consequences
 

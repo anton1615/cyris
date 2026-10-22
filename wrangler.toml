@@ -13,7 +13,8 @@ compatibility_date = "2026-06-01"
 # sole source of truth for routing. Preview URLs stay off: each is another
 # public hostname. The same switch would give the `staging` Preview below a
 # workers.dev URL, but it opens one for every production version with it, so
-# that Preview is reached on a Preview-only custom domain from the dashboard.
+# that Preview is reached on a Preview-only custom domain from the dashboard
+# (docs/decisions/0021-previews-answer-only-on-a-preview-only-custom-domain.md).
 workers_dev = true
 preview_urls = false
 

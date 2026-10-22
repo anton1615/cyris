@@ -673,8 +673,9 @@ and why the dividing line is published-vs-secret, not one-value-vs-three:
 
 ### Where a Preview's settings live (2026-10-22)
 
-A Preview of `cyris-app` (`[previews]` in `wrangler.toml`, such as `staging`) inherits none of
-production's Worker secrets or `[vars]`
+A Preview of `cyris-app` (`[previews]` in `wrangler.toml`, such as `staging`, reached as
+[ADR-0021](decisions/0021-previews-answer-only-on-a-preview-only-custom-domain.md) records)
+inherits none of production's Worker secrets or `[vars]`
 ([Configuration](https://developers.cloudflare.com/workers/previews/configuration/)). Its grade-B
 and grade-C values are that Preview's own secrets:
 
@@ -994,7 +995,7 @@ day of repeated `stop()` calls.
 `tests/test_entrypoint.py` runs the real script under `dash`, the image's `/bin/sh`.
 
 **Auth is one layer always, two if you own a domain** (`workers/app/`); why each layer, and why
-there is no JWT check, is [ADR-0009](decisions/0009-a-token-cookie-always-and-access-only-if-you-own-a-domain.md). The `CYRIS_UI_TOKEN` cookie decides whether a request carries this deployment's own secret: `/login` sets an HttpOnly cookie holding the token's SHA-256, compared in constant time, and anything without it gets the form or a `401` before a byte reaches the container. Version URLs stay disabled (`preview_urls = false`): the same switch would give each production version a hostname of its own. The `staging` Preview is the one other door, behind the same cookie with its own token.
+there is no JWT check, is [ADR-0009](decisions/0009-a-token-cookie-always-and-access-only-if-you-own-a-domain.md). The `CYRIS_UI_TOKEN` cookie decides whether a request carries this deployment's own secret: `/login` sets an HttpOnly cookie holding the token's SHA-256, compared in constant time, and anything without it gets the form or a `401` before a byte reaches the container. `preview_urls = false` keeps two kinds of hostname off: Version URLs, one for each uploaded production version, and Previews' `workers.dev` URLs. Previews answer instead on a custom domain `<host>` attached for Preview traffic only, and each opens doors of its own: `staging.<host>`, `<deployment-id>-staging.<host>` for each of its deployments, and `<name>.<host>` for any other Preview, which `wrangler preview` without `--name` names after the git branch. Every one runs this Worker behind its own Preview's `CYRIS_UI_TOKEN`, and a Preview given none answers every protected path with the form or a `401`. Why the custom domain and not `workers.dev`: [ADR-0021](decisions/0021-previews-answer-only-on-a-preview-only-custom-domain.md).
 
 Cloudflare Access is an optional second layer on the hostname named by `CYRIS_UI_ACCESS_HOST` (grade B). It decides *who* — email policy, MFA, audit log — and is a dashboard step. Access stays off `workers.dev`, where scripts sign in with the cookie alone. Forks skip it. Deployments that attach a custom domain from the dashboard set `CYRIS_UI_ACCESS_HOST` to that hostname; `/api/vote` on that host stays Access-only so a reader who already passed Access does not log in a second time. On every other hostname, including the workers.dev URL that `workers_dev = true` may re-enable beside the custom domain, the cookie is required. The archive is public unless `CYRIS_PRIVATE_ARCHIVE` (grade B, Worker-only) is `"true"`: then a reader without the cookie is sent to `/login` before the Worker proxies a byte of Pages, and signs in to the page they asked for.
 
