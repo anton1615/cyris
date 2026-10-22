@@ -331,8 +331,10 @@ An issue is keyed by `(date, period)`, and a run stores its issue over any other
 schedule and the date from its own clock in `general.timezone`. A manual run (`POST /run?period=`,
 `cyris run --period`) names the period, and may name the date too (`&date=`, `--date`), which only
 `--if-due` refuses; the app Worker takes a named date only when it is today or yesterday in the
-deployment's time zone, and refuses it with 503 when it cannot read that zone. The
-onboarding's first issue is the one caller that names a date (§6). Without one, the pipeline dates
+deployment's time zone, and refuses it with 503 when it cannot read that zone. Two callers name a
+date: the onboarding's first issue (§6), and a tick that catches up a digest hour whose run never
+finished (§5), which names that hour's period and the hour's own local date, so an evening caught
+up after midnight keeps its issue's date. Without one, the pipeline dates
 the issue when it writes it.
 
 Each source carries a **tier**, which decides how much attention it gets:
@@ -450,7 +452,9 @@ settings or a `build_deps` that raises, sends `Digest run could not start` to th
 on a digest hour only, since every hourly tick hits the same failure; it leaves no `digest_runs`
 row. Settings that cannot name the schedule or a channel send nothing, and so do a D1 the
 container cannot read and a container that never starts: those are left to Workers Logs. A dry
-run, a run started by hand and a SIGTERM-cancelled run send no alert. Votes cast on the
+run, a run started by hand and a SIGTERM-cancelled run send no alert. A catch-up run (§5) is a
+`--period` run: it never sends `Digest run could not start`, and a failure inside `run_digest`
+alerts as any other does, so a failure that persists alerts once per retry. Votes cast on the
 published digest go to the promote Worker's KV and are drained at each digest run, by the run
 itself and by the `cyris promote-sync` after it, which is what turns a click into a
 `triaged_at` stamp. The stamp is the sync's time, not the click's: `sync_promotions` parses the
@@ -550,6 +554,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | RSS Worker read ceiling | A | `WORKER_ROW_CEILING` in `adapters/fetch/rss_worker_source.py`, mirroring the clamp on `GET /articles` in `workers/rss/src/index.js` | done 2026-10-02 — a memory bound, not the run cap: every row carries full feed content. It is sent by value because the Worker's default without one is lower; `tests/test_rss_worker_source.py` holds the two equal |
 | Feed health thresholds: unhealthy at 3 consecutive failed polls, or no stored article for 30 days (never included) | A | `UNHEALTHY_FAILURE_STREAK`, `QUIET_DAYS` in `adapters/store/feed_health.py` | done 2026-10-08 — one Substack 429 is routine, three hourly polls failing in a row is not; feeds publish weekly or monthly, so a shorter silence is noise. `cyris doctor` and `/settings` both judge through `FeedHealth.problems`, so neither copies a number |
 | Pages publish timing: the 180s budget and 120s run reserve, the 120s verify budget of a publishing rerun, the stage and alias poll counts and intervals, the 20s per-request timeout and a deploy attempt's worst case | A | `adapters/output/publish.py`, `adapters/output/pages_deploy.py` | unchanged — reasons in the comments beside each constant; `tests/test_publish.py` pins the budget against `RUN_SLEEP_AFTER` in `workers/app/src/index.js`, and what the budget does not cover is in *Publishing* (§6) |
+| Catch-up window: a tick off the hour reruns the last digest hour's issue while that hour began less than 3 hours ago and `digest_runs` has no ok, non-dry row of it | A | `CATCH_UP_HOURS` in `workers/app/src/schedule.js` | added 2026-10-22 — the two ticks after a digest hour are two retries: enough to outlast a Durable Object replacement, which kills one run, and few enough that a failure that persists (an `error` row is retried) costs two container passes and two alerts rather than one per hour until the next digest hour. After it, a lost issue waits for a manual `POST /run` (`docs/operations.md`). `workers/app/test/schedule.test.js` holds the value to this row |
 | `/settings` verification time limits: the LLM probe's 30s, the embedding probe's 15s, the Discord probe's 10s | A | `LLM_PROBE_TIMEOUT_SECONDS`, `EMBEDDING_PROBE_TIMEOUT_SECONDS`, `DISCORD_PROBE_TIMEOUT_SECONDS` in `diagnostics/doctor.py`; `triage_server.py` also bounds the area Suggest and Propose model calls with `LLM_PROBE_TIMEOUT_SECONDS` | done 2026-10-02 — a Save is a person waiting, so each bound sits far below the minutes a run allows the same client; reasons in the comments beside the first two. The area calls fit the same 30s: Suggest is one short reply, and Propose is one reply for all sources, the longer of the two. Both fail soft (a Suggest never blocks a save, a Propose writes nothing on timeout), so a slow reply shows the reader a notice and changes no row. A probe past its bound fails with what to do next, and nothing is stored |
 | Vote request timeout on the digest and raw pages | A | `VOTE_TIMEOUT_MS` in `adapters/output/templates/_promote_script.html.j2` | done 2026-10-02 — reason in the comment beside it; a vote that outlasts it is shown to the reader as not landed |
 | Per-provider default model, per-model embedding threshold | A | `src/cyris/provider_defaults.json` | unchanged — values in the file, reasons in *Provider defaults* below |
@@ -730,7 +735,20 @@ about 47% of its awake time. The two answers are one function written twice, hel
 `workers/app/test/schedule_cases.json`, which the vitest suite and `tests/test_schedule_gate.py`
 both run. When the Worker cannot read the schedule it starts the container anyway and
 `--if-due` decides: a woken container costs one idle tick, a skipped digest hour costs an
-issue. Votes therefore sync at the digest runs only, not hourly; `run_digest` syncs them
+issue. Since 2026-10-22 a tick off the hour also catches up a digest hour whose run never
+finished (`planTick`): Cloudflare sometimes replaces the `run` container's Durable Object
+mid-run, the replacement reads the container as stopped and kills it, and 3 of 14 production
+issues in one week were lost that way. When the last digest hour began less than
+`CATCH_UP_HOURS` (3) ago and D1 `digest_runs` holds no `ok`, non-dry row of its period with a
+`finished_at` since that hour began, the Worker starts the container with that period and the
+hour's own date (`cyris run --period P --date D`) and logs the pair. An `error` row is not done,
+so a failed run is retried too, at most twice. A catch-up reads `digest_runs` over the same REST
+call as the schedule, which it reads once per tick; when either read fails it starts nothing,
+unlike a digest hour, because a missed catch-up loses nothing the lost run had not already lost.
+Any other status without an `ok` row (a quiet window's `no_articles`, an onboarding wait that
+records no row) is retried as well; that costs two container passes, not an issue. The
+`docker compose` install has no catch-up: its crontab is unconditional and it has no Durable
+Object to lose. Votes therefore sync at the digest runs and their catch-ups only, not hourly; `run_digest` syncs them
 before each issue, and the promote Worker's KV keeps them until then. Hour granularity is the contract, not a rounding: the write
 surface refuses `08:30` rather than firing at 08:00 and leaving the reader to work out why.
 
@@ -861,7 +879,8 @@ one goes down in the same sitting.
 
 **The image carries three roles, and `CYRIS_ROLE` picks one** (`docker/entrypoint.sh`). `run` does
 one `cyris run --if-due` (or `--period`, when a manual `POST /run?period=` set
-`CYRIS_RUN_PERIOD`, with `--date` when its `&date=` set `CYRIS_RUN_DATE`) plus one `promote-sync`
+`CYRIS_RUN_PERIOD`, with `--date` when its `&date=` set `CYRIS_RUN_DATE`; a catch-up tick, §5,
+sets both) plus one `promote-sync`
 and exits, so the instance stops billing without
 waiting for a sleep timer — `promote-sync` runs even when the run fails, and the pass exits with
 the run's status. A SIGTERM ends the pass instead: it exits 143 and skips what has not started
@@ -979,7 +998,9 @@ the manual-run route (§3.2), with the key `GET /api/onboarding/first-issue` pic
 (`first_issue_key` in `service_layer/schedule.py`). A scheduled run stores its issue over any other
 with its key, so the key is today's latest publish hour already begun, which no tick left that day
 gives again, or, while both of today's hours are still to come, yesterday's evening, since any key
-dated today is one a tick will take. The date is sent with the run, so a run that ends after
+dated today is one a tick will take. A catch-up tick (§5) takes either key again only while
+`digest_runs` holds no ok run of it since its hour began, which the first issue's own run, ending
+after that hour began, supplies; a first issue that failed is retried. The date is sent with the run, so a run that ends after
 midnight keeps it. The step starts none when an issue already holds the key, or when there is no
 source. Yesterday's evening is an ordinary key: the archive sorts it before today's morning,
 `is_latest_issue` reads it as the newest until that issue lands, and its Pages slug and raw page
