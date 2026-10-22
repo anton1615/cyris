@@ -27,6 +27,21 @@ def test_the_worker_is_named_and_its_hostnames_come_back_sorted():
     assert route.calls.last.request.headers["Authorization"] == "Bearer tok"
 
 
+def test_a_domain_that_routes_only_previews_is_left_out():
+    """It sorts first here, so without the filter production's digest would link to it."""
+    result = [
+        {"hostname": "a-preview.example.org", "enabled": False, "previews_enabled": True},
+        {"hostname": "digest.example.org", "enabled": True, "previews_enabled": False},
+    ]
+    body = {"success": True, "errors": [], "result": result}
+    with respx.mock:
+        route = respx.get(URL).mock(return_value=httpx.Response(200, json=body))
+        hosts = list_worker_domains("acct", "tok", "cyris-app")
+
+    assert hosts == ["digest.example.org"]
+    assert route.call_count == 1
+
+
 def test_a_worker_with_no_custom_domain_has_none():
     with respx.mock:
         route = respx.get(URL).mock(return_value=_domains())

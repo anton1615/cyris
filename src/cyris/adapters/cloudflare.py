@@ -43,7 +43,12 @@ def check_pages_access(account_id: str, project: str, token: str) -> tuple[bool,
 
 
 def list_worker_domains(account_id: str, token: str, service: str) -> list[str]:
-    """The custom domains attached to the Worker named `service`, sorted.
+    """The custom domains that route to the Worker named `service`, sorted.
+
+    A domain attached for Preview traffic only comes back with `enabled: false`
+    and serves no production request, so a digest link naming it would lead
+    nowhere; it is left out. A record without the field routes, as every
+    domain did before Previews existed.
 
     Needs Workers Scripts Read on the token. Raises RuntimeError carrying the
     API's own message, so a caller that falls back can still say why.
@@ -63,4 +68,8 @@ def list_worker_domains(account_id: str, token: str, service: str) -> list[str]:
     if not body.get("success"):
         errors = body.get("errors") or [{"message": f"HTTP {resp.status_code}"}]
         raise RuntimeError("; ".join(str(e.get("message", e)) for e in errors))
-    return sorted(d["hostname"] for d in body.get("result") or [] if d.get("hostname"))
+    return sorted(
+        d["hostname"]
+        for d in body.get("result") or []
+        if d.get("hostname") and d.get("enabled", True)
+    )
