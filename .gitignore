@@ -82,5 +82,9 @@ wrangler.deploy.toml
 # workers/rss/); they carry an account id, a registry path and a database id.
 wrangler.trial-*.toml
 
+# Rendered per Preview deploy at the repo root; carries the commit it builds,
+# which a tracked file would name wrongly from the next commit on.
+wrangler.preview-*.toml
+
 # launch film workspace (product-launch-motion skill); renders and voice files stay out of the public repo
 launch-video/

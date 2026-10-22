@@ -7,6 +7,7 @@ a Preview container without its regions can start in Hong Kong, where the LLM
 providers refuse it, and one without its binding answers 1101.
 """
 
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -47,3 +48,9 @@ def test_the_tracked_preview_bakes_no_commit() -> None:
     [preview] = _config()["previews"]["containers"]
 
     assert "image_vars" not in preview
+
+
+def test_a_rendered_preview_config_is_not_committable() -> None:
+    done = subprocess.run(["git", "check-ignore", "-q", "wrangler.preview-staging.toml"], cwd=ROOT)
+
+    assert done.returncode == 0
