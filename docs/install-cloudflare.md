@@ -186,7 +186,8 @@ source every run ends having fetched nothing, logging `waiting for onboarding`.
 
 ## 7. Run the first digest now
 
-The hourly tick starts the pipeline only on the publish hours. The onboarding's last step
+The hourly tick starts the pipeline only on the publish hours, and in the 3 hours after one
+whose run never finished ([operations](operations.md#routine)). The onboarding's last step
 starts the first digest for you (step 6); to start another without waiting, `POST /run`
 with a period. `/settings` has no button for it, so use curl with the session cookie:
 
@@ -208,8 +209,8 @@ curl -X POST -b "cyris_session=$(printf %s "$CYRIS_UI_TOKEN" | shasum -a 256 | c
 It answers `{"started":"run", …}` at once; the run takes minutes. `period` is
 `morning` or `evening`, and the issue is dated today unless `&date=YYYY-MM-DD` names
 today or yesterday. A plain `POST /run` without a period behaves like the cron
-tick: outside the publish hours the reply is still `{"started":"run", …}`, and the log
-(step 8) says `Not a digest hour`.
+tick on a publish hour, and catches nothing up: outside the publish hours the reply is still
+`{"started":"run", …}`, and the log (step 8) says `Not a digest hour`.
 
 ## 8. Read the run's log
 

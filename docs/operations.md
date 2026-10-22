@@ -270,6 +270,16 @@ re-run. When the live archive lists none of the named pages, it prints `Nothing 
   once with it back on. `bunx wrangler containers info <application id> --env-file /dev/null`
   shows the switch at the top level when it is done.
 - **Failure alerts** go to every configured channel, Discord and email, after the run is recorded, when a run raises inside `run_digest` or fetches nothing while a source failed. The alert carries the error or the failed sources, and the time the run started. A scheduled run that stops before `run_digest`, on incomplete settings or a failed build of its dependencies, sends `Digest run could not start` with the error, on a digest hour only, because every hourly tick hits the same failure. Settings that cannot name the schedule or a channel send nothing, and neither does a D1 the container cannot read or a container that never starts. A dry run, a run started by hand, and a SIGTERM-cancelled run send no alert either. A run that never reached `run_digest` leaves no `digest_runs` row, so read Workers Logs for those.
+- **A missed issue** — a digest hour whose run never finished, most often because Cloudflare
+  replaced the `run` container's Durable Object mid-run and the container was killed (3 of 14
+  production issues in the week to 2026-10-22) — is retried by the next ticks for 3 hours
+  after the digest hour began (`CATCH_UP_HOURS` in `workers/app/src/schedule.js`). A tick
+  retries while `digest_runs` has no `ok`, non-dry row of that period since the hour began, so
+  an `error` row is retried too, and Workers Logs shows `catching up a digest hour with no ok
+  run` with the period and the issue's date. The issue costs that hour's delay, not the issue.
+  After those 3 hours nothing retries it: start it by hand with `POST /run?period=<period>&date=<YYYY-MM-DD>`
+  as in [step 7 of the install](install-cloudflare.md#7-run-the-first-digest-now), the date
+  being the missed issue's, which the Worker takes when it is today or yesterday.
 - **One failing feed** sends no alert while other sources still deliver. `cyris doctor` warns
   about each RSS feed that has failed three polls in a row or stored no article in 30 days,
   from D1 `feed_health` and `stored_articles`, and `/settings` shows the same reason under
