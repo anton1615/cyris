@@ -1092,6 +1092,7 @@ on main after the change lands, citing the hash it landed as.
 | 2026-10-20 | `2be3aeee`..`5c5cf465` | `/static/` answers with `Cache-Control: no-cache`, so a browser revalidates by ETag instead of pairing stale CSS with new HTML. `POST /api/onboarding/feed-check` adds the wizard's own-feed check: `FeedChecker` (`adapters/fetch/feed_check.py`, injected directly) fetches a pasted feed or home page through `GuardedHttp`, which reaches only public addresses and connects to the address it checked, with the byte, redirect and time caps graded A (§5, §6). |
 | 2026-10-20 | `d7f18958`..`e709f30b` | Help on /settings and /onboarding is in view, never folded; a setting that waits on another is disabled with a reason line that is its `aria-describedby`, and `GET /api/settings` sends `clef_ready`, a boolean from `bootstrap.clef_credentials()`, so Clef is offered only where a run could call it. |
 | 2026-10-20 | `67fef3e7` | The onboarding feed list grows to 62 feeds and six topics (`science` added), toward blogs and columns: `news` falls from 17 of 27 entries to 18 of 62 (§5). |
+| 2026-10-22 | `96f1c25a`..`2f3cc622` | Catch-up tick: off a digest hour, `planTick` reads D1 `digest_runs` and, while the last digest hour began less than `CATCH_UP_HOURS` (3, grade A) ago and holds no `ok`, non-dry run of its period, starts the run with that period and the hour's own date, so a run Cloudflare kills by replacing its Durable Object costs an hour, not an issue (§5, §6). |
 
 ## 8. Where the core never changes
 
