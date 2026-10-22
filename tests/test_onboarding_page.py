@@ -8,8 +8,8 @@ Each settings step posts the body the settings form posts, to the route
 `settings_fields.json` names for that field, and the sources step posts each
 picked feed to `POST /api/sources` as the list holds it, less the list's own
 `topics`. The votes step's own two routes are `tests/test_onboarding_votes.py`'s;
-here it is held to sending only marked cards, and to turning vote similarity on
-with the Model form's body.
+here it is held to sending only marked cards. Vote similarity is turned on by
+the first-issue step, with the Model form's body, whether or not a card was voted on.
 What a browser actually sends is checked by `scripts/onboarding_probe.py`; here
 the shapes of those bodies are held to the settings page's own, and the stored
 sources to the list's entries.
@@ -414,18 +414,11 @@ class TestTheVotesStep:
         """An untouched card is no signal, and a recorded one is already the reader's."""
         assert "CARDS.filter((card) => card.vote && !card.recorded && !card.gone)" in save_votes
 
-    def test_vote_similarity_is_turned_on_only_once_a_vote_is_recorded(
+    def test_the_votes_step_leaves_vote_similarity_to_the_first_issue(
         self, save_votes: str
     ) -> None:
-        guard = save_votes.index("if (!CARDS.some((card) => card.recorded)")
-
-        assert guard < save_votes.index('post("/api/settings/vote-similarity"')
-        assert "enabled: true," in save_votes
-
-    def test_vote_similarity_is_turned_on_with_the_stored_embedder(self, save_votes: str) -> None:
-        """Which model embeds is the deployer's, under Model; the wizard does not choose one."""
-        for key in ("provider", "model", "max_seeds"):
-            assert f'VALUES["vote_similarity.{key}"]' in save_votes
+        """A Skip here never saves, so a switch kept on this step stayed off on trial1."""
+        assert "/api/settings/vote-similarity" not in save_votes
 
     def test_the_cards_are_dealt_when_the_step_opens(self) -> None:
         assert 'if (step === "votes") loadCards();' in ONBOARDING_JS
@@ -434,6 +427,41 @@ class TestTheVotesStep:
         page = render_onboarding_page()
 
         assert '<p class="small" id="o-cards-loading" aria-busy="true" hidden>' in page
+
+
+def _function(name: str) -> str:
+    body = re.search(rf"(?:async )?function {name}\(\) \{{(.*?)\n\}}\n", ONBOARDING_JS, re.S)
+    assert body, f"no {name} in onboarding.js"
+    return body[1]
+
+
+class TestVoteSimilarityIsOnByTheFirstIssue:
+    """On by the end of the wizard, voted or not: later issues' votes count only with it on.
+
+    The milestone has the wizard turn it on without asking the reader, so no
+    Skip keeps it off; trial1 skipped the cards and its digest votes did nothing.
+    """
+
+    def test_it_waits_on_no_recorded_vote(self) -> None:
+        assert "recorded" not in _function("turnOnVoteSimilarity")
+
+    def test_it_is_turned_on_with_the_stored_embedder(self) -> None:
+        """Which model embeds is the deployer's, under Model; the wizard does not choose one."""
+        turn_on = _function("turnOnVoteSimilarity")
+
+        assert 'post("/api/settings/vote-similarity"' in turn_on
+        assert "enabled: true," in turn_on
+        for key in ("provider", "model", "max_seeds"):
+            assert f'VALUES["vote_similarity.{key}"]' in turn_on
+
+    def test_the_first_issue_step_turns_it_on_once_there_is_a_source(self) -> None:
+        assert "if (data.sources) voteSimilarityOn();" in _function("loadIssue")
+
+    def test_start_waits_for_it_before_the_run(self) -> None:
+        """The run reads its settings as it starts, so a switch saved later misses the issue."""
+        start = _function("startIssue")
+
+        assert start.index("await voteSimilarityOn();") < start.index("await startRun(")
 
 
 class TestTheStepsWriteThroughTheExistingApi:

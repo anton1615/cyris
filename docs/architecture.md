@@ -605,7 +605,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Discord webhook | D | **D1 `settings`**, written by `/settings`; `cyris.toml [notify]` for a `json` deployment | done — the URL is a posting token, and D1 stores it in plaintext. Anyone who can read `settings` can post to the channel; anyone who can open `/settings` can rotate it without a redeploy. That is the trade that makes it D. It is **not** among the grade-C variables counted below; those are API tokens, which stay C. `""` means off: `/settings` stores it only through a confirmed Turn off, and an empty paste is refused. No environment variable supplies it |
 | Mail recipient + sender | D | **D1 `settings`** as `notify.email_to` and `.email_from`, written by `/settings` (Notifications); `cyris.toml [notify]` for a `json` deployment | done 2026-09-27, a prototype beside Discord — the channel-address rule the webhook set. The container sends through Cloudflare Email Service's REST API (`POST /accounts/{id}/email/sending/send`, Email Sending: Edit on `CLOUDFLARE_API_TOKEN`), no Worker in between. The recipient must be a verified Email Routing destination address, which is free on every plan and needs no onboarded sending domain; the sender must sit on a routing domain. `/settings` stores the pair only after a test message is delivered or queued, and an empty recipient turns mail off without a send. No environment variable supplies either |
 | Digest window | D | **D1 `settings`**, written by `/settings` (Pipeline); `cyris.toml [general]` for a `json` deployment | done 2026-09-19 |
-| Vote similarity on/off, `max_seeds` | D | **D1 `settings`**, written by `/settings` (Model) together with the embedder, and turned on by the onboarding votes step once a vote is recorded, through the same route with the embedder already stored; `cyris.toml [vote_similarity]` for a `json` deployment | done 2026-09-19 — turning it on checks the embedder first |
+| Vote similarity on/off, `max_seeds` | D | **D1 `settings`**, written by `/settings` (Model) together with the embedder, and turned on by the onboarding first-issue step once there is a source, voted or not, through the same route with the embedder already stored; `cyris.toml [vote_similarity]` for a `json` deployment | done 2026-09-19 — turning it on checks the embedder first |
 | Reader type size | D | **D1 `settings`** as `digest.type_scale`, written by `/settings` (Digest); `cyris.toml [digest]` for a `json` deployment | done — how pages get it: *The reader-facing surfaces*. The mail stays at the baseline: nothing serves it, so the Worker cannot inject the size |
 | Agent vault path, HTML output dir | A | `cyris.toml` | unchanged — both address the `json` backend's fallback tree only; with D1 nothing is written there |
 | **API keys on the settings page** | **C, wanting a D-grade home** | `.env` / Worker secrets only | partly ruled: a channel-address credential such as the Discord webhook is grade D (see its row above). API keys remain undecided: writing a key into D1 `settings` puts a secret in a readable D-grade row |
@@ -995,9 +995,10 @@ the feeds again, so it needs no memory of the deal across the container's sleep,
 marked article and votes on it in the container, through `record_votes` as `/labels` does, never
 through the promote Worker; the press is a person's, so it may stamp `triaged_at` (§4 *Article
 store*). A marked article the read no longer finds is left out and named back as `missing`; only
-when none is found does it record nothing. The step then turns vote similarity on through `/api/settings/vote-similarity`.
+when none is found does it record nothing.
 
-The first-issue step starts no run of its own: it posts the app Worker's `POST /run?period=&date=`,
+The first-issue step turns vote similarity on through `/api/settings/vote-similarity` once its
+answer names a source, whether or not a card was voted on, before any run it starts. It starts no run of its own: it posts the app Worker's `POST /run?period=&date=`,
 the manual-run route (§3.2), with the key `GET /api/onboarding/first-issue` picks
 (`first_issue_key` in `service_layer/schedule.py`). A scheduled run stores its issue over any other
 with its key, so the key is today's latest publish hour already begun, which no tick left that day
