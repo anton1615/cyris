@@ -1270,10 +1270,11 @@ def test_the_labels_probe_runs_on_the_shared_core():
 # moving between them, counts the picks and warns past twelve, keeps a pick whose
 # topic is dropped and the topics over a reload, and stores each pick as listed
 # with no `topics` in its body, the votes step deals its cards, names a feed
-# with none, shows the wait and writes only the marked cards and vote
-# similarity, the first-issue step starts one run for the key it picked, today's
+# with none, shows the wait and writes only the marked cards, the first-issue
+# step turns vote similarity on with no vote and starts its run though that is
+# refused, starts one run for the key it picked, today's
 # or yesterday's evening, shows it while it is out, says where its issue is or
-# why it failed, and starts none when skipped, a skip writes nothing, only the
+# why it failed, and starts none when skipped, a skip writes nothing but that switch, only the
 # right deployment sees the wizard and its list, and the page fits a phone.
 EXPECTED_ONBOARDING_IDS = {
     "opens-on-the-first-step",
@@ -1333,7 +1334,6 @@ EXPECTED_ONBOARDING_IDS = {
     "votes-step-deals-the-feeds-just-added",
     "votes-step-records-the-marked-cards",
     "votes-step-keeps-the-votes-when-one-article-is-gone",
-    "votes-step-turns-on-vote-similarity",
     "votes-step-skipped-writes-nothing",
     "votes-step-with-no-vote-writes-nothing",
     "votes-step-a-second-press-takes-the-vote-back",
@@ -1357,6 +1357,8 @@ EXPECTED_ONBOARDING_IDS = {
     "first-issue-says-why-its-run-failed",
     "first-issue-tries-again-after-a-failure",
     "first-issue-skipped-starts-no-run",
+    "first-issue-turns-on-vote-similarity-with-no-vote",
+    "first-issue-starts-though-vote-similarity-is-refused",
     "first-issue-before-the-morning-takes-yesterdays-evening",
     "first-issue-with-no-source-says-so",
     "fits-first-issue-375",
@@ -1562,7 +1564,6 @@ async def test_the_onboarding_probe_votes_receipt_reads_what_the_votes_wrote():
     assert onboarding_probe._NOTHING_VOTED(fixture) is None
 
     response = await server._handle_post_onboarding_votes(_Body({"votes": votes}))
-    fixture.calls.append(onboarding_probe.VOTE_SIMILARITY_ON)
 
     assert response.status == 200
     assert onboarding_probe._votes(up=(0,), down=(1,))(fixture) is None

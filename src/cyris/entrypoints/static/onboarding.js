@@ -7,11 +7,12 @@
 // a source with; a feed the list lacks is checked by its address first
 // (POST /api/onboarding/feed-check) and then posted with the picks. The
 // votes step deals cards from those feeds (POST /api/onboarding/cards) and
-// writes the marked ones as votes (POST /api/onboarding/votes), then turns vote
-// similarity on through /api/settings/vote-similarity, the Model form's route.
-// The first-issue step starts a run through the app Worker's POST /run?period=&date=,
-// the route any manual run takes, with the key GET /api/onboarding/first-issue
-// picks, and reads the run's outcome back from that same route.
+// writes the marked ones as votes (POST /api/onboarding/votes).
+// The first-issue step turns vote similarity on through
+// /api/settings/vote-similarity, the Model form's route, and starts a run through
+// the app Worker's POST /run?period=&date=, the route any manual run takes, with
+// the key GET /api/onboarding/first-issue picks, and reads the run's outcome back
+// from that same route.
 const $ = (id) => document.getElementById(id);
 
 // The six steps, in order. Each one's hash opens it, so a reload keeps the place.
@@ -41,8 +42,8 @@ let pending = null;
 // Each setting's registry entry, by key, from GET /api/settings: a notice names
 // a field by the same label /settings gives it.
 let REGISTRY = {};
-// The stored values GET /api/settings answered; null until it has. The votes
-// step turns vote similarity on with the embedder stored here.
+// The stored values GET /api/settings answered; null until it has. The
+// first-issue step turns vote similarity on with the embedder stored here.
 let VALUES = null;
 
 // The sources step's second screen has a hash of its own (FEEDS_SCREEN), so a
@@ -670,9 +671,8 @@ async function loadCards() {
   }
 }
 
-// The marked cards not yet written, then vote similarity, without which the
-// votes change nothing. A card left alone is not sent. Nothing marked and
-// nothing recorded is a Next that writes nothing, as a Skip is.
+// The marked cards not yet written. A card left alone is not sent, and nothing
+// marked is a Next that writes nothing, as a Skip is.
 async function saveVotes() {
   const marked = CARDS.filter((card) => card.vote && !card.recorded && !card.gone);
   const lines = [];
@@ -690,29 +690,6 @@ async function saveVotes() {
       lines.push(`${gone.size} ${gone.size === 1 ? "article has" : "articles have"} left ` +
         "its feed since the cards were dealt, so that vote was not recorded.");
     }
-  }
-  if (!CARDS.some((card) => card.recorded) || VALUES?.["vote_similarity.enabled"] === true) {
-    return lines.join("\n");
-  }
-  try {
-    if (!VALUES) throw new Error("The settings did not load. Reload the page.");
-    show("busy", "Turning on vote similarity: checking the embedder…");
-    // The embedder this deployment already names: which model it embeds with is
-    // the deployer's choice, under Model in Settings, and the wizard leaves it.
-    const data = await post("/api/settings/vote-similarity", {
-      enabled: true,
-      provider: VALUES["vote_similarity.provider"],
-      model: VALUES["vote_similarity.model"] ?? "",
-      max_seeds: VALUES["vote_similarity.max_seeds"],
-    });
-    Object.assign(VALUES, data.values);
-    lines.push(`Vote similarity is on. ${data.detail} ${data.note}`);
-  } catch (err) {
-    throw new Error([
-      ...lines,
-      `Vote similarity is still off, so the votes have no effect yet: ${err.message}`,
-      "Press Next to try again, or Skip and turn it on under Model in Settings.",
-    ].join("\n"));
   }
   return lines.join("\n");
 }
@@ -814,6 +791,42 @@ function planIssue(data, retry) {
   return true;
 }
 
+// Vote similarity, without which no vote changes an issue, is turned on once
+// there is a source to build from, whether or not a card was voted on: the votes
+// cast on the issues to come count only with it on. It is not the reader's
+// choice (docs/milestones/cold-start-onboarding.md), so no Skip keeps it off,
+// and a refusal leaves Start in reach. A refused save is tried again by the
+// next visit or Start.
+let voteSimilarity = null;
+
+async function turnOnVoteSimilarity() {
+  await SETTINGS_LOADED;
+  if (!VALUES) throw new Error("The settings did not load. Reload the page.");
+  if (VALUES["vote_similarity.enabled"] === true) return;
+  // The embedder this deployment already names: which model it embeds with is
+  // the deployer's choice, under Model in Settings, and the wizard leaves it.
+  const data = await post("/api/settings/vote-similarity", {
+    enabled: true,
+    provider: VALUES["vote_similarity.provider"],
+    model: VALUES["vote_similarity.model"] ?? "",
+    max_seeds: VALUES["vote_similarity.max_seeds"],
+  });
+  Object.assign(VALUES, data.values);
+}
+
+function voteSimilarityOn() {
+  const line = $("o-vote-similarity");
+  voteSimilarity ??= turnOnVoteSimilarity().then(
+    () => { line.hidden = true; },
+    (err) => {
+      voteSimilarity = null;
+      line.textContent = `Vote similarity is still off, so votes have no effect yet: ${err.message} ` +
+        "Turn it on under Model in Settings.";
+      line.hidden = false;
+    });
+  return voteSimilarity;
+}
+
 // Read on every visit to the step, so the plan is the one for the time it is
 // started at; a run already out is waited on instead.
 async function loadIssue() {
@@ -830,6 +843,7 @@ async function loadIssue() {
     $("o-issue-loading").hidden = true;
   }
   ISSUE = data;
+  if (data.sources) voteSimilarityOn();
   const saved = JSON.parse(sessionStorage.getItem(RUNNING_KEY) || "null");
   if (saved && Date.now() - saved.started < RUN_WAIT_MS) {
     plan(`The ${saved.date} ${saved.period} issue was started from this page.`);
@@ -876,6 +890,7 @@ async function startIssue() {
       setIssue("closed");
       return;
     }
+    await voteSimilarityOn();
     await startRun(ISSUE.period, ISSUE.date);
   } catch (err) {
     failIssue(err.message);
@@ -1078,7 +1093,7 @@ function render(state) {
 
 route();
 
-fetch("/api/settings")
+const SETTINGS_LOADED = fetch("/api/settings")
   .then((r) => (r.status === 401 ? Promise.reject(SESSION_EXPIRED) : r.json()))
   .then(render)
   .catch((e) => {

@@ -319,6 +319,10 @@ VOTE_SIMILARITY_ON = {
 }
 
 
+# What the first-issue step writes on a deployment with a source, voted or not.
+ON = (VOTE_SIMILARITY_ON,)
+
+
 class FakeSettings:
     """Stands in for `D1Settings` and records every write a step makes."""
 
@@ -842,12 +846,11 @@ def _both_untouched(fixture: Fixture) -> str | None:
 def _votes(*, up: tuple[int, ...] = (), down: tuple[int, ...] = ()) -> Callable:
     """A receipt: exactly these `CARDS` were stored, each with its verdict and a stamp.
 
-    A vote turns vote similarity on, so a receipt with any vote also wants that
-    one settings write and no other; with none it wants nothing written at all.
+    The step writes no setting: vote similarity is the first-issue step's.
     """
     wanted = {CARDS[i].url: ArticleState.ACCEPTED.value for i in up}
     wanted |= {CARDS[i].url: ArticleState.REJECTED.value for i in down}
-    settings = [VOTE_SIMILARITY_ON] if wanted else []
+    settings = []
 
     def receipt(fixture: Fixture) -> str | None:
         rows = fixture.articles.rows
@@ -864,11 +867,15 @@ def _votes(*, up: tuple[int, ...] = (), down: tuple[int, ...] = ()) -> Callable:
 _NOTHING_VOTED = _votes()
 
 
-def _runs(*keys: tuple[str, str | None]) -> Callable[[Fixture], str | None]:
-    """A receipt: `POST /run` took exactly these (period, date), in order; nothing was written."""
+def _runs(
+    *keys: tuple[str, str | None], settings: tuple[dict, ...] = ()
+) -> Callable[[Fixture], str | None]:
+    """A receipt: `POST /run` took exactly these (period, date), in order, and the
+    settings home only these writes; no source was written."""
 
     def receipt(fixture: Fixture) -> str | None:
-        if fixture.runs == list(keys) and fixture.calls == [] and not fixture.sources.writes:
+        ok = fixture.runs == list(keys) and fixture.calls == list(settings)
+        if ok and not fixture.sources.writes:
             return None
         return f"runs: {fixture.runs}, settings: {fixture.calls}, sources: {fixture.sources.writes}"
 
@@ -962,7 +969,7 @@ _CHECKS: list[Check] = [
             expect(visible($("#o-finish")), "no way out once the issue is out");
         """,
         sabotage_preload=RUN_EVENING,
-        receipt=_runs(ISSUE_RUN),
+        receipt=_runs(ISSUE_RUN, settings=ON),
     ),
     Check(
         id="first-issue-says-where-to-read-it",
@@ -980,7 +987,7 @@ _CHECKS: list[Check] = [
             expect(same(links, wanted), `links: ${{JSON.stringify(links)}}`);
         """,
         sabotage="""$("#o-result a").removeAttribute("href");""",
-        receipt=_runs(ISSUE_RUN),
+        receipt=_runs(ISSUE_RUN, settings=ON),
     ),
     Check(
         id="first-issue-shows-the-run-while-it-is-out",
@@ -1004,7 +1011,7 @@ _CHECKS: list[Check] = [
             expect(visible($("#o-finish")), "no way out while the run is out");
         """,
         sabotage="""notice().removeAttribute("aria-busy");""",
-        receipt=_runs(ISSUE_RUN),
+        receipt=_runs(ISSUE_RUN, settings=ON),
     ),
     Check(
         id="first-issue-says-why-its-run-failed",
@@ -1027,7 +1034,7 @@ _CHECKS: list[Check] = [
             expect(visible($("#o-finish")), "no way out after the failure");
         """,
         sabotage="""$("#o-start").hidden = true;""",
-        receipt=_runs(ISSUE_RUN),
+        receipt=_runs(ISSUE_RUN, settings=ON),
     ),
     Check(
         id="first-issue-tries-again-after-a-failure",
@@ -1047,7 +1054,7 @@ _CHECKS: list[Check] = [
               RUN_READ_MS);
             expect(!notice().classList.contains("err"), `an error: ${notice().textContent}`);
         """.replace("RUN_READ_MS", str(RUN_READ_MS)),
-        receipt=_runs(ISSUE_RUN, ISSUE_RUN),
+        receipt=_runs(ISSUE_RUN, ISSUE_RUN, settings=ON),
     ),
     Check(
         id="first-issue-skipped-starts-no-run",
@@ -1067,7 +1074,7 @@ _CHECKS: list[Check] = [
             await sleep(500);
         """,
         sabotage_preload=SKIP_STARTS,
-        receipt=_runs(),
+        receipt=_runs(settings=ON),
     ),
     Check(
         id="first-issue-before-the-morning-takes-yesterdays-evening",
@@ -1092,7 +1099,46 @@ _CHECKS: list[Check] = [
         """,
         # The run is dated today instead: the 20:00 tick would store over it.
         sabotage_preload=RUN_TODAY,
-        receipt=_runs(EARLY_RUN),
+        receipt=_runs(EARLY_RUN, settings=ON),
+    ),
+    Check(
+        id="first-issue-turns-on-vote-similarity-with-no-vote",
+        fixture="first-issue",
+        path=f"{PAGE}#first-issue",
+        act="""
+            await loaded();
+            await issueRead();
+            await voteSimilarity;
+        """,
+        script="""
+            const line = $("#o-vote-similarity");
+            expect(!visible(line), `refused: ${line.textContent}`);
+        """,
+        sabotage_preload=rewrite_post("/api/settings/vote-similarity", "body.enabled = false;"),
+        receipt=_calls(*ON),
+    ),
+    Check(
+        id="first-issue-starts-though-vote-similarity-is-refused",
+        fixture="first-issue",
+        path=f"{PAGE}#first-issue",
+        preload=rewrite_post("/api/settings/vote-similarity", 'body.max_seeds = "many";'),
+        act="""
+            await loaded();
+            await issueRead();
+            await waitFor(() => visible($("#o-vote-similarity")), "the refusal");
+            press("o-start");
+            await runEnded();
+        """,
+        script=f"""
+            const line = $("#o-vote-similarity").textContent;
+            expect(line.startsWith("Vote similarity is still off"), `line: ${{line}}`);
+            expect(line.includes("under Model in Settings"), `line: ${{line}}`);
+            const text = notice().textContent;
+            expect(text.includes("the {ISSUE_DATE} {ISSUE_PERIOD} issue, is published."),
+              `notice: ${{text}}`);
+        """,
+        sabotage="""$("#o-vote-similarity").hidden = true;""",
+        receipt=_runs(ISSUE_RUN),
     ),
     Check(
         id="first-issue-with-no-source-says-so",
@@ -1875,7 +1921,6 @@ _CHECKS: list[Check] = [
             expect(!notice().classList.contains("err"), `an error: ${text}`);
             expect(text.includes("Recorded 2 votes: 1 interested, 1 not interested."),
               `notice: ${text}`);
-            expect(text.includes("Vote similarity is on."), `notice: ${text}`);
         """,
         # Each vote sent as its opposite: the rows say so, whatever the notice counts.
         sabotage_preload=rewrite_post(
@@ -1913,24 +1958,6 @@ _CHECKS: list[Check] = [
             [...$$(".label", cardRows()[1])].pop().textContent = "Recorded · Not interested";
         """,
         receipt=_votes(up=(0,)),
-    ),
-    Check(
-        id="votes-step-turns-on-vote-similarity",
-        fixture="cards",
-        path=f"{PAGE}#votes",
-        act="""
-            await loaded();
-            await cardsDrawn();
-            vote(2, "up");
-            press("o-next");
-            await onStep("notify");
-            await waitFor(settled, "the result notice");
-        """,
-        script="""
-            expect(!notice().classList.contains("err"), `an error: ${notice().textContent}`);
-        """,
-        sabotage_preload=rewrite_post("/api/settings/vote-similarity", "body.enabled = false;"),
-        receipt=_votes(up=(2,)),
     ),
     Check(
         id="votes-step-skipped-writes-nothing",
@@ -2043,6 +2070,7 @@ _CHECKS: list[Check] = [
             await loaded();
             await skipTo("first-issue");
             await issueRead();
+            await voteSimilarity;
         """,
         script="""
             expect(progress() === "Step 6 of 6", `progress: ${progress()}`);
@@ -2052,7 +2080,7 @@ _CHECKS: list[Check] = [
             expect(!visible($("#o-finish")), "Finish shows before the run is started or skipped");
         """,
         sabotage="""location.hash = "#notify";""",
-        receipt=_calls(),
+        receipt=_calls(*ON),
     ),
     Check(
         id="skip-writes-nothing",

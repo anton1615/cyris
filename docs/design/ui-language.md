@@ -577,14 +577,17 @@ sources live in a file the app never writes, has no wizard at all: this page sen
   `/labels` answer is. A recorded card shows `Recorded · Interested` or `Recorded · Not interested`
   in the label role in place of its buttons, and a later `Next` does not send it again. A card whose
   article left its feed after the deal shows `No longer in the feed · not recorded` there instead, and
-  the notice counts it; the other votes are still recorded. Once a vote is
-  recorded, `Next` also turns vote similarity on through `/api/settings/vote-similarity` with the
-  embedder the deployment already stores, unless it is on already; when that save is refused, the
-  reader stays on the step, the notice says the votes were recorded and why vote similarity is still
-  off, and `Next` tries only that again. `Skip`, and `Next` with no card marked, write nothing.
+  the notice counts it; the other votes are still recorded. `Skip`, and `Next` with no card marked,
+  write nothing.
 - **First issue** builds an issue now rather than at the next publish hour. While the server says
   which issue it would be (`GET /api/onboarding/first-issue`), a small line marked `aria-busy` says
-  so, and `Back` and `Skip` show. Then one small line says what `Start the first issue`, a primary
+  so, and `Back` and `Skip` show. Once that answer names a source, the step turns vote similarity on
+  through `/api/settings/vote-similarity` with the embedder the deployment already stores, unless it
+  is on already, whether or not a card was voted on: the votes on later issues count only with it
+  on, and the reader is not asked, so no `Skip` before or on this step keeps it off. `Start` waits
+  for that save, since the run reads its settings as it starts. A refused save leaves `Start` in
+  reach: one small line below the plan says vote similarity is still off, why, and that it is
+  turned on under Model in Settings, and the next visit or `Start` tries it again. Then one small line says what `Start the first issue`, a primary
   button in `Next`'s place, builds: the date and period of today's latest publish hour already
   begun, so no later issue that day replaces it, or, while both of today's hours are still to come,
   yesterday's evening, with the line saying it is dated yesterday and naming today's two hours and
