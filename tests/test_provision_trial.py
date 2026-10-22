@@ -1,5 +1,6 @@
 """scripts/provision_trial.py: names a trial's resources and renders its three configs."""
 
+import importlib.util
 import re
 import shutil
 import subprocess
@@ -359,6 +360,121 @@ def test_the_templates_own_database_id_is_refused(tree: Path) -> None:
     assert done.returncode == 2
     assert "--d1-id" in done.stderr
     assert not any((tree / o).exists() for o in OUTPUTS)
+
+
+# --- satellites only
+
+SATELLITES = ["render-satellites", "--slug", "alice", "--kv-id", KV, "--d1-id", D1]
+
+
+def _provision(tree: Path):
+    spec = importlib.util.spec_from_file_location(
+        "provision_trial", tree / "scripts/provision_trial.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _mark_satellites(tree: Path) -> None:
+    (tree / ".env.trial-alice-wizard").write_text(
+        f"SATELLITES_ONLY=yes\nTRIAL_KV_ID={KV}\nTRIAL_D1_ID={D1}\n", encoding="utf-8"
+    )
+
+
+def test_satellites_render_the_vote_and_rss_configs_and_no_app(tree: Path) -> None:
+    done = run(tree, *SATELLITES)
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == [OUT_PROMOTE, OUT_RSS]
+    assert not (tree / OUT_APP).exists()
+    satellites = {rel: (tree / rel).read_bytes() for rel in (OUT_PROMOTE, OUT_RSS)}
+    (tree / OUT_PROMOTE).unlink()
+    (tree / OUT_RSS).unlink()
+    render(tree)
+    assert {rel: (tree / rel).read_bytes() for rel in (OUT_PROMOTE, OUT_RSS)} == satellites
+
+
+def test_satellites_need_no_domain_account_or_image(tree: Path) -> None:
+    done = run(tree, *SATELLITES, "--domain", "example.com")
+
+    assert done.returncode == 2
+    assert "--domain" in done.stderr
+    _none_written(tree)
+
+
+def test_satellites_refuse_the_templates_own_database_id(tree: Path) -> None:
+    old_id = _toml(ROOT / RSS)["d1_databases"][0]["database_id"]
+    args = list(SATELLITES)
+    args[args.index("--d1-id") + 1] = old_id
+
+    done = run(tree, *args)
+
+    assert done.returncode == 2
+    _none_written(tree)
+
+
+def test_satellites_refuse_a_slug_already_rendered_as_a_full_trial(tree: Path) -> None:
+    render(tree)
+    before = listing(tree)
+
+    done = run(tree, *SATELLITES)
+
+    assert done.returncode == 1
+    assert OUT_APP in done.stderr
+    assert listing(tree) == before
+
+
+def test_a_satellites_slug_loads_without_an_app_config(tree: Path) -> None:
+    assert run(tree, *SATELLITES).returncode == 0
+    _mark_satellites(tree)
+
+    configs = _provision(tree).load_rendered("alice")
+
+    assert set(configs) == {"promote", "rss"}
+    assert configs["rss"]["d1_databases"][0]["database_id"] == D1
+    assert configs["promote"]["kv_namespaces"][0]["id"] == KV
+
+
+def test_a_satellites_slug_is_refused_by_the_full_render(tree: Path) -> None:
+    _mark_satellites(tree)
+
+    done = render(tree)
+
+    assert done.returncode == 1
+    assert "render-satellites" in done.stderr
+    _none_written(tree)
+
+
+def test_a_satellites_slug_missing_a_config_is_told_to_render_satellites(tree: Path) -> None:
+    _mark_satellites(tree)
+    provision = _provision(tree)
+
+    with pytest.raises(provision.ProductionNameError) as refused:
+        provision.load_rendered("alice")
+
+    assert str(refused.value).startswith(f"{OUT_PROMOTE} not found")
+    assert "`provision_trial.py render-satellites` first" in str(refused.value)
+
+
+def test_a_full_trial_without_its_app_config_is_still_refused(tree: Path) -> None:
+    assert run(tree, *SATELLITES).returncode == 0
+    provision = _provision(tree)
+
+    with pytest.raises(provision.ProductionNameError, match=re.escape(f"{OUT_APP} not found")) as e:
+        provision.load_rendered("alice")
+    assert "`provision_trial.py render` first" in str(e.value)
+
+
+def test_a_satellites_config_naming_production_is_refused(tree: Path) -> None:
+    assert run(tree, *SATELLITES).returncode == 0
+    _mark_satellites(tree)
+    text = (tree / OUT_RSS).read_text(encoding="utf-8")
+    (tree / OUT_RSS).write_text(text.replace('name = "cyris-rss-alice"', 'name = "cyris-rss"'))
+    provision = _provision(tree)
+
+    with pytest.raises(provision.ProductionNameError, match="a production name"):
+        provision.load_rendered("alice")
 
 
 # --- drifted templates

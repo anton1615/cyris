@@ -12,10 +12,17 @@ Every rewrite is an exact-line replacement that must match exactly once. A
 template that drifted makes the script stop; re-serializing the parsed TOML
 would drop the comments the templates carry.
 
+`render-satellites` renders the vote and rss configs alone, for a slug the
+wizard provisions with `--satellites` (its state says SATELLITES_ONLY=yes): the
+D1, KV and Workers an app needs when that app is deployed outside these scripts
+(docs/trial-deployment.md). With no app config on disk, no trial script can
+deploy a second app Worker under that slug, and `render` refuses to write one.
+
 Usage:
   provision_trial.py names  --slug S --pages-suffix HEX16
   provision_trial.py render --slug S --domain D --account-id ID --image-digest sha256:HEX
                             --kv-id ID --d1-id UUID
+  provision_trial.py render-satellites --slug S --kv-id ID --d1-id UUID
 """
 
 import argparse
@@ -36,6 +43,7 @@ RSS = "workers/rss/wrangler.toml"
 _LABEL = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
 _DOMAIN = rf"^{_LABEL}(\.{_LABEL})+$"
 SLUG = r"[a-z][a-z0-9]{1,19}"
+SATELLITES = ("promote", "rss")
 
 
 class DriftError(Exception):
@@ -246,46 +254,52 @@ def production_names() -> set[str]:
 
 
 def load_rendered(slug: str) -> dict[str, dict]:
-    """A trial's three rendered configs, parsed, once each names only this trial's resources.
+    """A trial's rendered configs, parsed, once each names only this trial's resources.
 
     The scripts that act on a live trial (`reset_trial.py`, `deploy_trial.py`) call
     this before any wrangler command, so a slug that fails the naming rule, a config
     that was never rendered, or one edited to name a production resource stops them.
+    A satellites-only slug has no app config, so its answer has no "app" entry.
     """
     if not re.fullmatch(SLUG, slug):
         raise ProductionNameError(f"slug {slug!r} must match {SLUG}")
     want = _names(slug, _template_names())
     taken = production_names()
+    paths = rendered_paths(slug)
+    satellites = satellites_only(slug)
+    render = "render-satellites" if satellites else "render"
     out: dict[str, dict] = {}
-    for kind, rel in rendered_paths(slug).items():
+    for kind in SATELLITES if satellites else tuple(paths):
+        rel = paths[kind]
         try:
             out[kind] = tomllib.loads((ROOT / rel).read_text(encoding="utf-8"))
         except FileNotFoundError:
             raise ProductionNameError(
                 f"{rel} not found: run this from the checkout that provisioned {slug},"
-                " or render its configs with `provision_trial.py render` first"
+                f" or render its configs with `provision_trial.py {render}` first"
             ) from None
     d1 = (out["rss"].get("d1_databases") or [{}])[0]
     kv = (out["promote"].get("kv_namespaces") or [{}])[0]
-    containers = out["app"].get("containers") or [{}]
     named = {
-        f"{rendered_paths(slug)['app']} name": (out["app"].get("name"), want["app"]),
-        f"{rendered_paths(slug)['app']} containers[0].name": (
+        f"{paths['promote']} name": (out["promote"].get("name"), want["promote"]),
+        f"{paths['rss']} name": (out["rss"].get("name"), want["rss"]),
+        f"{paths['rss']} database_name": (d1.get("database_name"), want["d1"]),
+    }
+    if "app" in out:
+        containers = out["app"].get("containers") or [{}]
+        named[f"{paths['app']} name"] = (out["app"].get("name"), want["app"])
+        named[f"{paths['app']} containers[0].name"] = (
             containers[0].get("name"),
             want["container"],
-        ),
-        f"{rendered_paths(slug)['promote']} name": (out["promote"].get("name"), want["promote"]),
-        f"{rendered_paths(slug)['rss']} name": (out["rss"].get("name"), want["rss"]),
-        f"{rendered_paths(slug)['rss']} database_name": (d1.get("database_name"), want["d1"]),
-    }
+        )
     for label, (got, expected) in named.items():
         if got in taken:
             raise ProductionNameError(f"{label} is {got!r}, a production name")
         if got != expected:
             raise ProductionNameError(f"{label} is {got!r}, expected {expected!r}")
     for label, got in (
-        (f"{rendered_paths(slug)['rss']} database_id", d1.get("database_id")),
-        (f"{rendered_paths(slug)['promote']} kv_namespaces[0].id", kv.get("id")),
+        (f"{paths['rss']} database_id", d1.get("database_id")),
+        (f"{paths['promote']} kv_namespaces[0].id", kv.get("id")),
     ):
         if not got or got in taken:
             raise ProductionNameError(f"{label} is {got!r}, production's or empty")
@@ -304,6 +318,11 @@ def env_file(rel: str) -> dict[str, str]:
 def wizard_state(slug: str) -> dict[str, str]:
     """The wizard's saved inputs, ids and image for a trial."""
     return env_file(f".env.trial-{slug}-wizard")
+
+
+def satellites_only(slug: str) -> bool:
+    """Whether the wizard provisioned this slug without an app Worker (`--satellites`)."""
+    return wizard_state(slug).get("SATELLITES_ONLY") == "yes"
 
 
 def wrangler(config: str, *args: str) -> list[str]:
@@ -345,11 +364,20 @@ def cmd_render(args, parser) -> int:
         parser.error("argument --d1-id: that is the template's database id, not a trial's own")
     t = _names(args.slug, n)
     paths = rendered_paths(args.slug)
-    outputs = {
-        paths["app"]: _render_app(args, n, t),
-        paths["promote"]: _render_promote(args, n, t),
-        paths["rss"]: _render_rss(args, n, t),
-    }
+    satellites = args.command == "render-satellites"
+    if satellites and (ROOT / paths["app"]).exists():
+        raise DriftError(
+            f"{paths['app']} exists, so {args.slug} was rendered as a full trial;"
+            " a satellites-only slug has no app config"
+        )
+    if not satellites and satellites_only(args.slug):
+        raise DriftError(
+            f".env.trial-{args.slug}-wizard says SATELLITES_ONLY=yes: render its configs"
+            " with `render-satellites`, since an app config would give it an app Worker"
+        )
+    outputs = {} if satellites else {paths["app"]: _render_app(args, n, t)}
+    outputs[paths["promote"]] = _render_promote(args, n, t)
+    outputs[paths["rss"]] = _render_rss(args, n, t)
     for rel, text in outputs.items():
         (ROOT / rel).write_text(text, encoding="utf-8")
         print(rel)
@@ -360,7 +388,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     slug = _pattern(SLUG, "lowercase letter then 1-19 lowercase letters or digits")
-    for name in ("names", "render"):
+    for name in ("names", "render", "render-satellites"):
         p = sub.add_parser(name)
         p.add_argument("--slug", required=True, type=slug)
         if name == "names":
@@ -368,13 +396,18 @@ def build_parser() -> argparse.ArgumentParser:
                 "--pages-suffix", required=True, type=_pattern(r"[0-9a-f]{16}", "16 lowercase hex")
             )
         else:
-            p.add_argument("--domain", required=True, type=_pattern(_DOMAIN, "lowercase hostname"))
-            p.add_argument("--account-id", required=True, type=_pattern(r"[0-9a-f]{32}", "32 hex"))
-            p.add_argument(
-                "--image-digest",
-                required=True,
-                type=_pattern(r"sha256:[0-9a-f]{64}", "sha256:<64 lowercase hex>"),
-            )
+            if name == "render":
+                p.add_argument(
+                    "--domain", required=True, type=_pattern(_DOMAIN, "lowercase hostname")
+                )
+                p.add_argument(
+                    "--account-id", required=True, type=_pattern(r"[0-9a-f]{32}", "32 hex")
+                )
+                p.add_argument(
+                    "--image-digest",
+                    required=True,
+                    type=_pattern(r"sha256:[0-9a-f]{64}", "sha256:<64 lowercase hex>"),
+                )
             p.add_argument("--kv-id", required=True, type=_pattern(r"[0-9a-f]{32}", "32 hex"))
             p.add_argument(
                 "--d1-id",
