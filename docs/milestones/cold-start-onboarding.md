@@ -1,6 +1,6 @@
 ---
-status: accepted
-delivered:
+status: done
+delivered: dff17391
 depends: []
 ---
 
