@@ -7,7 +7,9 @@ stage that would wait for a key reads end-of-file instead: a "no" at every y/N g
 
 import re
 import shutil
+import signal
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,6 +44,9 @@ case "$*" in
     cp "$sources" "$HOME/pushed-sources.yaml"
     echo "D1 database 0948e71f-2374-4e4e-8f30-44890139011b" ;;
   *"cyris sources push"*) echo "uv $*" >> "$HOME/push.calls" ;;
+  *"cyris doctor"*)
+    echo "uv $*" >> "$HOME/doctor.calls"
+    [[ -f "$HOME/doctor.out" ]] && cat "$HOME/doctor.out" ;;
 esac
 """
 
@@ -140,6 +145,36 @@ class Rig:
             (self.repo / f".env.trial-{SLUG}-wizard").read_text(),
         )
 
+    def abort_from_1(self) -> None:
+        """`--from 1`, then Ctrl-C at the banner: the state is saved with no stage done."""
+        state = self.repo / f".env.trial-{SLUG}-wizard"
+        wizard = subprocess.Popen(
+            ["bash", str(self.repo / "scripts/trial-wizard.sh"), SLUG, "--from", "1"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=self.env,
+            cwd=self.repo,
+        )
+        deadline = time.monotonic() + 30
+        while "STAGES_DONE=" not in state.read_text().splitlines():
+            assert time.monotonic() < deadline, "--from 1 never saved its progress"
+            time.sleep(0.05)
+        wizard.send_signal(signal.SIGINT)
+        wizard.wait(timeout=30)
+
+    def new_slug(self) -> "Rig":
+        """A state holding only what a satellites stage 2 asks, so Enter keeps each answer."""
+        (self.repo / f".env.trial-{SLUG}-wizard").write_text(
+            f"ACCOUNT_ID={ACCOUNT}\nOUTPUT_LANGUAGE=en\nMAX_ARTICLES=50\n"
+        )
+        return self
+
+    def satellites(self) -> "Rig":
+        with (self.repo / f".env.trial-{SLUG}-wizard").open("a", encoding="utf-8") as state:
+            state.write("SATELLITES_ONLY=yes\n")
+        return self
+
     def done(self) -> str:
         state = (self.repo / f".env.trial-{SLUG}-wizard").read_text()
         return next(ln for ln in state.splitlines() if ln.startswith("STAGES_DONE="))
@@ -219,7 +254,9 @@ def test_from_keeps_the_values_already_saved(rig) -> None:
 def test_a_bad_mode_prints_the_usage(rig, args: tuple[str, ...]) -> None:
     run = rig(_stages(14)).run(*args)
     assert run.code == 1
-    assert "Usage: bash scripts/trial-wizard.sh <slug> [receipts | --from N]" in run.out
+    assert (
+        "Usage: bash scripts/trial-wizard.sh <slug> [receipts | --from N | --satellites]" in run.out
+    )
 
 
 def test_the_login_wait_needs_no_keypress_and_shows_the_time(rig) -> None:
@@ -366,3 +403,118 @@ def test_stage_14_stops_when_the_poll_reports_no_feed_count(rig) -> None:
     assert "/poll answered without a feed count." in run.out
     assert run.code == 1
     assert "14" not in r.done().removeprefix("STAGES_DONE=").split(",")
+
+
+# --- satellites only
+
+
+def test_satellites_are_recorded_on_a_new_slug_and_ask_for_no_domain(rig) -> None:
+    r = rig("").new_slug()
+
+    # The banner, stage 1's login (no) and its pause, then Enter keeps each saved input.
+    run = r.run("--satellites", stdin="\nn\n\n\n\n\n")
+
+    assert "SATELLITES_ONLY=yes" in run.state.splitlines()
+    assert "▸ Stage 1/17 · Before you start: the wrangler login" in run.out
+    assert "Zero Trust" not in run.out
+    assert "Domain on the trial account" not in run.out
+    assert "Tester's email" not in run.out
+    assert "cannot see account" in run.out
+
+
+def test_a_full_trial_in_progress_cannot_turn_satellites_only(rig) -> None:
+    run = rig(_stages(11)).run("--satellites")
+
+    assert run.code == 1
+    assert "cannot turn satellites-only" in run.out
+    assert "SATELLITES_ONLY" not in run.state
+
+
+def test_a_full_trial_aborted_after_from_1_cannot_turn_satellites_only(rig) -> None:
+    r = rig(_stages(14))
+    r.abort_from_1()
+    assert r.done() == "STAGES_DONE="
+
+    run = r.run("--satellites", stdin=START)
+
+    assert run.code == 1
+    assert "cannot turn satellites-only" in run.out
+    assert "SATELLITES_ONLY" not in run.state
+    assert "DOMAIN=example.com" in run.state.splitlines()
+
+
+@pytest.mark.parametrize("field", ["DOMAIN", "IMAGE_TAG", "IMAGE_DIGEST"])
+def test_any_full_trial_field_keeps_a_slug_from_turning_satellites_only(rig, field) -> None:
+    r = rig("").new_slug()
+    with (r.repo / f".env.trial-{SLUG}-wizard").open("a", encoding="utf-8") as state:
+        state.write(f"{field}=x\n")
+
+    run = r.run("--satellites")
+
+    assert run.code == 1
+    assert "cannot turn satellites-only" in run.out
+    assert "SATELLITES_ONLY" not in run.state
+
+
+def test_an_app_config_keeps_a_slug_from_turning_satellites_only(rig) -> None:
+    r = rig("").new_slug()
+    (r.repo / f"wrangler.trial-{SLUG}.toml").write_text('name = "cyris-app-t1"\n')
+
+    run = r.run("--satellites")
+
+    assert run.code == 1
+    assert "cannot turn satellites-only" in run.out
+    assert "SATELLITES_ONLY" not in run.state
+
+
+def test_satellites_render_no_app_config(rig) -> None:
+    run = rig(_stages(7)).satellites().run(stdin=START)
+
+    render = next(ln for ln in run.calls.splitlines() if "provision_trial.py render" in ln)
+    assert render == (
+        f"uv run python scripts/provision_trial.py render-satellites --slug {SLUG}"
+        f" --kv-id {'c' * 32} --d1-id {D1_ID}"
+    )
+
+
+def test_a_satellites_pass_deploys_no_app_and_skips_mail_and_hand_over(rig) -> None:
+    r = rig(_stages(10)).satellites()
+    home = Path(r.env["HOME"])
+    (home / "doctor.out").write_text("✓ settings — every key in D1\n")
+    # Stage 11's pause, stage 13's push and pause, stage 14's declined deploy, the
+    # rss URL and its pause, then the receipts' pause.
+    answers = ["", *STAGE_13, "n", RSS_URL, "", ""]
+
+    run = r.run(stdin=_answers(*answers))
+
+    assert run.code == 0, run.out
+    for skipped in (12, 15, 16):
+        assert f"▸ Stage {skipped}/17" not in run.out
+    assert "▸ Stage 17/17 · Receipts" in run.out
+    assert r.done() == f"STAGES_DONE={_stages(16)}"
+    assert "wrangler.trial-t1.toml" not in run.calls.replace("/wrangler.trial-t1.toml", "")
+    assert "No app Worker to redeploy" in run.out
+    assert " -D - " not in run.calls
+    assert f"uv run python scripts/reset_trial.py --slug {SLUG}" in run.calls
+    doctor = (home / "doctor.calls").read_text()
+    assert "cyris doctor" in doctor and "--deployment" not in doctor
+    assert "✓ doctor finds every required setting in D1" in run.out
+
+
+def test_a_satellites_slug_resumed_without_the_flag_stays_satellites(rig) -> None:
+    run = rig(_stages(11)).satellites().run(stdin=_answers(*STAGE_13, "n", RSS_URL, "", ""))
+
+    assert "▸ Stage 12/17" not in run.out
+    assert "▸ Stage 13/17 · First boot: settings" in run.out
+
+
+def test_receipts_warn_when_doctor_names_a_missing_setting(rig) -> None:
+    r = rig(_stages(16)).satellites()
+    (Path(r.env["HOME"]) / "doctor.out").write_text(
+        "✗ settings — missing in D1: digest.preference_source\n"
+    )
+
+    run = r.run("receipts")
+
+    assert "doctor's settings check did not pass" in run.out
+    assert "✓ doctor finds every required setting" not in run.out
