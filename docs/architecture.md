@@ -516,7 +516,10 @@ table `schema.sql` creates must appear in the rows below, so a new table cannot 
 The article-store tables and the RSS buffer share one database (`cyris-rss`) on purpose
 ([ADR-0012](decisions/0012-the-app-deploys-from-the-repo-root.md)). A trial deployment (`scripts/trial-wizard.sh`, which renders its configs with
 `scripts/provision_trial.py`; `docs/trial-deployment.md`) shares nothing: its rss Worker binds the
-trial's own D1, the one its app uses, named like its app Worker. The wizard keeps a trial's inputs,
+trial's own D1, the one its app uses, named like its app Worker. A satellites-only slug
+(`--satellites`) has the same D1, KV, Pages project, rss and vote Workers but no app Worker: they
+serve an app deployed outside these scripts, whose state is then that D1's and nowhere else. This
+repository deploys no such app yet. The wizard keeps a trial's inputs,
 ids and progress in `.env.trial-<slug>-wizard` at the repo root, beside the trial's secrets files;
 those secrets files are the only copy, since Cloudflare cannot read a secret back. Only
 `scripts/deploy_trial.py` changes that file after the wizard: it records the image it staged

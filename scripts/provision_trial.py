@@ -14,9 +14,9 @@ would drop the comments the templates carry.
 
 `render-satellites` renders the vote and rss configs alone, for a slug the
 wizard provisions with `--satellites` (its state says SATELLITES_ONLY=yes): the
-D1, KV and Workers an app needs when the app is not a trial app Worker, such as
-the Preview of production's own (docs/trial-deployment.md). With no app config
-on disk, no trial script can deploy a second app Worker under that slug.
+D1, KV and Workers an app needs when that app is deployed outside these scripts
+(docs/trial-deployment.md). With no app config on disk, no trial script can
+deploy a second app Worker under that slug, and `render` refuses to write one.
 
 Usage:
   provision_trial.py names  --slug S --pages-suffix HEX16
