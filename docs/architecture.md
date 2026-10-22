@@ -588,6 +588,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Digest archive origin | B | `DIGEST_ORIGIN` (Worker-only; Pages origin the Worker proxies). Optional since 2026-09-06: unset, it is `<CYRIS_PROMOTE_PAGES_PROJECT>.pages.dev`, so only a custom domain needs to say it twice | done |
 | **Email Routing: domain + route** | **B** | Cloudflare dashboard, by hand | **stays manual** — needs your own domain; the one step a Deploy button cannot automate |
 | LLM API keys, four Cloudflare tokens (D1 + Pages + Workers Scripts Read + Email Sending, embedding, Workers AI LLM — also the Clef vote order's, and AI Gateway Run for the `ai_gateway` provider), one Worker bearer, one vote token, the `/settings` login token (`CYRIS_UI_TOKEN`, read by the Worker only) | C (the vote token was rendered into every digest published before 2026-09-01; a deployment that published none has no such pages) | `.env` locally, **`cyris-app` Worker secrets in production**; `CLOUDFLARE_CONTAINERS_TOKEN` in GitHub Actions secrets | done — see below. `CLOUDFLARE_CONTAINERS_TOKEN` is instead a GitHub Actions secret for the CI release workflow; it never enters the container. `CYRIS_UI_TOKEN` is also a GitHub Actions secret, a copy that `deploy.yml`'s `verify` step alone reads to ask production which image it serves, so rotating it means replacing both |
+| A Preview's deployment identity and secrets (`staging`) | B, C | **that Preview's own secrets** on `cyris-app`, set with `--secrets-file` on `wrangler preview` or `wrangler preview secret put <NAME> --name staging`; never production's values, and never a Previews Base imported from production | added 2026-10-22 — a home apart from production's Worker secrets, which a Preview does not inherit. The rule and the failure it prevents: *Where a Preview's settings live* below |
 | RSS + newsletter source list | D | **D1 `sources`**, written by `/settings` and by `cyris sources push`; `sources.yaml` for a `json` deployment | done — a table whose every source is unfetchable stops the run, while an empty table is the waiting-for-onboarding state above and stops nothing, so `/settings` retires the last source like any other; it still refuses an RSS source with no feed URL or a newsletter with no `email_match` |
 | **`email_match` per source** | **D** | inside the same `sources` row, same writer | same — an email sender is source data, not deploy config |
 | LLM provider + model | D | **D1 `settings`**, written by `/settings`; `cyris.toml` for a `json` deployment | done — the provider is `anthropic`, `gemini`, `openai`, `workers_ai`, `ai_gateway` or `"none"`. `ai_gateway` is one `POST` to the gateway's `google-ai-studio` endpoint with the model as `google/<model>`; the provider's key is stored in the gateway (BYOK) and the request carries none, and only `google/*` models are parsed (why: `adapters/ai_gateway_client.py`). It adds no setting of any grade: the token is `CLOUDFLARE_AIG_TOKEN` (AI Gateway Run, sent as `cf-aig-authorization`, never falling back to a Workers AI token, which the gateway refuses); the account is `CLOUDFLARE_ACCOUNT_ID`; and the gateway is `default`, named in the URL. Its cost is priced from the bare model id like every other provider; the gateway's own log keeps a second, Cloudflare-computed figure. Neither figure caps spend. `"none"` is excerpt-only by choice: no client is built, no key is needed, `doctor` reports it ok and the run is not flagged degraded. A missing provider is a missing setting and stops the run |
@@ -669,6 +670,52 @@ Which credentials share one value and which stay separate — `rss` and `newslet
 `CYRIS_WORKER_TOKEN`, `promote` keeps `CYRIS_PROMOTE_TOKEN`, and the embedding token stays its own —
 and why the dividing line is published-vs-secret, not one-value-vs-three:
 [ADR-0008](decisions/0008-worker-bearers-split-by-published-versus-secret.md).
+
+### Where a Preview's settings live (2026-10-22)
+
+A Preview of `cyris-app` (`[previews]` in `wrangler.toml`, such as `staging`) inherits none of
+production's Worker secrets or `[vars]`
+([Configuration](https://developers.cloudflare.com/workers/previews/configuration/)). Its grade-B
+and grade-C values are that Preview's own secrets:
+
+* `--secrets-file` on `wrangler preview` sets them with a deployment.
+* `wrangler preview secret put <NAME> --name staging` sets them one at a time.
+* Every later deployment of the same Preview keeps them.
+* A plain variable passed with `--var` lasts only the deployment it came with.
+
+Cloudflare's Previews Base is a second store. Its secrets are copied into every Preview when that
+Preview is created, a branch-named one included, and a later Base change reaches only Previews
+created after it.
+
+**A Preview is never given production's values.** That rules out four kinds:
+
+* production's `CYRIS_STORE_DATABASE_ID`;
+* production's Pages project (`CYRIS_PROMOTE_PAGES_PROJECT`, `DIGEST_ORIGIN`);
+* production's promote, newsletter or rss Worker URLs, or the bearers that open them;
+* production's Discord webhook or mail addresses in the `settings` of the D1 the Preview reads.
+
+**The Previews Base is never filled by importing production's settings**, which the dashboard
+offers as one step, because every Preview created after it would start with them.
+
+The failure would be silent, because every write lands somewhere real. Suppose a staging
+`POST /run` reads production's D1:
+
+* It takes the window's pending articles, so production's own `--if-due` run for that window finds them
+  stored and no longer pending, and ends `no_pending` or publishes a thinner issue.
+* It stores its own `digests` row for the issue and publishes its pages to production's Pages
+  project.
+* It writes an `ok` row to `digest_runs`. The app Worker's catch-up (`planTick`, under *Where grade D
+  lives* below) reads that row as the period done, so a production run lost that hour is not retried. `--if-due`
+  itself never reads `digest_runs`; the catch-up is what the row misleads.
+* With production's Worker URLs it drains and acknowledges production's vote and newsletter
+  queues, which hand over each item once.
+* With production's notification targets, the production reader gets a digest that is not
+  theirs.
+
+A Preview's durable state takes a §4 row like any other. The first `staging` deployment runs with
+`CYRIS_STORE_BACKEND=json`, given as a `--var`, and keeps nothing durable: its container's disk
+does not outlive the instance, so §4 has no row for it. A D1 of its own gets its row when it is
+added.
 
 ### Where grade D lives (M2, 2026-08-27; one home per backend since 2026-09-19)
 
