@@ -1094,6 +1094,7 @@ on main after the change lands, citing the hash it landed as.
 | 2026-10-20 | `d7f18958`..`e709f30b` | Help on /settings and /onboarding is in view, never folded; a setting that waits on another is disabled with a reason line that is its `aria-describedby`, and `GET /api/settings` sends `clef_ready`, a boolean from `bootstrap.clef_credentials()`, so Clef is offered only where a run could call it. |
 | 2026-10-20 | `67fef3e7` | The onboarding feed list grows to 62 feeds and six topics (`science` added), toward blogs and columns: `news` falls from 17 of 27 entries to 18 of 62 (§5). |
 | 2026-10-22 | `96f1c25a`..`2f3cc622` | Catch-up tick: off a digest hour, `planTick` reads D1 `digest_runs` and, while the last digest hour began less than `CATCH_UP_HOURS` (3, grade A) ago and holds no `ok`, non-dry run of its period, starts the run with that period and the hour's own date, so a run Cloudflare kills by replacing its Durable Object costs an hour, not an issue (§5, §6). |
+| 2026-10-22 | `1f4af750` | The onboarding first-issue step, not the votes step, turns vote similarity on (§5, §6): once its answer names a source, voted or not, and before any run it starts, so no Skip leaves a deployment's votes without effect; a refused save leaves Start in reach. |
 
 ## 8. Where the core never changes
 
