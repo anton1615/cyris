@@ -1166,6 +1166,7 @@ on main after the change lands, citing the hash it landed as.
 | 2026-10-22 | `1f4af750` | The onboarding first-issue step, not the votes step, turns vote similarity on (§5, §6): once its answer names a source, voted or not, and before any run it starts, so no Skip leaves a deployment's votes without effect; a refused save leaves Start in reach. |
 | 2026-10-22 | `26a8aa80`..`1f683414` | Satellites-only trial slugs (§4): `trial-wizard.sh <slug> --satellites` gives a slug its own D1, KV, Pages project, vote and rss Workers but no app Worker, so no hourly cron of its own runs against that D1; the satellites serve an app deployed outside these scripts, `render` and `deploy_trial.py` refuse such a slug, and `--satellites` refuses any trace of a full trial. |
 | 2026-10-22 | `c1b9cef1`..`c1ae4f02` | A `staging` Workers Preview of `cyris-app` (§5, §6, ADR-0021): `wrangler.toml` declares `previews.containers` and the `CYRIS` binding with no deployment identity, Previews answer only on a Preview-only custom domain while `preview_urls` stays off, a Preview's settings live in its own Preview secrets and never carry production's D1, Pages, Worker URLs or notification targets, and the digest-link host skips Preview-only domains. |
+| 2026-10-23 | `636a19fa` | Satellites-only trial slugs removed again (§4), reverting `26a8aa80`..`1f683414`: release staging stays on `trial1`, a full trial with its own cron, so no slug needs satellites without an app Worker. The staging Preview config and ADR-0021 stay. |
 
 ## 8. Where the core never changes
 
