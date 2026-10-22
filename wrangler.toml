@@ -11,7 +11,10 @@ compatibility_date = "2026-06-01"
 # specific hostname or Pages project in this file. Custom domains are attached
 # from the Cloudflare dashboard or API — after that, this file is no longer the
 # sole source of truth for routing. Preview URLs stay off: each is another
-# public hostname.
+# public hostname. The same switch would give the `staging` Preview below a
+# workers.dev URL, but it opens one for every production version with it, so
+# that Preview is reached on a Preview-only custom domain from the dashboard
+# (docs/decisions/0021-previews-answer-only-on-a-preview-only-custom-domain.md).
 workers_dev = true
 preview_urls = false
 
@@ -84,3 +87,31 @@ name = "CYRIS"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["CyrisContainer"]
+
+# The Preview `staging`: this Worker under its own URL, Durable Object namespace
+# and container application, where a checkout is tried before production gets
+# it. It deploys from a copy of this file with the commit added as `image_vars`
+# (docs/architecture.md §6); deployed from this file, /api/build answers "".
+# A Preview takes the migrations and observability above but no container and
+# no binding, so both are stated again. Cron Triggers never reach a Preview: it
+# runs a digest only on POST /run.
+#
+# No [previews.vars]: CYRIS_APP_WORKER_NAME would name this Worker, whose custom
+# domains are production's, and a Preview run would link its digest to them.
+[[previews.containers]]
+class_name = "CyrisContainer"
+# Not "./Dockerfile": derive-wrangler-config.sh and provision_trial.py swap that
+# line for a registry image and refuse unless it occurs once. A Preview builds
+# from the checkout, so this line is not theirs to swap.
+image = "Dockerfile"
+max_instances = 2
+instance_type = "basic"
+
+# Stated again for the same reason as production's: unconstrained, a Preview
+# container can start in Hong Kong, where Gemini and OpenAI refuse the API.
+[previews.containers.constraints]
+regions = ["WNAM", "ENAM"]
+
+[[previews.durable_objects.bindings]]
+class_name = "CyrisContainer"
+name = "CYRIS"

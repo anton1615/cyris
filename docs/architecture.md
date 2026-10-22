@@ -571,8 +571,8 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Onboarding poll wait: `POLL_CONCURRENCY` 4 and `POLL_FEED_TIMEOUT_SECONDS` 20 per batch, plus `POLL_WRITE_MARGIN_SECONDS` 30 | A | `adapters/fetch/rss_worker_source.py` | added 2026-10-20 — a mirror of the Worker's `CONCURRENCY` and `FETCH_TIMEOUT_MS`, which bound a `POST /poll` at ceil(N / 4) × 20 seconds for N feeds (60 for 12), with the margin for its buffer writes; `tests/test_onboarding_cards.py` holds the two equal. The wizard's feeds screen warns, without stopping the reader, once more feeds are picked than one minute of polling fetches (`SLOW_PICKS` = 12 in `static/onboarding.js`), and `tests/test_onboarding_page.py` holds it to these two. A poll that outlasts it, or fails, still deals what the buffer already held, and the step says the poll failed |
 | Project link and favicon on the rendered pages | A | `PROJECT_URL` and `FAVICON` in `adapters/output/html_digest.py` | done 2026-10-02 — the upstream project's site, not this deployment's: a fork's pages still credit where they came from, so neither a deployment nor a reader setting changes it. The favicon is a copy of `website/assets/favicon.svg`, because the image ships `src/` only; `tests/test_ui_spec.py` holds the two copies equal, and every publish deploys it, on the manifest path and the local-directory path alike |
 | Image's build commit | A | `GIT_SHA` build arg, baked as `CYRIS_GIT_SHA` by the `Dockerfile` | unchanged — the release workflow supplies it; a local `docker build` legitimately leaves it empty |
-| Container placement regions | A | `[containers.constraints] regions` in `wrangler.toml` (`WNAM`, `ENAM`) | unchanged — Gemini and OpenAI refuse by egress location, and unconstrained placement landed in one of theirs; `tests/test_deploy_inputs.py` keeps `APAC` out |
-| Container image name | A | `[[containers]] name` in `wrangler.toml`, mirrored by `IMAGE_NAME` in both workflows | done 2026-09-21 — stated rather than derived. A trial config from `scripts/provision_trial.py` renames the container application while its image stays in the tracked repository, so the name differing there is not drift. Left unset, wrangler names the repository after the Worker plus the class (`cyris-app-cyriscontainer`) while the workflows said `cyris-app`, so a local `wrangler deploy` and a CI deploy pushed to two repositories and each pointed the one container application at an image the other had never written — a CI deploy after a local one serves the older code with a green log. `tests/test_deploy_inputs.py` holds all three names to one string |
+| Container placement regions | A | `[containers.constraints] regions` in `wrangler.toml` (`WNAM`, `ENAM`), and again in `[previews.containers.constraints]` | unchanged — Gemini and OpenAI refuse by egress location, and unconstrained placement landed in one of theirs; `tests/test_deploy_inputs.py` keeps `APAC` out. A Preview inherits no container, so the `staging` Preview states them twice; `tests/test_preview_config.py` holds its container equal to production's |
+| Container image name | A | `[[containers]] name` in `wrangler.toml`, mirrored by `IMAGE_NAME` in both workflows | done 2026-09-21 — stated rather than derived. A trial config from `scripts/provision_trial.py` renames the container application while its image stays in the tracked repository, so the name differing there is not drift. Left unset, wrangler names the repository after the Worker plus the class (`cyris-app-cyriscontainer`) while the workflows said `cyris-app`, so a local `wrangler deploy` and a CI deploy pushed to two repositories and each pointed the one container application at an image the other had never written — a CI deploy after a local one serves the older code with a green log. `tests/test_deploy_inputs.py` holds all three names to one string. A Preview's application is named by wrangler, `cyris-app_<preview>_CyrisContainer`, and `previews.containers` may not set one, so `wrangler preview` never writes production's application or repository |
 | KV namespace ids, D1 database id | B | `wrangler.toml`; `CYRIS_STORE_DATABASE_ID` for the article store | done |
 | Cloudflare account id, for CI | B | GitHub Actions repository **variable** `CLOUDFLARE_ACCOUNT_ID` | done — a variable, not a secret: it is deployer identity, and keeping it readable makes a wrong registry path a visible 404 rather than `***` |
 | Deployment URL, for CI | B | GitHub Actions repository **variable** `CYRIS_DEPLOYMENT_URL` (the app Worker's `workers.dev` URL; the custom domain's Access would stop the check) | done 2026-09-26 — read by `deploy.yml`'s `verify` step only |
@@ -580,7 +580,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Pages project name | B | `CYRIS_PROMOTE_PAGES_PROJECT` (a value set in `cyris.toml [promote]` wins) | done |
 | Marketing Pages project + hostname | B | `website/wrangler.toml`; Pages custom domain / DNS; canonical and social URLs in `website/index.html` | done — separate from the digest project |
 | HTML digest render / Pages publish | B | `CYRIS_HTML_OUTPUT_ENABLED`, `CYRIS_PROMOTE_PUBLISH_ENABLED` | done |
-| Promote custom domain | B | `CYRIS_PROMOTE_CUSTOM_DOMAIN`, an override | done — the host of the digest link Discord receives. Unset, each run lists the app Worker's custom domains (`GET /accounts/{id}/workers/domains?service=`, Workers Scripts Read on `CLOUDFLARE_API_TOKEN`) and takes the first in sorted order, with or without Access. No domain, or a failed lookup, falls back to `pages.dev`, where `/api/vote` does not exist and no vote buttons render; the failure is logged and `cyris doctor` reports it |
+| Promote custom domain | B | `CYRIS_PROMOTE_CUSTOM_DOMAIN`, an override | done — the host of the digest link Discord receives. Unset, each run lists the app Worker's custom domains (`GET /accounts/{id}/workers/domains?service=`, Workers Scripts Read on `CLOUDFLARE_API_TOKEN`) and takes the first in sorted order, with or without Access. A domain attached for Preview traffic only (`enabled: false`) routes no production request and is skipped. No domain, or a failed lookup, falls back to `pages.dev`, where `/api/vote` does not exist and no vote buttons render; the failure is logged and `cyris doctor` reports it |
 | App Worker name, for the container | A | `[vars] CYRIS_APP_WORKER_NAME` in `wrangler.toml`, forwarded by `workers/app/src/index.js` | done 2026-09-27 — the `service` the domain lookup names; `tests/test_deploy_inputs.py` holds it equal to `name`. A trial config from `scripts/provision_trial.py` renames the Worker and this variable together |
 | Three Worker URLs (`promote` / `newsletter` / `rss`) | B | `CYRIS_PROMOTE_WORKER_URL`, `CYRIS_NEWSLETTER_WORKER_URL`, `CYRIS_RSS_WORKER_URL` (a value set in the file wins) | done |
 | UI Access hostname | B | `CYRIS_UI_ACCESS_HOST` (Worker-only; unset = cookie-only form) | done |
@@ -588,6 +588,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Digest archive origin | B | `DIGEST_ORIGIN` (Worker-only; Pages origin the Worker proxies). Optional since 2026-09-06: unset, it is `<CYRIS_PROMOTE_PAGES_PROJECT>.pages.dev`, so only a custom domain needs to say it twice | done |
 | **Email Routing: domain + route** | **B** | Cloudflare dashboard, by hand | **stays manual** — needs your own domain; the one step a Deploy button cannot automate |
 | LLM API keys, four Cloudflare tokens (D1 + Pages + Workers Scripts Read + Email Sending, embedding, Workers AI LLM — also the Clef vote order's, and AI Gateway Run for the `ai_gateway` provider), one Worker bearer, one vote token, the `/settings` login token (`CYRIS_UI_TOKEN`, read by the Worker only) | C (the vote token was rendered into every digest published before 2026-09-01; a deployment that published none has no such pages) | `.env` locally, **`cyris-app` Worker secrets in production**; `CLOUDFLARE_CONTAINERS_TOKEN` in GitHub Actions secrets | done — see below. `CLOUDFLARE_CONTAINERS_TOKEN` is instead a GitHub Actions secret for the CI release workflow; it never enters the container. `CYRIS_UI_TOKEN` is also a GitHub Actions secret, a copy that `deploy.yml`'s `verify` step alone reads to ask production which image it serves, so rotating it means replacing both |
+| A Preview's deployment identity and secrets (`staging`) | B, C | **that Preview's own secrets** on `cyris-app`, set with `--secrets-file` on `wrangler preview` or `wrangler preview secret put <NAME> --name staging`; never production's values, and never a Previews Base imported from production | added 2026-10-22 — a home apart from production's Worker secrets, which a Preview does not inherit. The rule and the failure it prevents: *Where a Preview's settings live* below |
 | RSS + newsletter source list | D | **D1 `sources`**, written by `/settings` and by `cyris sources push`; `sources.yaml` for a `json` deployment | done — a table whose every source is unfetchable stops the run, while an empty table is the waiting-for-onboarding state above and stops nothing, so `/settings` retires the last source like any other; it still refuses an RSS source with no feed URL or a newsletter with no `email_match` |
 | **`email_match` per source** | **D** | inside the same `sources` row, same writer | same — an email sender is source data, not deploy config |
 | LLM provider + model | D | **D1 `settings`**, written by `/settings`; `cyris.toml` for a `json` deployment | done — the provider is `anthropic`, `gemini`, `openai`, `workers_ai`, `ai_gateway` or `"none"`. `ai_gateway` is one `POST` to the gateway's `google-ai-studio` endpoint with the model as `google/<model>`; the provider's key is stored in the gateway (BYOK) and the request carries none, and only `google/*` models are parsed (why: `adapters/ai_gateway_client.py`). It adds no setting of any grade: the token is `CLOUDFLARE_AIG_TOKEN` (AI Gateway Run, sent as `cf-aig-authorization`, never falling back to a Workers AI token, which the gateway refuses); the account is `CLOUDFLARE_ACCOUNT_ID`; and the gateway is `default`, named in the URL. Its cost is priced from the bare model id like every other provider; the gateway's own log keeps a second, Cloudflare-computed figure. Neither figure caps spend. `"none"` is excerpt-only by choice: no client is built, no key is needed, `doctor` reports it ok and the run is not flagged degraded. A missing provider is a missing setting and stops the run |
@@ -669,6 +670,53 @@ Which credentials share one value and which stay separate — `rss` and `newslet
 `CYRIS_WORKER_TOKEN`, `promote` keeps `CYRIS_PROMOTE_TOKEN`, and the embedding token stays its own —
 and why the dividing line is published-vs-secret, not one-value-vs-three:
 [ADR-0008](decisions/0008-worker-bearers-split-by-published-versus-secret.md).
+
+### Where a Preview's settings live (2026-10-22)
+
+A Preview of `cyris-app` (`[previews]` in `wrangler.toml`, such as `staging`, reached as
+[ADR-0021](decisions/0021-previews-answer-only-on-a-preview-only-custom-domain.md) records)
+inherits none of production's Worker secrets or `[vars]`
+([Configuration](https://developers.cloudflare.com/workers/previews/configuration/)). Its grade-B
+and grade-C values are that Preview's own secrets:
+
+* `--secrets-file` on `wrangler preview` sets them with a deployment.
+* `wrangler preview secret put <NAME> --name staging` sets them one at a time.
+* Every later deployment of the same Preview keeps them.
+* A plain variable passed with `--var` lasts only the deployment it came with.
+
+Cloudflare's Previews Base is a second store. Its secrets are copied into every Preview when that
+Preview is created, a branch-named one included, and a later Base change reaches only Previews
+created after it.
+
+**A Preview is never given production's values.** That rules out four kinds:
+
+* production's `CYRIS_STORE_DATABASE_ID`;
+* production's Pages project (`CYRIS_PROMOTE_PAGES_PROJECT`, `DIGEST_ORIGIN`);
+* production's promote, newsletter or rss Worker URLs, or the bearers that open them;
+* production's Discord webhook or mail addresses in the `settings` of the D1 the Preview reads.
+
+**The Previews Base is never filled by importing production's settings**, which the dashboard
+offers as one step, because every Preview created after it would start with them.
+
+The failure would be silent, because every write lands somewhere real. Suppose a staging
+`POST /run` reads production's D1:
+
+* It takes the window's pending articles, so production's own `--if-due` run for that window finds them
+  stored and no longer pending, and ends `no_pending` or publishes a thinner issue.
+* It stores its own `digests` row for the issue and publishes its pages to production's Pages
+  project.
+* It writes an `ok` row to `digest_runs`. The app Worker's catch-up (`planTick`, under *Where grade D
+  lives* below) reads that row as the period done, so a production run lost that hour is not retried. `--if-due`
+  itself never reads `digest_runs`; the catch-up is what the row misleads.
+* With production's Worker URLs it drains and acknowledges production's vote and newsletter
+  queues, which hand over each item once.
+* With production's notification targets, the production reader gets a digest that is not
+  theirs.
+
+A Preview's durable state takes a §4 row like any other. The first `staging` deployment runs with
+`CYRIS_STORE_BACKEND=json`, given as a `--var`, and keeps nothing durable: its container's disk
+does not outlive the instance, so §4 has no row for it. A D1 of its own gets its row when it is
+added.
 
 ### Where grade D lives (M2, 2026-08-27; one home per backend since 2026-09-19)
 
@@ -772,6 +820,7 @@ Cloudflare
 ├── Worker: promote    → KV
 ├── Worker: app        → Container ─┬─ cron  0 * * * *  →  CYRIS_ROLE=run  (one pass, then exits)
 │     <your custom domain>         └─ any request      →  CYRIS_ROLE=ui   (/settings, /onboarding, /labels; asleep after 5 min)
+│     Preview: staging → its own container application and Durable Object namespace; no cron
 ├── D1: every table in src/cyris/adapters/store/schema.sql, each with its §4 row
 ├── Pages: cyris-digest, and cyris-site (website/, outside the pipeline)
 └── Workers Logs: the container's stdout, 7 days
@@ -798,6 +847,26 @@ Which image production starts is answered by production itself: the `ui` role se
 with the baked `CYRIS_GIT_SHA`, and `cyris doctor --deployment <url>` signs in with
 `CYRIS_UI_TOKEN`, reads it and counts how far local HEAD is ahead, warning rather than failing.
 It also prints the sha, time and status of the last non-preview run from D1 `digest_runs`.
+
+**The `staging` Preview builds its image from the checkout, with the commit rendered in.**
+`wrangler preview` builds the Dockerfile that `[[previews.containers]]` names, on the machine that
+runs it, and passes that entry's `image_vars` as build arguments. The commit `/api/build` reports
+must therefore be one of those arguments. The tracked `wrangler.toml` cannot carry it, because it
+would name the wrong commit from the next one on.
+
+A deploy renders `wrangler.preview-staging.toml` at the repo root (gitignored): a copy of
+`wrangler.toml` whose `[[previews.containers]]` gains `image_vars = { GIT_SHA = "<HEAD>" }`. Then
+it runs:
+
+```sh
+wrangler preview --config wrangler.preview-staging.toml --name staging --env-file /dev/null
+```
+
+A plain `wrangler preview` from the tracked file deploys too, but its image answers
+`{"git_sha": ""}`. The render is done by hand for now. A script that renders and deploys belongs
+to the Preview environment's reset-and-redeploy card (`preview-env-reset-redeploy`).
+`tests/test_preview_config.py` keeps `image_vars` out of the tracked file and holds the rendered
+name ignored.
 
 **The container's stdout is the only log, and it is kept for seven days.** `[observability]` in
 `wrangler.toml` is what sends it to Workers Logs (Paid plan: 20M events/month included, 7-day
@@ -946,11 +1015,11 @@ day of repeated `stop()` calls.
 `tests/test_entrypoint.py` runs the real script under `dash`, the image's `/bin/sh`.
 
 **Auth is one layer always, two if you own a domain** (`workers/app/`); why each layer, and why
-there is no JWT check, is [ADR-0009](decisions/0009-a-token-cookie-always-and-access-only-if-you-own-a-domain.md). The `CYRIS_UI_TOKEN` cookie decides whether a request carries this deployment's own secret: `/login` sets an HttpOnly cookie holding the token's SHA-256, compared in constant time, and anything without it gets the form or a `401` before a byte reaches the container. Preview URLs stay disabled.
+there is no JWT check, is [ADR-0009](decisions/0009-a-token-cookie-always-and-access-only-if-you-own-a-domain.md). The `CYRIS_UI_TOKEN` cookie decides whether a request carries this deployment's own secret: `/login` sets an HttpOnly cookie holding the token's SHA-256, compared in constant time, and anything without it gets the form or a `401` before a byte reaches the container. `preview_urls = false` keeps two kinds of hostname off: Version URLs, one for each uploaded production version, and Previews' `workers.dev` URLs. Previews answer instead on a custom domain `<host>` attached for Preview traffic only, and each opens doors of its own: `staging.<host>`, `<deployment-id>-staging.<host>` for each of its deployments, and `<name>.<host>` for any other Preview, which `wrangler preview` without `--name` names after the git branch. Every one runs this Worker behind its own Preview's `CYRIS_UI_TOKEN`, and a Preview given none answers every protected path with the form or a `401`. Why the custom domain and not `workers.dev`: [ADR-0021](decisions/0021-previews-answer-only-on-a-preview-only-custom-domain.md).
 
 Cloudflare Access is an optional second layer on the hostname named by `CYRIS_UI_ACCESS_HOST` (grade B). It decides *who* — email policy, MFA, audit log — and is a dashboard step. Access stays off `workers.dev`, where scripts sign in with the cookie alone. Forks skip it. Deployments that attach a custom domain from the dashboard set `CYRIS_UI_ACCESS_HOST` to that hostname; `/api/vote` on that host stays Access-only so a reader who already passed Access does not log in a second time. On every other hostname, including the workers.dev URL that `workers_dev = true` may re-enable beside the custom domain, the cookie is required. The archive is public unless `CYRIS_PRIVATE_ARCHIVE` (grade B, Worker-only) is `"true"`: then a reader without the cookie is sent to `/login` before the Worker proxies a byte of Pages, and signs in to the page they asked for.
 
-`wrangler.toml` ships with `workers_dev = true` and no `routes`, so a clone deploys unmodified. Custom domains are attached from the dashboard or API, which means the file is then not the sole source of truth for routing; a trial config rendered by `scripts/provision_trial.py` is the other way, its `[[routes]]` attaching the trial's hostname on deploy.
+`wrangler.toml` ships with `workers_dev = true` and no `routes`, so a clone deploys unmodified. Custom domains are attached from the dashboard or API, which means the file is then not the sole source of truth for routing; a trial config rendered by `scripts/provision_trial.py` is the other way, its `[[routes]]` attaching the trial's hostname on deploy. The `staging` Preview (`[previews]` in `wrangler.toml`, deployed from the rendered copy described above) gets no route from the file either: it answers at `staging.<host>` once a custom domain `<host>` is attached from the dashboard for Preview traffic only. A Preview gets no cron, so it runs a digest only on `POST /run`.
 
 Cyris does not validate `Cf-Access-Jwt-Assertion`.
 
