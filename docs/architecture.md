@@ -521,7 +521,11 @@ ids and progress in `.env.trial-<slug>-wizard` at the repo root, beside the tria
 those secrets files are the only copy, since Cloudflare cannot read a secret back. Only
 `scripts/deploy_trial.py` changes that file after the wizard: it records the image it staged
 there, so a later wizard run renders that image and not the first one, and the commit each of the
-rss and vote Workers was last deployed from, so the next staging knows whether to redeploy them.
+rss and vote Workers was last deployed from, so the next staging knows whether to redeploy them. A
+trial's reader content can also come from production: `scripts/seed_trial.py save` copies
+production's rows of the tables `scripts/reset_trial.py` clears into `~/cyris-trial-seeds/`,
+outside the repo, and `restore` writes them into a trial's D1, never its `settings` or
+`pages_*` rows, which name production's notification targets and Pages project.
 
 ### One store, one truth
 
