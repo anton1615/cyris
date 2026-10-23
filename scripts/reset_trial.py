@@ -126,8 +126,8 @@ def settings_sql() -> str:
     return f"SELECT key, value FROM settings WHERE key IN ({keys}) ORDER BY key"
 
 
-def reset_sql(present: list[str], defaults: dict[str, object], now: str) -> list[str]:
-    """The statements the write sends, in order: one DELETE per present table, then settings.
+def clear_sql(present: list[str]) -> list[str]:
+    """One DELETE per present table, in CLEARED's order.
 
     `areas.merged_into` points at another `areas` row, so it is emptied before the
     rows go; D1 enforces foreign keys.
@@ -139,6 +139,12 @@ def reset_sql(present: list[str], defaults: dict[str, object], now: str) -> list
         if table == "areas":
             statements.append("UPDATE areas SET merged_into = NULL")
         statements.append(f"DELETE FROM {table}")
+    return statements
+
+
+def reset_sql(present: list[str], defaults: dict[str, object], now: str) -> list[str]:
+    """The statements the write sends, in order: the clear, then settings."""
+    statements = clear_sql(present)
     for key in ONBOARDING_KEYS:
         statements.append(
             "INSERT INTO settings (key, value, updated_at) VALUES "
