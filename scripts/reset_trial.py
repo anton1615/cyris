@@ -64,6 +64,7 @@ CLEARED = (
     "tracked_topics",
     "blind_labels",
     "vote_similarity_shadow",
+    "suppressions",
     "feed_health",
 )
 KEPT = {

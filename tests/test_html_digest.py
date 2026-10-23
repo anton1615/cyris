@@ -2632,3 +2632,22 @@ def test_a_headline_without_a_group_summary_keeps_every_story_in_the_top_story(t
     ]
     assert "X1" in lead.text_content()
     assert top.find_all(lambda n: n.tag == "h2" and "section-tag" in n.classes) == []
+
+
+def test_the_archive_links_the_interest_map_for_a_signed_in_reader_only(tmp_path) -> None:
+    html = HtmlDigestWriter(tmp_path).render_index(["2026-10-17-morning.html"])
+
+    link = re.search(
+        r'<p class="small gated" hidden>[^<]*<a href="/interest">Interest map</a>', html
+    )
+    assert link is not None
+    assert "interest.html" not in html
+
+
+def test_the_interest_page_is_never_an_issue_row_or_counted(tmp_path) -> None:
+    html = HtmlDigestWriter(tmp_path).render_index(["2026-10-17-morning.html", "interest.html"])
+    bare = HtmlDigestWriter(tmp_path).render_index(["2026-10-17-morning.html"])
+
+    assert html.count("2026-10-17") == bare.count("2026-10-17")
+    assert "1 issue" in html
+    assert "2 issue" not in html

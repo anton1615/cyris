@@ -8,7 +8,8 @@ be run again from the same start.
 
 save copies, from production's D1, every row of the tables `reset_trial.py`
 clears, as data-only SQL, into SEEDS/<name>-<sha7>.sql, where <sha7> is the commit
-production's newest run was built from. It only reads production. Never into the
+production's newest run was built from. A table production does not have yet is
+printed as absent and left out. It only reads production. Never into the
 repo: the repo is public and the rows are real articles. `wrangler d1 export`
 blocks production's other queries while it runs, so keep it off the hour (the rss
 poll) and the publish hours.
@@ -173,14 +174,23 @@ def save(name: str, seeds: Path, run: Runner, say: Callable[[str], None]) -> int
         raise ResetError(f"a seed named {name} is already in {seeds}; pick another name")
     config = tomllib.loads((ROOT / PRODUCTION_CONFIG).read_text(encoding="utf-8"))
     d1 = config["d1_databases"][0]["database_name"]
-    sql = "SELECT build_sha FROM digest_runs WHERE dry_run = 0 ORDER BY id DESC LIMIT 1"
-    cmd = wrangler(PRODUCTION_CONFIG, "d1", "execute", d1, "--remote", "--json", "--command", sql)
-    rows = reset_trial._json(run(cmd))[0]["results"]
+
+    def query(sql: str) -> list[dict]:
+        cmd = wrangler(
+            PRODUCTION_CONFIG, "d1", "execute", d1, "--remote", "--json", "--command", sql
+        )
+        return reset_trial._json(run(cmd))[0]["results"]
+
+    rows = query("SELECT build_sha FROM digest_runs WHERE dry_run = 0 ORDER BY id DESC LIMIT 1")
     if not rows:
         raise ResetError(f"{d1} has no run: no commit to name the seed after")
+    # Production's schema can lag the repo's: a table a newer release adds is absent
+    # until that release deploys, and `d1 export --table` fails on it.
+    found = {r["name"] for r in query("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    present = [t for t in CLEARED if t in found]
     seeds.mkdir(parents=True, exist_ok=True)
     path = seeds / f"{name}-{rows[0]['build_sha'][:7]}.sql"
-    tables = [arg for t in CLEARED for arg in ("--table", t)]
+    tables = [arg for t in present for arg in ("--table", t)]
     run(
         wrangler(
             PRODUCTION_CONFIG,
@@ -197,7 +207,7 @@ def save(name: str, seeds: Path, run: Runner, say: Callable[[str], None]) -> int
     counts = seed_counts(path.read_text(encoding="utf-8"))
     say(f"Saved {path} ({path.stat().st_size} bytes) from {d1}, rows per table:")
     for table in CLEARED:
-        say(f"  {table:<24} {counts[table]}")
+        say(f"  {table:<24} {counts[table] if table in found else 'absent'}")
     return 0
 
 

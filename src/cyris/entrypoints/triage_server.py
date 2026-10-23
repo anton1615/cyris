@@ -182,7 +182,8 @@ async def _revalidate_static(request: web.Request, response: web.StreamResponse)
 
 
 class TriageServer:
-    """Serves /settings, /onboarding, /labels and the settings, sources, labels and build APIs."""
+    """Serves /settings, /onboarding, /labels, /interest and the settings, sources, labels
+    and build APIs."""
 
     def __init__(
         self,
@@ -205,6 +206,7 @@ class TriageServer:
         feed_checker=None,
         digest_store=None,
         run_log=None,
+        interest_reader=None,
         clock=None,
     ) -> None:
         self._host = host
@@ -252,6 +254,9 @@ class TriageServer:
         # `backend = "json"` deployment, which has no wizard.
         self._digest_store = digest_store
         self._run_log = run_log
+        # D1's voted tags and live holds, which the interest map is drawn from on each
+        # request (`D1InterestReader.read`); absent on a `backend = "json"` deployment.
+        self._interest_reader = interest_reader
         # The time the first issue's key is picked at; a probe pins it.
         self._clock = clock or (lambda: datetime.now(UTC))
         self._settings_page = render_settings_page()
@@ -294,6 +299,7 @@ class TriageServer:
         self._app.router.add_get("/settings", self._handle_settings_page)
         self._app.router.add_get("/onboarding", self._handle_onboarding_page)
         self._app.router.add_get("/labels", self._handle_labels_page)
+        self._app.router.add_get("/interest", self._handle_interest_page)
         # Production never reaches this: the app Worker sends /favicon.svg to Pages.
         # A local `cyris triage-ui` has no Pages behind it.
         self._app.router.add_get("/favicon.svg", self._handle_favicon)
@@ -1787,6 +1793,25 @@ class TriageServer:
         if self._source_store is None:
             raise web.HTTPFound("/settings")
         return web.Response(text=self._onboarding_page, content_type="text/html")
+
+    async def _handle_interest_page(self, request: web.Request) -> web.Response:
+        """The interest map, drawn from D1 as it is now."""
+        from cyris.service_layer.interest_page import render_interest_page
+
+        if self._interest_reader is None:
+            return web.Response(
+                text="The interest map reads votes and holds from D1: this deployment's "
+                '[store] backend is not "d1".',
+                status=409,
+            )
+        try:
+            page = render_interest_page(
+                self._interest_reader, html_digest.HtmlDigestWriter(Path(".")), self._clock()
+            )
+        except Exception as e:  # noqa: BLE001 - the reason belongs in the response
+            logger.error("Failed to render the interest map: %s", e)
+            return web.Response(text=f"Could not draw the interest map: {e}", status=500)
+        return web.Response(text=page, content_type="text/html")
 
     async def _handle_favicon(self, request: web.Request) -> web.Response:
         return web.Response(body=html_digest.FAVICON.read_bytes(), content_type="image/svg+xml")

@@ -24,6 +24,10 @@ from cyris.adapters.output.pages_deploy import DeploymentRecord, PagesClient, Pa
 logger = logging.getLogger(__name__)
 
 DEPLOY_ATTEMPTS = 3
+# Pages the site no longer carries, left out of every deploy and of the saved manifest.
+# The interest map is served by the container behind sign-in now; a copy an earlier
+# deploy put on Pages would stay readable at <project>.pages.dev, which no Worker gates.
+RETIRED_PATHS = frozenset({"/interest.html"})
 # One issue, a digest page and its raw page together, because one issue is the
 # largest shortfall this system can legitimately produce. Two things put the site
 # one issue ahead of the manifest: a deployment that landed but whose manifest
@@ -217,7 +221,11 @@ def publish_site(
         return False
 
     dropped = {_slash(p) for p in drop}
-    new_files = {path: data for path, data in new_files.items() if _slash(path) not in dropped}
+    new_files = {
+        path: data
+        for path, data in new_files.items()
+        if _slash(path) not in dropped and _slash(path) not in RETIRED_PATHS
+    }
     manifest = manifest_store.load()
     owned_at_entry = False
     if not manifest:
@@ -274,7 +282,11 @@ def publish_site(
             )
             return False
     updated: dict[str, str] = {}
-    kept = {path: h for path, h in manifest.items() if _slash(path) not in dropped}
+    kept = {
+        path: h
+        for path, h in manifest.items()
+        if _slash(path) not in dropped and _slash(path) not in RETIRED_PATHS
+    }
 
     def deploy() -> DeploymentRecord:
         nonlocal updated

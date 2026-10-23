@@ -320,8 +320,9 @@ stored URL cannot.
 The run cap, `[digest] max_articles_per_digest`, is applied once, at the pending load in
 `run_digest`: a run scores and digests the window's newest N pending articles by publish time,
 across all sources. A capped run therefore cuts the oldest-published rows first; the tripwire is
-`received + suppressed == max_articles_per_digest` in `digest_runs.summary`, a missing `suppressed`
-counting as 0. No source applies it, because one that cut first would drop articles before the
+`received + suppressed + suppression_honoured == max_articles_per_digest` in
+`digest_runs.summary`, a missing key counting as 0: `suppressed` counts what this run flagged,
+`suppression_honoured` what an earlier run's hold alone removed. No source applies it, because one that cut first would drop articles before the
 store saw them. The RSS Worker read has a bound of its own, the Worker's row ceiling, because every
 row carries the feed's full content and the Worker holds the whole result in memory. A read that
 fills the ceiling logs a warning, since the window's earliest-buffered rows then stay unstored.
@@ -347,12 +348,23 @@ Each source carries a **tier**, which decides how much attention it gets:
 
 Between scoring and the pipeline one optional filter runs. **Vote similarity** suppresses candidates
 sitting close to a downvoted article — it runs over *every* candidate, not just scored ones, because
-the scorer skips news and the first downvote was news-tagged. It is the only personalization in the
+the scorer skips news and the first downvote was news-tagged. A candidate is flagged when its
+cosine to its nearest downvote is an outlier among this run's candidates: a robust z-score above
+`OUTLIER_MARGIN` (3.5), and not closer to an upvote. A window of fewer than
+`MIN_OUTLIER_WINDOW` (10) candidates flags nothing, because its median and MAD rest on two or three
+articles. Because the cut is relative to the window,
+more votes do not suppress more articles by themselves (ADR-0017). It is the only personalization in the
 pipeline, and it acts twice: here it suppresses, and with the vote order on its verdicts also order
 the issue (below). Prompt-level preference learning was removed on 2026-08-27 because it had never
-produced a profile. On D1, every candidate it judged also leaves a row in `vote_similarity_shadow` naming its
-nearest upvoted and downvoted article and both cosines (§4), a record that changes nothing the run
-selects.
+produced a profile. Each flagged candidate leaves a row in `suppressions` (§4) that holds it for
+`SUPPRESSION_CLOCK_DAYS` (7) days from the run's start; before it drops candidates, every run reads
+the holds not yet expired and keeps those candidates out of the digest, whatever its own window
+judges. A hold never stamps `triaged_at` or rejects: the article stays pending. A human action on
+the article since (a vote, `cyris articles accept|reject`) stamps `triaged_at` and ends the hold's
+effect: a candidate with `triaged_at` set is neither dropped nor counted by its hold. That rule
+lives once, as the live-hold query in `adapters/store/suppressions.py`. On D1, every
+candidate it judged also leaves a row in `vote_similarity_shadow` naming its nearest upvoted and
+downvoted article and both cosines (§4), a record that changes nothing the run selects.
 
 **Areas** are the reader's closed set of topics (D1 `areas`, §4, §5). Scoring is offered the active
 names and returns each article's pick; a name the model suggests because no active area fits is
@@ -502,10 +514,12 @@ table `schema.sql` creates must appear in the rows below, so a new table cannot 
 | Promote votes | **KV** (`workers/promote`) | same | Transient queue, drained at each digest run |
 | Inbound newsletters | **KV** (`workers/newsletter`) | same | Transient queue, drained and ACKed per run |
 | Deployed site's file list | **D1 `pages_manifest`** | same | path → Pages asset hash, a few KB. The *bytes* are Cloudflare's, not ours. A failed cleanup after a save can leave an older stamped generation in the table; readers ignore it, since the newest `updated_at` wins |
+| Interest map page (`/interest`) | **derived**, drawn by the container on each request | same | No store of its own, and no copy in the Pages project: the `ui` container renders it from the live holds in D1 `suppressions` (the run's own definition), `article_tags` and the voted `stored_articles` whenever a signed-in reader opens it, so it is never older than the request. A copy an earlier release published as `/interest.html` leaves the site at the next deploy (`RETIRED_PATHS` in `adapters/output/publish.py`). D1 only: a `json` deployment answers 409 |
 | Digest runs | **D1 `digest_runs`** | same | One row per `run_digest` call on every path — `no_articles`, `no_pending`, `error` included — with status, period, dry-run flag, fetch counts, the image's `CYRIS_GIT_SHA`, the degraded judgement and the whole `run_summary` as JSON; a run that raised also carries `error`, the text its failure alert sends. Written after the log line, inside its own guard. Besides `cyris doctor`, the onboarding first-issue step reads the newest row back (`GET /api/onboarding/first-issue`, §6) to tell the reader how the run it started ended. D1 only: a `json` run writes nothing and keeps only stdout |
 | Digest content | **D1 `digests`** | same | One row per issue, keyed `(date, period)`, last run wins: the final `DigestContent` as JSON (its `area_order` included, so a re-render keeps the sections it was published with) plus `raw_page`, the flag saying whether that run's digest page linked a raw companion page — the two inputs the digest page renders from. The raw companion page is rebuilt from `digest_inputs`, not from this row, with each article's state as it is now. Deleted only by `scripts/prune_archive.py`, for named issues (see docs/operations.md). D1 only: a `json` run keeps no copy |
 | Digest inputs | **D1 `digest_inputs`** | same | One row per issue, keyed `(date, period)`, last write wins: the URLs a publishing run fed the pipeline, in order, as a JSON array. Written by a non-dry run only, before publishing; a dry run and a rerun write nothing. A URL record, not article state: a rerun reads each article by URL as it is now, and votes, vote-similarity seeds, settings, tracked topics, areas and the embedding model are read live too, so a rerun shows their current values. A row whose article `cyris articles clean` deleted drops out of the rerun. An issue recorded before this table has no row, so it cannot be rerun. Deleted only by `scripts/prune_archive.py`, for named issues (see docs/operations.md). D1 only: a `json` run keeps no copy |
-| Vote-similarity pool | **D1 `vote_similarity_shadow`** | same | One row per candidate a run judged against the reader's votes, keyed `(run_at, candidate_url)`: the nearest upvoted and downvoted article with each cosine, and the embedding model. `run_at` is the run's `started_at`, which `digest_runs.summary` also carries, and its `vote_similarity_judged` is the run's row count. Raw data with no verdict: the suppression decision and its threshold are not stored. Written by `run_digest` right after `judge_by_votes`, inside its own guard, from the cosines that call already computed, so it costs no embedding call; a run whose similarity pass skipped, and a dry run, write nothing. Nothing reads it yet. D1 only: a `json` run keeps no copy |
+| Vote-similarity pool | **D1 `vote_similarity_shadow`** | same | One row per candidate a run judged against the reader's votes, keyed `(run_at, candidate_url)`: the nearest upvoted and downvoted article with each cosine, and the embedding model. `run_at` is the run's `started_at`, which `digest_runs.summary` also carries, and its `vote_similarity_judged` is the run's row count. Raw data with no verdict: the suppression decision is not stored here; `suppressions` holds it. Written by `run_digest` right after `judge_by_votes`, inside its own guard, from the cosines that call already computed, so it costs no embedding call; a run whose similarity pass skipped, and a dry run, write nothing. Nothing reads it yet. D1 only: a `json` run keeps no copy |
+| Suppressions | **D1 `suppressions`** | same | One row per candidate a run newly suppressed as an outlier, keyed `(candidate_url, run_at)`: the downvote it sat nearest to with its cosine, the upvote cosine (NULL when there was no upvote seed), the outlier score, the `reason`, the embedding `model` that judged it, and `until`, the instant the hold expires (run start plus 7 days). `model` is a record, not a filter: a hold outlives a change of `vote_similarity` provider or model for up to `SUPPRESSION_CLOCK_DAYS`, because it holds a verdict rather than a cosine to compare (ADR-0017). A suppression is not a vote: the article stays `pending` with `triaged_at` NULL, and nothing else reads this table's row as a decision. A later human action stamps `triaged_at`, and a run then ignores the hold for that article. A held article still pending is judged with the window and counts toward its median, but this run's verdict does not lift the hold (ADR-0017). Written by `run_digest` after judging, inside its own guard, and never on a dry run. D1 only: a `json` run keeps no copy |
 | Blind-label sample | **D1 `blind_labels`** | same | One row per filter candidate drawn for blind labeling by `cyris labels draw`, keyed by the draw's time and the URL: its position on `/labels`, the news split and the pipeline's state frozen at draw time, how many pool rows shared its stratum, the seed, the pool's cutoff, and the reader's answer (`up`, `down` or `skip`) with its time. Not columns of `stored_articles`: a label is written there exactly as a digest vote is, which overwrites the state that put the row in its stratum and leaves a label indistinguishable from a vote, so `cyris labels report` could neither weight the strata nor keep the labels out of the seeds that score them; a skip has no home there at all. One sample at a time: a draw replaces the previous one only with `--replace`, by inserting the new draw whole in one statement before deleting the old, and readers take the latest draw, so a replace that fails part way leaves one whole sample. D1 only: a `json` deployment has none |
 | Pages deploy receipt | **D1 `pages_deploy_receipt`** | same | this D1 has published this Pages project; empty-manifest guard skips the Cloudflare probe. It is not a shortcut around the live-archive shortfall check |
 | ~~Embedding cache~~ | — | **nowhere** | Deleted 2026-08-27. Not moved: a full run is ~600 texts ≈ 20 neurons of a 10,000/day allowance, so the 415 MB existed to skip five seconds of arithmetic |
@@ -556,13 +570,17 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Propose title length | A | `TITLE_MAX_CHARS` = 80 in `adapters/store/source_titles.py` | unchanged — a headline fits in 80 characters; a longer title is mostly a dek the model does not need. `tests/test_area_source_titles.py` holds the value to this row |
 | Propose title lookback | A | `TITLE_LOOKBACK_DAYS` = 30 in `adapters/store/source_titles.py` | unchanged — the window `feed_health.py`'s `QUIET_DAYS` uses: a source silent that long is quiet, not described. `tests/test_area_source_titles.py` holds the value to this row |
 | RSS Worker read ceiling | A | `WORKER_ROW_CEILING` in `adapters/fetch/rss_worker_source.py`, mirroring the clamp on `GET /articles` in `workers/rss/src/index.js` | done 2026-10-02 — a memory bound, not the run cap: every row carries full feed content. It is sent by value because the Worker's default without one is lower; `tests/test_rss_worker_source.py` holds the two equal |
+| Interest map limits: 60 nodes, layout iterations and margin, drawing box | A | `MAX_INTEREST_NODES` in `domain/interest_graph.py`; `ITERATIONS` and `MARGIN` in `domain/graph_layout.py`; `INTEREST_MAP_WIDTH` and `INTEREST_MAP_HEIGHT` in `adapters/output/html_digest.py` | done 2026-10-17 — display limits, each with its reason beside it in code; a reader sets none of them |
 | Feed health thresholds: unhealthy at 3 consecutive failed polls, or no stored article for 30 days (never included) | A | `UNHEALTHY_FAILURE_STREAK`, `QUIET_DAYS` in `adapters/store/feed_health.py` | done 2026-10-08 — one Substack 429 is routine, three hourly polls failing in a row is not; feeds publish weekly or monthly, so a shorter silence is noise. `cyris doctor` and `/settings` both judge through `FeedHealth.problems`, so neither copies a number |
 | Pages publish timing: the 180s budget and 120s run reserve, the 120s verify budget of a publishing rerun, the stage and alias poll counts and intervals, the 20s per-request timeout and a deploy attempt's worst case | A | `adapters/output/publish.py`, `adapters/output/pages_deploy.py` | unchanged — reasons in the comments beside each constant; `tests/test_publish.py` pins the budget against `RUN_SLEEP_AFTER` in `workers/app/src/index.js`, and what the budget does not cover is in *Publishing* (§6) |
 | Catch-up window: a tick off the hour reruns the last digest hour's issue while that hour began less than 3 hours ago and `digest_runs` has no ok, non-dry row of it | A | `CATCH_UP_HOURS` in `workers/app/src/schedule.js` | added 2026-10-22 — the two ticks after a digest hour are two retries: enough to outlast a Durable Object replacement, which kills one run, and few enough that a failure that persists (an `error` row is retried) costs two container passes and two alerts rather than one per hour until the next digest hour. After it, a lost issue waits for a manual `POST /run` (`docs/operations.md`). `workers/app/test/schedule.test.js` holds the value to this row |
 | `/settings` verification time limits: the LLM probe's 30s, the embedding probe's 15s, the Discord probe's 10s | A | `LLM_PROBE_TIMEOUT_SECONDS`, `EMBEDDING_PROBE_TIMEOUT_SECONDS`, `DISCORD_PROBE_TIMEOUT_SECONDS` in `diagnostics/doctor.py`; `triage_server.py` also bounds the area Suggest and Propose model calls with `LLM_PROBE_TIMEOUT_SECONDS` | done 2026-10-02 — a Save is a person waiting, so each bound sits far below the minutes a run allows the same client; reasons in the comments beside the first two. The area calls fit the same 30s: Suggest is one short reply, and Propose is one reply for all sources, the longer of the two. Both fail soft (a Suggest never blocks a save, a Propose writes nothing on timeout), so a slow reply shows the reader a notice and changes no row. A probe past its bound fails with what to do next, and nothing is stored |
 | Vote request timeout on the digest and raw pages | A | `VOTE_TIMEOUT_MS` in `adapters/output/templates/_promote_script.html.j2` | done 2026-10-02 — reason in the comment beside it; a vote that outlasts it is shown to the reader as not landed |
-| Per-provider default model, per-model embedding threshold | A | `src/cyris/provider_defaults.json` | unchanged — values in the file, reasons in *Provider defaults* below |
+| Per-provider default model and embedding model | A | `src/cyris/provider_defaults.json` | unchanged — values in the file, reasons in *Provider defaults* below |
 | Per-provider default reasoning effort | A | `src/cyris/reasoning_effort_defaults.json` | unchanged — values in the file, reasons in *Provider defaults* below |
+| Vote-similarity outlier margin: 3.5 robust z-score | A | `OUTLIER_MARGIN` in `domain/similarity.py` | done 2026-10-17 — the conventional cut for a modified z-score; relative to the window, so a growing vote set cannot raise the count the way a fixed cosine did (ADR-0017) |
+| Vote-similarity minimum window: 10 candidates | A | `MIN_OUTLIER_WINDOW` in `domain/similarity.py` | done 2026-10-17 — below about ten candidates the median and MAD rest on two or three articles, so one article moves the cut; production windows are hundreds of candidates. A floor on sample size, not a cosine, so it does not go stale as votes grow (ADR-0017) |
+| Suppression clock: 7 days | A | `SUPPRESSION_CLOCK_DAYS` in `domain/suppression.py` | done 2026-10-17 — a week is the cycle a reader's digests repeat over; a hold outlasting that would hide an article on votes the reader has since moved past (ADR-0017) |
 | Runtime-setting registry: each grade-D key's `/settings` category, label, controls, save route and whether a save applies live | A | `src/cyris/settings_fields.json` | unchanged — the one key list (see *Where grade D lives*); `tests/test_settings_fields.py` holds the page to it |
 | `cyris config show` registry: the rows it lists beyond `settings_fields.json` and `B_GRADE_ENV_VARS`, and every label it prints | A | `src/cyris/diagnostics/config_show.json` | done 2026-10-08 — the image ships `src/` only, so `.env.example` cannot be read at runtime; `tests/test_deploy_inputs.py` holds the secret list to it, and each code constant is named as `module:attribute` so the value shown is the one the code runs with |
 | Mail vocabulary: forward/reply subject prefixes, "view in browser" markers | A | `adapters/fetch/keywords.json`, loaded by `keywords.py` | unchanged — data so a new locale is not a code edit; the regex structure around the tokens stays in code |
@@ -601,8 +619,7 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 | Score thresholds, digest caps, the three snippet lengths sent to the model, output language, style prompt | D | **D1 `settings`**, written by `/settings` (Digest and Pipeline); `cyris.toml` (`[routing]`, `[digest]`) for a `json` deployment | done 2026-09-19 |
 | LLM reasoning effort | D | **D1 `settings`** as `llm_provider.reasoning_effort` (`default`, `low`, `medium` or `high`), written by `/settings` (Pipeline); `cyris.toml [llm_provider]` for a `json` deployment | optional, [ADR-0018](decisions/0018-reasoning-effort-is-an-optional-grade-d-key.md): an absent row means `default`, which sends what each provider sent before (per provider in *Provider defaults*). Workers AI is fixed at `low` whatever is stored. Gemini 2.5 takes a thinking budget in place of a level (budgets in `reasoning_effort_defaults.json`). Save probes the stored provider and model at the chosen level and refuses a level the model rejects; a model switch probes at the stored level |
 | Embedding provider + model | D | **D1 `settings`** as `vote_similarity.provider` and `.model`, written by `/settings` (Model) after one real embedding call when vote similarity is on; `cyris.toml [vote_similarity]` for a `json` deployment | done 2026-09-19 |
-| Embedding threshold | **A** | `cyris.toml`, else the calibration in `provider_defaults.json` when the configured model is the one it was measured on | unchanged — a measured property of the model, not a preference. Any other model has none: the run skips vote similarity, says why in `run_summary` as `vote_similarity_skipped`, and `doctor` fails until `cyris.toml` sets one (2026-10-07) |
-| Tracked topics: name, description, threshold, embedding model | D | **D1 `tracked_topics`**, written by `/settings` (Tracking); `cyris.toml [[tracked_topics]]` for a `json` deployment | done 2026-10-08 — an optional runtime setting: no topic is a valid deployment, so the list is not in `settings_fields.json`, and an empty one stops nothing. The threshold is D here while vote similarity's is A, because it measures a different thing: how wide the reader means *their own sentence* to reach, which only they can judge from a hit list (`cyris topic-sim`). It still follows ADR-0006's rule that a cutoff belongs to the model it was measured on: each topic stores that model, has no default threshold, and a run embedding with another model skips it and names it in `run_summary`. The embedder is the one `vote_similarity.provider` and `.model` name, built when a topic exists even with vote similarity off |
+| Tracked topics: name, description, threshold, embedding model | D | **D1 `tracked_topics`**, written by `/settings` (Tracking); `cyris.toml [[tracked_topics]]` for a `json` deployment | done 2026-10-08 — an optional runtime setting: no topic is a valid deployment, so the list is not in `settings_fields.json`, and an empty one stops nothing. It is the only per-model cosine threshold left, and it is D because it measures how wide the reader means *their own sentence* to reach, which only they can judge from a hit list (`cyris topic-sim`). It keeps ADR-0006's rule that a cutoff belongs to the model it was measured on, because ADR-0017 relaxed that rule only for vote similarity: each topic stores that model, has no default threshold, and a run embedding with another model skips it and names it in `run_summary`. The embedder is the one `vote_similarity.provider` and `.model` name, built when a topic exists even with vote similarity off |
 | Headline slot: the Top story above the area sections | A | structural: `layout_by_area` in `domain/area_layout.py` takes the first of the featured sections, else the first thematic one | unchanged — the shape of the layout, not a preference: one story leads, and it is never repeated in a section. No setting |
 | Section labels: "Other" and Discord's "Digest" | A | `UNPLACED_SECTION_LABEL` in `adapters/output/html_digest.py`, `UNNAMED_SECTION_TITLE` in `adapters/notify.py` | unchanged — reader-facing strings are English and i18n has no framework yet, like "Top story" in the templates. The layout carries only `AreaSection.role` |
 | Lower rows per named area | A | `LOWER_ROWS_PER_AREA` in `domain/area_layout.py`, with its reason beside it | unchanged — the milestone's wall-of-text measure; fixed until L6, and L4 reuses it. `tests/test_area_layout.py` holds the cut to this name |
@@ -620,8 +637,8 @@ plan's ceilings, and the priced alternatives — is `docs/hosting-and-cost.md`.
 ### Provider defaults, and why these values
 
 `src/cyris/provider_defaults.json` holds what a provider runs with when the config
-names a provider but no model, plus the similarity cutoff each embedding model is
-calibrated at. `src/cyris/reasoning_effort_defaults.json` holds each provider's default
+names a provider but no model, and the embedding model each provider defaults to.
+`src/cyris/reasoning_effort_defaults.json` holds each provider's default
 reasoning level, and the thinking budgets a Gemini 2.5 model takes instead of a level.
 The files hold values; the reasons are here, so that changing a number means reading why
 it is that number.
@@ -647,8 +664,10 @@ leaving it unbounded was not merely wasteful: gpt-oss-120b spent a whole output 
 and returned an empty message. Non-reasoning models ignore it. `gemini`, `ai_gateway` and
 `anthropic` send nothing, which is what they did before the setting existed.
 
-**The two embedding thresholds are 0.53 and 0.68, and they are not interchangeable.** Why
-each is a measured property of its model, graded **A** while the provider and model are D:
+**There is no per-model cutoff.** Suppression is relative to each run's window, so no number is
+measured per embedding model and none is carried between them: see
+[ADR-0017](decisions/0017-suppression-is-a-relative-outlier-with-a-reason-and-a-clock.md). The
+per-model thresholds that preceded it are history in
 [ADR-0006](decisions/0006-embedding-thresholds-are-per-model-calibrations.md).
 
 ### Grade C is seven variables (2026-08-30)
@@ -820,7 +839,7 @@ Cloudflare
 ├── Worker: newsletter → KV
 ├── Worker: promote    → KV
 ├── Worker: app        → Container ─┬─ cron  0 * * * *  →  CYRIS_ROLE=run  (one pass, then exits)
-│     <your custom domain>         └─ any request      →  CYRIS_ROLE=ui   (/settings, /onboarding, /labels; asleep after 5 min)
+│     <your custom domain>         └─ any request      →  CYRIS_ROLE=ui   (/settings, /onboarding, /labels, /interest; asleep after 5 min)
 │     Preview: staging → its own container application and Durable Object namespace; no cron
 ├── D1: every table in src/cyris/adapters/store/schema.sql, each with its §4 row
 ├── Pages: cyris-digest, and cyris-site (website/, outside the pipeline)
@@ -1033,10 +1052,12 @@ digest stays static is [ADR-0010](decisions/0010-the-digest-stays-static-behind-
 /2026-08-30-evening.html  one digest    ─┘ (then the cookie too): the Worker proxies Pages
 /triage*                                   404
 /settings · /onboarding · /labels          CYRIS_UI_TOKEN cookie; Access too if
-/api/* · /static/*                         CYRIS_UI_ACCESS_HOST matches this host
+/interest · /api/* · /static/*             CYRIS_UI_ACCESS_HOST matches this host
 POST /run?period=[&date=]                  same lock; the Worker starts the `run` role
                                            itself (a date: today or yesterday, §3.2)
 ```
+
+The interest map at `/interest` needs sign-in whatever `CYRIS_PRIVATE_ARCHIVE` is, because it shows the tags of the reader's own votes and the holds those votes set, not only public issues. It is a container page like `/settings`, never a Pages asset, so `<project>.pages.dev` has no copy to read without the Worker. The Worker matches the path decoded, and sends `/interest.html` and `/interest/` behind the same sign-in, where the container answers them 404.
 
 The container answers `/static/*`, the pages' CSS and JS, with `Cache-Control: no-cache`, and the
 Worker passes a non-HTML response through untouched. A browser therefore revalidates each file by
