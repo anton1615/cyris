@@ -60,8 +60,9 @@ stages on `trial1`.
 3. From the checkout that provisioned the trial, with that commit checked out, run
    `scripts/deploy_trial.py`. It deploys the image the release recorded, and fails
    unless the trial reports that commit. To check onboarding from its first step,
-   clear the trial with `scripts/reset_trial.py` first. Both scripts describe
-   themselves under `--help`.
+   clear the trial with `scripts/reset_trial.py` first. To check it from real content,
+   restore a seed of production's with `scripts/seed_trial.py` first. Each script
+   describes itself under `--help`.
 4. Check the release on the trial.
 5. The owner runs "Deploy the container Worker" for production.
 

@@ -101,8 +101,17 @@ A release runs on a trial before production; the flow is in
 [operations.md](operations.md#staging-first-production-after). From the checkout that
 provisioned the trial, `scripts/deploy_trial.py` puts the release on it, and
 `scripts/reset_trial.py` first clears it back to waiting for onboarding when the release
-is to be checked from the wizard's first step. What each does and refuses is in its
-`--help`.
+is to be checked from the wizard's first step. `scripts/seed_trial.py` instead restores
+it to a seed copied from production, so a check can run again from the same content.
+What each does and refuses is in its `--help`.
+
+Seeds live in `~/cyris-trial-seeds/`, outside the repo: they hold production's real
+articles, and the repo is public. An offsite copy goes to a private R2 bucket, never the
+public `musingfox-media`. `seed_trial.py save` reads production, so the owner runs it.
+
+A seed does not replace D1 Time Travel, which restores a database to any minute of the
+last 30 days: `wrangler d1 time-travel restore <database> --timestamp=<RFC 3339>`
+([docs](https://developers.cloudflare.com/d1/reference/time-travel/)).
 
 ## Files to keep
 
