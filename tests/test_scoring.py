@@ -294,6 +294,33 @@ class TestScoreArticlesBatch:
         # Verify user prompt was built with custom snippet length
         assert "Score the following articles" in llm.calls[0]["prompt"]
 
+    @pytest.mark.parametrize(
+        "reply",
+        [{}, {"scores": [{"id": 9, "score": 80}]}],
+        ids=["no scores key", "unknown ids"],
+    )
+    async def test_a_batch_scoring_nothing_warns(self, sample_articles, reply, caplog):
+        from cyris.service_layer.scoring import score_articles_batch
+
+        llm = FakeLLM(json.dumps(reply))
+
+        scores, _, _, _ = await score_articles_batch(
+            sample_articles, llm, snippet_length=1000, area_names=[]
+        )
+
+        assert scores == {}
+        (record,) = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert f"{len(reply.get('scores', []))} entries" in record.getMessage()
+
+    async def test_a_batch_scoring_some_does_not_warn(self, sample_articles, caplog):
+        from cyris.service_layer.scoring import score_articles_batch
+
+        llm = FakeLLM(json.dumps({"scores": [{"id": 1, "score": 80, "language": "en"}]}))
+
+        await score_articles_batch(sample_articles, llm, snippet_length=1000, area_names=[])
+
+        assert [r for r in caplog.records if r.levelname == "WARNING"] == []
+
 
 # --- Store update_scores tests ---
 
