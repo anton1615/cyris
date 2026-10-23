@@ -92,7 +92,8 @@ async def score_articles_batch(
     result: dict[str, tuple[float, str]] = {}
     url_to_tags: dict[str, list[str]] = {}
     picks: dict[str, AreaPick] = {}
-    for entry in data.get("scores", []):
+    entries = data.get("scores", [])
+    for entry in entries:
         article_id = entry["id"]
         score = float(entry["score"])
         language = entry.get("language") or id_to_fallback_lang.get(article_id, "en")
@@ -110,6 +111,11 @@ async def score_articles_batch(
             picks[url] = _parse_pick(entry, area_names)
 
     logger.info("Scored %d / %d articles", len(result), len(articles))
+    if not result:
+        # The entry count tells a reply with no scores from one whose ids match none.
+        logger.warning(
+            "Scored none of %d articles: the reply had %d entries", len(articles), len(entries)
+        )
     return result, url_to_tags, usage, picks
 
 
