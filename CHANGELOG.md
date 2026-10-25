@@ -52,6 +52,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the new names when it next starts. A config or request that still says `tier` is
   refused, and the error names the lane to write instead.
 
+### Removed
+
+- The `CYRIS_UI_TOKEN` sign-in is gone: no token secret, no login form and no
+  `cyris_session` cookie. Cloudflare Access is the only sign-in, and the Worker
+  checks each Access JWT and answers `403` to a protected request without a valid
+  one. Scripts sign in with an Access service token, `CYRIS_ACCESS_CLIENT_ID` and
+  `CYRIS_ACCESS_CLIENT_SECRET`, in place of the token.
+
 ### Fixed
 
 - An entry a feed lists late now reaches the next digest. The RSS Worker selected
@@ -94,6 +102,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `llm_provider.reasoning_effort` needs nothing before deploying. It is the one
   optional runtime setting (ADR-0018): a deployment that never stores it runs at
   Default, which sends what it sent before.
+- Before deploying, create the Cloudflare Access application over the Worker's protected paths,
+  set a Service Auth token, and set the Worker settings `CYRIS_ACCESS_TEAM_DOMAIN` and
+  `CYRIS_ACCESS_AUD`. Until both are set, every protected path answers `403`. Put the
+  token in `CYRIS_ACCESS_CLIENT_ID` and `CYRIS_ACCESS_CLIENT_SECRET` (`.env` and the GitHub
+  Actions secrets) and drop `CYRIS_UI_TOKEN`.
+  A Preview such as `staging` sets the same two Worker settings as its own Preview
+  secrets, and the application names `*.<host>`, the Preview-only domain, as a destination.
 
 ## [0.5.0] — 2026-10-02
 
