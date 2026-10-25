@@ -268,6 +268,7 @@ def test_yes_clears_reader_content_and_keeps_the_rest(reset) -> None:
         "usage_log": 1,
         "pages_manifest": 1,
         "pages_deploy_receipt": 1,
+        "schema_migrations": 1,
     }
     assert set(wrangler.kv) == {"other:cc"}
     assert out[-1] == f"Reset {SLUG}: it now waits for onboarding."

@@ -543,7 +543,7 @@ class TestThePickSourcesStep:
         assert len(CATALOG) == 62
 
     async def test_each_picked_entry_is_stored_as_the_list_holds_it(self, serve) -> None:
-        """What the page posts, the entry less `topics`, is stored with its tags and tier."""
+        """What the page posts, the entry less `topics`, is stored with its tags and lane."""
         store = FakeSourceStore({})
         client = await serve(_server(table={}, store=store))
         offered = (await (await client.get("/api/onboarding/feeds")).json())["feeds"]

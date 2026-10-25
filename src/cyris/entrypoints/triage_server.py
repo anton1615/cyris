@@ -159,7 +159,7 @@ def load_onboarding_feeds() -> list[dict[str, Any]]:
 
     Sent to the page as written: each entry is a `SourceConfig` body plus the
     list's own `topics`, which the page strips before posting the rest to
-    `POST /api/sources` unchanged, tags and tier included.
+    `POST /api/sources` unchanged, tags and lane included.
     """
     return _onboarding_catalog()["feeds"]
 
@@ -761,7 +761,7 @@ class TriageServer:
                     {
                         "name": s.name,
                         "type": s.type,
-                        "tier": s.tier.value,
+                        "lane": s.lane.value,
                         "url": s.url,
                         "email_match": s.email_match,
                         "homepage": s.homepage,

@@ -1323,7 +1323,7 @@ EXPECTED_ONBOARDING_IDS = {
     "fits-largest-topics-375",
     "sources-step-lists-every-entry",
     "sources-step-stores-the-picked-entries",
-    "sources-step-stores-the-listed-tier",
+    "sources-step-stores-the-listed-lane",
     "sources-step-skipped-writes-no-source",
     "sources-step-with-nothing-picked-writes-nothing",
     "sources-step-names-a-feed-it-could-not-add",

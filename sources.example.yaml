@@ -1,10 +1,10 @@
 # Source Configuration
-# Each source defines an RSS feed or newsletter with its processing tier.
+# Each source defines an RSS feed or newsletter with its processing lane.
 #
-# Tiers:
-#   filter    - High-volume general news. Most articles discarded; only significant headlines kept.
-#   summarize - High-quality sources. Scored, then summarized or listed by score (docs/sources.md).
-#   fan       - Sources you follow as they are. Passed through: never scored, filtered or summarized.
+# Lanes:
+#   skim   - High-volume general news. Most articles discarded; only significant headlines kept.
+#   read   - High-quality sources. Scored, then summarized or listed by score (docs/sources.md).
+#   follow - Sources you follow as they are. Passed through: never scored, filtered or summarized.
 #
 # A new deployment starts with no source (docs/decisions/0020-new-deployments-start-from-onboarding.md).
 # On a D1 deployment this file is not read: /settings sends you to /onboarding, where you pick
@@ -18,14 +18,13 @@
 # email-only newsletter. Uncomment and edit them, or write your own.
 
 defaults:
-  tier: filter
   language: auto  # auto-detect, or force: zh, en, ja
 
 sources: []
-  # A feed, at a tier other than the default, with tags of your own.
+  # A feed, in a lane other than the default, with tags of your own.
   # - name: "The Verge"
   #   url: "https://www.theverge.com/rss/index.xml"
-  #   tier: summarize
+  #   lane: read
   #   tags: [tech]
 
   # A feed in a language auto-detection might miss. A `news` tag routes the source's
@@ -50,5 +49,5 @@ sources: []
   #   type: newsletter
   #   email_match: "from:newsletter@example.com"
   #   homepage: "https://newsletter.example.com"
-  #   tier: summarize
+  #   lane: read
   #   tags: [newsletter]

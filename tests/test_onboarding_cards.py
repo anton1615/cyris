@@ -23,7 +23,7 @@ from cyris.adapters.fetch.rss_worker_source import (
     CloudflareRssSource,
     poll_timeout_seconds,
 )
-from cyris.domain.models import Article, SourceConfig, Tier
+from cyris.domain.models import Article, Lane, SourceConfig
 
 pytestmark = pytest.mark.unit
 
@@ -46,7 +46,7 @@ def _article(source: str, days_old: float, n: int = 0) -> Article:
         content="",
         published_at=NOW - timedelta(days=days_old),
         source_name=source,
-        source_tier=Tier.FILTER,
+        source_lane=Lane.SKIM,
     )
 
 

@@ -22,7 +22,7 @@ from cyris.adapters.store.d1_store import D1ArticleStore
 from cyris.adapters.store.settings import D1Settings
 from cyris.adapters.store.source_store import D1SourceStore
 from cyris.diagnostics.doctor import Check
-from cyris.domain.models import Article, ArticleState, SourceConfig, Tier
+from cyris.domain.models import Article, ArticleState, Lane, SourceConfig
 from cyris.entrypoints.triage_server import TriageServer
 
 pytestmark = pytest.mark.integration
@@ -44,7 +44,7 @@ def _articles(source: str, host: str, count: int = 8) -> list[Article]:
             content=f"<p>Body of {n}</p>",
             published_at=NOW - timedelta(hours=12 * n + 1),
             source_name=source,
-            source_tier=Tier.FILTER,
+            source_lane=Lane.SKIM,
             source_tags=["news"],
         )
         for n in range(count)

@@ -1,7 +1,7 @@
 """The onboarding feed catalog: every entry reads as a `SourceConfig`.
 
 docs/milestones/cold-start-onboarding.md sets the shape this file holds the catalog to:
-a `SourceConfig` per entry, `tier: filter`, at least one tag each, and both a 繁中 and an
+a `SourceConfig` per entry, `lane: skim`, at least one tag each, and both a 繁中 and an
 English entry so onboarding has something to offer either reader. The list's own `topics`
 table groups the entries: each entry names one or two of its ids, each topic holds at least
 one entry, and `topics` is the list's field, never a `SourceConfig`'s. Whether a URL still
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from cyris.domain.models import SourceConfig, Tier
+from cyris.domain.models import Lane, SourceConfig
 
 pytestmark = [pytest.mark.unit, pytest.mark.guard]
 
@@ -39,10 +39,10 @@ def test_every_entry_reads_as_a_source_config() -> None:
         assert source.fetchable, f"{source.name}: not fetchable (needs a url)"
 
 
-def test_every_entry_is_filter_tier() -> None:
+def test_every_entry_is_in_the_skim_lane() -> None:
     for entry in _raw_feeds():
         source = SourceConfig.model_validate(entry)
-        assert source.tier == Tier.FILTER, f"{source.name}: tier {source.tier}, want filter"
+        assert source.lane == Lane.SKIM, f"{source.name}: lane {source.lane}, want skim"
 
 
 def test_every_entry_carries_at_least_one_tag() -> None:

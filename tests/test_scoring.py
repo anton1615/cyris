@@ -9,7 +9,7 @@ from fakes import FakeLLM
 
 from cyris.adapters.store.article_store import ArticleStore
 from cyris.domain.language import detect_language
-from cyris.domain.models import StoredArticle, Tier
+from cyris.domain.models import Lane, StoredArticle
 
 pytestmark = pytest.mark.unit
 
@@ -84,7 +84,7 @@ class TestBuildScoringPrompt:
                 content="Content A",
                 published_at=datetime.now(UTC),
                 source_name="Source A",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
                 first_seen_at=datetime.now(UTC),
             ),
         ]
@@ -104,7 +104,7 @@ class TestBuildScoringPrompt:
                 content="X" * 2000,
                 published_at=datetime.now(UTC),
                 source_name="Src",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
                 first_seen_at=datetime.now(UTC),
             ),
         ]
@@ -124,7 +124,7 @@ class TestBuildScoringPrompt:
                 content="Y" * 2000,
                 published_at=datetime.now(UTC),
                 source_name="Src",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
                 first_seen_at=datetime.now(UTC),
             ),
         ]
@@ -154,7 +154,7 @@ class TestScoreArticlesBatch:
                 content="Deep learning advances in 2026",
                 published_at=now,
                 source_name="ArXiv",
-                source_tier=Tier.SUMMARIZE,
+                source_lane=Lane.READ,
                 first_seen_at=now,
             ),
             StoredArticle(
@@ -164,7 +164,7 @@ class TestScoreArticlesBatch:
                 content="台灣企業雲端轉型最新報告與深度分析",
                 published_at=now,
                 source_name="iThome",
-                source_tier=Tier.SUMMARIZE,
+                source_lane=Lane.READ,
                 first_seen_at=now,
             ),
         ]
@@ -340,7 +340,7 @@ class TestUpdateScores:
                 content="Content A",
                 published_at=now,
                 source_name="Src A",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
             ),
             Article(
                 id=2,
@@ -349,7 +349,7 @@ class TestUpdateScores:
                 content="Content B",
                 published_at=now,
                 source_name="Src B",
-                source_tier=Tier.SUMMARIZE,
+                source_lane=Lane.READ,
             ),
         ]
         store.save(articles, now=now)
@@ -399,7 +399,7 @@ class TestSortByScore:
                 content="C",
                 published_at=now,
                 source_name="S",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
             ),
             Article(
                 id=2,
@@ -408,7 +408,7 @@ class TestSortByScore:
                 content="C",
                 published_at=now,
                 source_name="S",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
             ),
             Article(
                 id=3,
@@ -417,7 +417,7 @@ class TestSortByScore:
                 content="C",
                 published_at=now,
                 source_name="S",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
             ),
             Article(
                 id=4,
@@ -426,7 +426,7 @@ class TestSortByScore:
                 content="C",
                 published_at=now,
                 source_name="S",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
             ),
         ]
         store.save(articles, now=now)
@@ -466,7 +466,7 @@ class TestFilterNonNews:
                 content="C",
                 published_at=now,
                 source_name="S",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
                 source_tags=["tech"],
                 first_seen_at=now,
             ),
@@ -477,7 +477,7 @@ class TestFilterNonNews:
                 content="C",
                 published_at=now,
                 source_name="S",
-                source_tier=Tier.FILTER,
+                source_lane=Lane.SKIM,
                 source_tags=["news", "tech"],
                 first_seen_at=now,
             ),
@@ -506,7 +506,7 @@ class TestBatchGuard:
                 content="C",
                 published_at=now,
                 source_name="S",
-                source_tier=Tier.SUMMARIZE,
+                source_lane=Lane.READ,
                 source_tags=[],
                 first_seen_at=now,
             )
@@ -550,7 +550,7 @@ class TestBatchGuard:
 def _article(
     url: str,
     *,
-    tier: Tier = Tier.FILTER,
+    lane: Lane = Lane.SKIM,
     tags: list[str] | None = None,
     score: float | None = None,
 ) -> StoredArticle:
@@ -561,7 +561,7 @@ def _article(
         content="Content",
         published_at=datetime.now(UTC),
         source_name="Src",
-        source_tier=tier,
+        source_lane=lane,
         source_tags=tags or [],
         first_seen_at=datetime.now(UTC),
         score=score,
@@ -575,11 +575,11 @@ class TestSelectScorable:
         article = _article("http://a.com")
         assert select_scorable([article]) == [article]
 
-    def test_skips_fan_tier(self):
+    def test_skips_follow_lane(self):
         from cyris.service_layer.scoring import select_scorable
 
-        assert select_scorable([_article("http://a.com", tier=Tier.FAN)]) == []
-        assert select_scorable([_article("http://a.com", tier=Tier.FAN)], force=True) == []
+        assert select_scorable([_article("http://a.com", lane=Lane.FOLLOW)]) == []
+        assert select_scorable([_article("http://a.com", lane=Lane.FOLLOW)], force=True) == []
 
     def test_skips_news_tagged(self):
         from cyris.service_layer.scoring import select_scorable
@@ -599,13 +599,13 @@ def test_scoring_filter_has_one_implementation() -> None:
     """`run_digest` and `cyris articles score` share the rule, not a copy of it.
 
     The two used to filter separately and had already drifted: the CLI scored
-    fan-tier articles that `run_digest` skips.
+    follow-lane articles that `run_digest` skips.
     """
     for path in ("src/cyris/service_layer/run_digest.py", "src/cyris/entrypoints/cli.py"):
         source = Path(path).read_text()
         assert "select_scorable" in source, path
         assert "NEWS_TAG in a.source_tags" not in source, path
-        assert "Tier.FAN" not in source, path
+        assert "Lane.FOLLOW" not in source, path
 
 
 # --- Area prompt (ScoringAreaPrompt) ---
@@ -686,7 +686,7 @@ class TestScoringAreaParse:
                 content="Body text",
                 published_at=now,
                 source_name="Src",
-                source_tier=Tier.SUMMARIZE,
+                source_lane=Lane.READ,
                 first_seen_at=now,
             )
             for i, name in ((1, "a"), (2, "b"))

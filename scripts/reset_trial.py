@@ -11,12 +11,13 @@ Cleared, in the trial's D1: every row of the tables listed at the end of this
 help. In `settings`, only the keys listed there, written back to what
 `cyris.toml.example` ships. In the vote Worker's KV: every pending vote.
 
-Kept: `usage_log` (what the trial has spent), every other `settings` key (the LLM
-provider and model the owner pushed among them), the Workers, their secrets, the
-Access policy and the Pages project. `pages_manifest`, `pages_deploy_receipt` and
-the digests already published to the trial's Pages project are kept too: whether a
-reset should take the archive with it is not decided, so this leaves it, and the
-next issue publishes beside the old ones.
+Kept: `usage_log` (what the trial has spent), `schema_migrations` (the schema steps
+already run), every other `settings` key (the LLM provider and model the owner
+pushed among them), the Workers, their secrets, the Access policy and the Pages
+project. `pages_manifest`, `pages_deploy_receipt` and the digests already published
+to the trial's Pages project are kept too: whether a reset should take the archive
+with it is not decided, so this leaves it, and the next issue publishes beside the
+old ones.
 
 Without --yes it is a dry run: it prints the row count of every table it would
 touch and the SQL it would send, and writes nothing. With --yes it prints the same
@@ -72,6 +73,7 @@ KEPT = {
     "settings": "only the onboarding keys below are reset",
     "pages_manifest": "the published archive's file list; not decided, so kept",
     "pages_deploy_receipt": "this D1 has published its Pages project; kept with the manifest",
+    "schema_migrations": "the schema steps this D1 has run; cleared, the next boot reruns them",
 }
 
 # The keys static/onboarding.js writes: language and timezone, the publish hours, the
