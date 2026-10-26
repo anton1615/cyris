@@ -3,9 +3,9 @@
 //
 // Auth is Cloudflare Access alone: router.js checks the Access JWT before
 // anything reaches the container. The team domain and AUD are grade-B settings.
-import { Container, getContainer } from "@cloudflare/containers";
-import { env } from "cloudflare:workers";
+import { DurableObject, env } from "cloudflare:workers";
 import { accessKeys } from "./access_keys.js";
+import { Lifecycle } from "./container.js";
 import { handleRequest } from "./router.js";
 import { planTick, readTimeZone } from "./schedule.js";
 import { createTypeScale } from "./type_scale.js";
@@ -114,41 +114,42 @@ async function probeGemini(model) {
   }
 }
 
-// The run instance exits on its own when its pass ends, so its timer is only a
-// cap on a hung run. 5m is too short for that: the slowest run in digest_runs
+// The run instance exits on its own when its pass ends, so its timeout is only
+// a cap on a hung run. 5m is too short for that: the slowest run in digest_runs
 // took 196s before promote-sync, and the run role's PID 1 acts on SIGTERM
-// (docker/entrypoint.sh), so stop() ends the pass it lands on.
-const RUN_SLEEP_AFTER = "15m";
+// (docker/entrypoint.sh), so a stop ends the pass it lands on.
+const RUN_INACTIVITY_TIMEOUT_MS = 900_000;
+// Idle time is billed. The Container class's 10-minute default idle added ~10
+// container-hours per 60 runs.
+const UI_INACTIVITY_TIMEOUT_MS = 300_000;
 const RUN_INSTANCE = "run";
 
-export class CyrisContainer extends Container {
-  defaultPort = 8766;
-  // Idle time is billed. The 10-minute default idle added ~10 container-hours
-  // per 60 runs, which is why the hook below exists at all. Read from the
-  // instance's own name, not from start()'s options, so a Durable Object
-  // restart mid-run keeps the run's timer.
-  sleepAfter = this.ctx.id.name === RUN_INSTANCE ? RUN_SLEEP_AFTER : "5m";
+export class CyrisContainer extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    // Read from the instance's own name, not from the start call, so a Durable
+    // Object restart mid-run keeps the run's timeout.
+    this.lifecycle = new Lifecycle(
+      ctx,
+      ctx.id.name === RUN_INSTANCE ? RUN_INACTIVITY_TIMEOUT_MS : UI_INACTIVITY_TIMEOUT_MS,
+    );
+    if (ctx.container.running) void ctx.blockConcurrencyWhile(() => this.lifecycle.adopt());
+  }
 
   // Without a role the image runs the local machine's supercronic loop, which in the
   // cloud would be a second scheduler racing the Workers Cron above.
-  envVars = containerEnv("ui");
-
-  // Overriding this hook without stopping renews the timer instead of sleeping,
-  // and the instance bills on. This is the whole point of the override.
-  //
-  // stop() is only a SIGTERM. The image's PID 1 has to act on it — Linux drops
-  // signals PID 1 has no handler for, which is how this hook ran every five
-  // minutes for a day without ever putting the instance to sleep.
-  async onActivityExpired() {
-    await this.stop();
+  async fetch(request) {
+    try {
+      await this.lifecycle.ready(containerEnv("ui"));
+    } catch (error) {
+      console.log("container error:", error);
+      return new Response(`Failed to start container: ${error}`, { status: 503 });
+    }
+    return this.lifecycle.forward(request);
   }
 
-  onStop({ exitCode, reason }) {
-    console.log("container stopped", { exitCode, reason });
-  }
-
-  onError(error) {
-    console.log("container error:", error);
+  async startRun(envVars) {
+    await this.lifecycle.start(envVars);
   }
 }
 
@@ -172,14 +173,14 @@ async function startRun(period, date) {
   const envVars = containerEnv("run");
   if (period) envVars.CYRIS_RUN_PERIOD = period;
   if (date) envVars.CYRIS_RUN_DATE = date;
-  await getContainer(env.CYRIS, RUN_INSTANCE).start({ envVars });
+  await env.CYRIS.getByName(RUN_INSTANCE).startRun(envVars);
   return { started: "run", at: new Date().toISOString() };
 }
 
 export default {
   async fetch(request) {
     return handleRequest(request, env, {
-      container: (r) => getContainer(env.CYRIS, "ui").fetch(r),
+      container: (r) => env.CYRIS.getByName("ui").fetch(r),
       startRun,
       runTimeZone: () => readTimeZone({ env, fetchImpl: (input, init) => fetch(input, init) }),
       probeGemini,

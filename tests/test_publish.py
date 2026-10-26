@@ -112,15 +112,16 @@ def test_a_deployed_page_is_polled_not_redeployed(monkeypatch):
 
 
 def _sleep_after_seconds(source: str) -> int:
-    match = re.search(r'RUN_SLEEP_AFTER\s*=\s*"(\d+)([smh])"', source)
-    assert match, "RUN_SLEEP_AFTER is not a literal this test can read; pin the budget against it"
-    value, unit = match.groups()
-    return int(value) * {"s": 1, "m": 60, "h": 3600}[unit]
+    match = re.search(r"RUN_INACTIVITY_TIMEOUT_MS\s*=\s*([\d_]+);", source)
+    assert match, (
+        "RUN_INACTIVITY_TIMEOUT_MS is not a literal this test can read; pin the budget against it"
+    )
+    return int(match.group(1).replace("_", "")) // 1000
 
 
 def test_the_sleep_after_parser_fails_rather_than_skipping():
-    with pytest.raises(AssertionError, match="RUN_SLEEP_AFTER"):
-        _sleep_after_seconds("const RUN_SLEEP_AFTER = SLEEP_AFTER;")
+    with pytest.raises(AssertionError, match="RUN_INACTIVITY_TIMEOUT_MS"):
+        _sleep_after_seconds("const RUN_INACTIVITY_TIMEOUT_MS = TIMEOUT;")
 
 
 def test_the_publish_time_budget_fits_inside_the_containers_sleep_after():
