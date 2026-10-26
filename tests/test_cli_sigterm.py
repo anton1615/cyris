@@ -1,4 +1,4 @@
-"""How `cyris run` answers the SIGTERM the Container runtime sends to stop it.
+"""How `cyris run` and `cyris triage-ui` answer the SIGTERM that stops a Container.
 
 In the Container the run role is PID 1's child under `docker/entrypoint.sh`; a
 stop is a SIGTERM. Python's default for it kills the process outright, so
@@ -138,3 +138,51 @@ def test_sigterm_during_cleanup_lets_the_cleanup_finish() -> None:
 
     assert "finally ran" in stdout
     assert returncode == 0
+
+
+_UI_CHILD = """
+from unittest.mock import MagicMock, patch
+
+
+class FakeServer:
+    def __init__(self, **kwargs):
+        pass
+
+    async def start(self):
+        print("started", flush=True)
+
+    async def stop(self):
+        pass
+
+
+with (
+    patch("cyris.bootstrap.load_effective_config", MagicMock()),
+    patch("cyris.bootstrap.build_d1_client", MagicMock(return_value=None)),
+    patch("cyris.bootstrap.build_settings", MagicMock()),
+    patch("cyris.entrypoints.triage_server.TriageServer", FakeServer),
+):
+    from cyris.entrypoints.cli import app
+
+    app(["triage-ui"])
+"""
+
+
+def test_triage_ui_logs_the_sigterm_and_the_finished_shutdown() -> None:
+    child = subprocess.Popen(
+        [sys.executable, "-c", _UI_CHILD],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert child.stdout is not None
+        assert child.stdout.readline().strip() == "started"
+        child.send_signal(signal.SIGTERM)
+        _, stderr = child.communicate(timeout=10)
+    finally:
+        child.kill()
+        child.wait()
+
+    assert child.returncode == 0
+    assert "triage-ui: SIGTERM, stopping" in stderr
+    assert "triage-ui: stopped" in stderr
