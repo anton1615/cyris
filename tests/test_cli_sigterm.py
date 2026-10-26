@@ -141,6 +141,7 @@ def test_sigterm_during_cleanup_lets_the_cleanup_finish() -> None:
 
 
 _UI_CHILD = """
+import asyncio
 from unittest.mock import MagicMock, patch
 
 
@@ -149,7 +150,9 @@ class FakeServer:
         pass
 
     async def start(self):
-        print("started", flush=True)
+        # Printed once triage-ui first awaits, which is after its signal
+        # handlers are in place; a SIGTERM before that kills it outright.
+        asyncio.get_running_loop().call_soon(lambda: print("started", flush=True))
 
     async def stop(self):
         pass
@@ -176,7 +179,9 @@ def test_triage_ui_logs_the_sigterm_and_the_finished_shutdown() -> None:
     )
     try:
         assert child.stdout is not None
-        assert child.stdout.readline().strip() == "started"
+        for line in child.stdout:
+            if line.strip() == "started":
+                break
         child.send_signal(signal.SIGTERM)
         _, stderr = child.communicate(timeout=10)
     finally:
