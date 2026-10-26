@@ -827,9 +827,9 @@ issues in one week were lost that way. When the last digest hour began less than
 hour's own date (`cyris run --period P --date D`) and logs the pair. An `error` row is not done,
 so a failed run is retried too, at most twice. `digest_runs` gets its row only when a run ends,
 so a run still in flight would look missed; none can be at the next tick, an hour after it began,
-because `RUN_SLEEP_AFTER` (§6) caps a run at 15 minutes, and were one still up, `start()` on the
-running `run` instance returns without starting another (`startContainerIfNotRunning` in
-`@cloudflare/containers`). A catch-up reads `digest_runs` with a second D1 REST query after the
+because `RUN_INACTIVITY_TIMEOUT_MS` (§6) caps a run at 15 minutes, and were one still up, a start
+on the running `run` instance returns without starting another (`Lifecycle.start` in
+`workers/app/src/container.js`). A catch-up reads `digest_runs` with a second D1 REST query after the
 schedule read, which happens once per tick; when either read fails it starts nothing,
 unlike a digest hour, because a missed catch-up loses nothing the lost run had not already lost.
 Any other status without an `ok` row (a quiet window's `no_articles`, an onboarding wait that
@@ -944,7 +944,7 @@ production branch, or it lands on a preview URL. The first publish creates the P
   `failure` or `canceled` is deployed again; one merely slow never is.
 - **The time budget.** The whole publish, retries and polls included, starts no Pages request
   whose defined worst case could run past 180s from entry, inside the `run` instance's 15-minute
-  `sleepAfter`; `tests/test_publish.py` pins that arithmetic against `workers/app/src/index.js`.
+  inactivity timeout; `tests/test_publish.py` pins that arithmetic against `workers/app/src/index.js`.
   Outside the bound: recovering an evicted asset from the live site (15s each), upload buckets
   beyond the first, and every D1 call. A publishing rerun's byte check (`page_serves`) runs after
   that publish has spent its 180s, so it has a separate 120s budget (`VERIFY_BUDGET_SECONDS`), and
@@ -1000,10 +1000,16 @@ the run's status. A SIGTERM ends the pass instead: it exits 143 and skips what h
 (below); `ui` serves `/settings`; the default is the
 supercronic loop reading `docker/crontab`, the scheduler for a `docker compose` install. Compose
 bind-mounts `./agent-vault`, so the `json` store and the generated HTML survive a recreate.
-The two roles run as separate instances with separate idle timers: `ui` sleeps after 5 minutes,
-and `run` gets `RUN_SLEEP_AFTER = "15m"` in `workers/app/src/index.js`, chosen from the Durable
-Object's own name so a restart mid-run keeps it. `run` exits when its pass ends, so its timer is
-only a cap on a hung run.
+The two roles run as separate instances with separate idle timers, each set with the Durable
+Object's `ctx.container.setInactivityTimeout()`: `ui` sleeps after 5 minutes, and `run` gets
+`RUN_INACTIVITY_TIMEOUT_MS` (15 minutes) in `workers/app/src/index.js`, chosen from the Durable
+Object's own name. A restarted Durable Object starts with no timeout and no `monitor()`, so its
+constructor sets both again on a container it finds running (`Lifecycle.adopt` in
+`workers/app/src/container.js`). `run` exits when its pass ends, so its timer is only a cap on a
+hung run. Since 2026-10 the Worker drives the container through `ctx.container` directly;
+Cloudflare stops maintaining the `Container` class from `@cloudflare/containers` after 2026-12-31.
+Whether the platform's inactivity stop sends SIGTERM with a grace period first, as the class's
+`stop()` did, is unverified.
 
 **`stop()` is one SIGTERM, and the image has to be able to receive it.** For a day the `ui`
 instance never slept: per-instance metrics showed it holding 132 MB at **zero CPU every hour**

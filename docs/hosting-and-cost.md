@@ -15,7 +15,7 @@ Container rows come from 720 starts in a 30-day month on `instance_type = "basic
 stopped`, cold start included (measured from Workers Logs, 2026-09-19 to 09-22). That makes
 60 × 64 s + 660 × 28 s = 22,320 s. A 31-day month has 744 starts, 62 of them digest runs, which
 is 23,064 s and puts memory and vCPU at 25.6 %. The `run` role exits when the run ends, so it has
-no idle tail, and `sleepAfter` is 5 m for the `ui` role (the `run` role's 15 m is only a cap on a
+no idle tail, and the inactivity timeout is 5 m for the `ui` role (the `run` role's 15 m is only a cap on a
 hung run: its SIGTERM now ends the pass with exit 143 once the running step's in-flight call and cleanup
 return, which until
 2026-09-24 it did not — the shell PID 1 ignored the signal).
@@ -98,7 +98,7 @@ of repository inactivity [19].
 
 "Memory and disk usage are based on the *provisioned resources* for the instance type you select,
 while CPU usage is based on *active usage* only" [3] — memory and disk therefore accrue for the
-**whole awake window** whether or not anything happens, and `sleepAfter` (5 m here, 10 m by default)
+**whole awake window** whether or not anything happens, and the inactivity timeout (5 m here)
 is what ends it [5]. A `basic` instance kept awake by traffic for a full month, at the published
 rates [3]: memory (720 − 25) GiB-hours × 3,600 × $0.0000025 ≈ **$6.26** plus disk (2,880 − 200)
 GB-hours × 3,600 × $0.00000007 ≈ **$0.68** — ≈ **$7/month** before Workers requests, the container's

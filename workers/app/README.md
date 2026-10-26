@@ -21,7 +21,7 @@ One image, started in one of two roles:
   yesterday's evening before the morning hour), and only its format is checked when the
   time zone cannot be read from D1.
 - **Any HTTP request** → `CYRIS_ROLE=ui`: `cyris triage-ui` on port 8766, asleep 5
-  minutes after the last request (`onActivityExpired` → `stop()`).
+  minutes after the last request (`setInactivityTimeout()` in `src/container.js`).
 
 Every other path is the archive: the Worker proxies it from
 `https://<CYRIS_PROMOTE_PAGES_PROJECT>.pages.dev`, or from `DIGEST_ORIGIN` when set. It is
