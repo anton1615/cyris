@@ -1655,3 +1655,27 @@ def test_an_unheld_node_keeps_its_polarity_and_a_hold_brightens_it(
     ]
 
     assert 0 < _mix_share_at(fill, 0) < _mix_share_at(fill, 1) == 100
+
+
+def test_the_news_paragraph_is_the_prototype_component() -> None:
+    """ui-language.md §6 *digest*: the prototype draws the paragraph the page draws."""
+    prototype_html = PROTOTYPE.read_text()
+    prototype = parse_style_block(prototype_html)
+    for key in (".news-paragraph", ".citations"):
+        assert prototype[key] == _parsed("digest")[key], key
+    paragraph = prototype_html[prototype_html.index('<div class="news-paragraph"') :]
+    rows = paragraph[: paragraph.index("</section>")]
+    assert '<p class="summary">' in rows
+    assert rows.count('<div class="meta">') >= 2
+    assert '<div class="citations">' in rows
+
+
+def _without_values(field: str) -> str:
+    return re.sub(r'\s(value|autocomplete)="[^"]*"', "", field)
+
+
+def test_the_news_per_paragraph_field_is_the_prototype_field() -> None:
+    field = re.compile(r'<label class="label" for="units-per-paragraph">.*?</p>', re.DOTALL)
+    page = field.search(render_settings_page()).group(0)
+    prototype = field.search(PROTOTYPE.read_text()).group(0)
+    assert _without_values(prototype) == _without_values(page)
