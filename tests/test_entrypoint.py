@@ -138,7 +138,7 @@ class _RunPass:
             time.sleep(0.02)
 
     def terminate(self, within: float) -> int:
-        """SIGTERM the shell alone, as `Container.stop()` does; its exit code."""
+        """SIGTERM the shell alone, as the platform's stop does; its exit code."""
         self.proc.send_signal(signal.SIGTERM)
         return self.proc.wait(timeout=within)
 
@@ -195,7 +195,7 @@ class TestRunRoleProbesEgress:
 
 @needs_dash
 class TestRunRoleStopsOnSigterm:
-    """`Container.stop()` is one SIGTERM to the shell, which is PID 1 in the `run` role."""
+    """The platform's stop is one SIGTERM to the shell, which is PID 1 in the `run` role."""
 
     @pytest.mark.parametrize(
         "run_body",

@@ -12,9 +12,10 @@ case "${CYRIS_ROLE:-cron}" in
     export CYRIS_STORE_BACKEND=${CYRIS_STORE_BACKEND:-d1}
     export CYRIS_HTML_OUTPUT_ENABLED=${CYRIS_HTML_OUTPUT_ENABLED:-true}
     export CYRIS_PROMOTE_PUBLISH_ENABLED=${CYRIS_PROMOTE_PUBLISH_ENABLED:-true}
-    # This shell is PID 1, and Container.stop() is one SIGTERM to it. A shell
-    # runs a trap only after its foreground command returns, so each step runs
-    # in the background and the shell waits on it, which a trapped signal ends.
+    # This shell is PID 1, and the platform stops a container with one SIGTERM
+    # to it. A shell runs a trap only after its foreground command returns, so
+    # each step runs in the background and the shell waits on it, which a
+    # trapped signal ends.
     # The signal goes on to the running step, and the pass ends when that step
     # does, so `cyris run` gets to finish its own shutdown instead of being
     # orphaned.
