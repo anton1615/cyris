@@ -1,5 +1,7 @@
 """Tests for HTML digest rendering."""
 
+import html as html_lib
+import json
 import re
 from datetime import UTC, datetime
 from html.parser import HTMLParser
@@ -2733,14 +2735,33 @@ def _paragraph_issue():
     )
 
 
-def test_a_news_paragraph_is_its_text_then_one_link_per_cited_article() -> None:
+def _paragraph_rows(html: str) -> list[str]:
+    """The meta rows of the issue's one news paragraph, in page order."""
+    block = html[html.index('<div class="news-paragraph"') : html.index("</section>")]
+    return re.findall(r'<div class="meta">(.*?)</div>', block, re.DOTALL)
+
+
+def test_a_news_paragraph_is_its_text_then_one_row_per_cited_unit() -> None:
     html = HtmlDigestWriter(Path("/tmp/html-test")).render(_paragraph_issue())
-    block = html[html.index('<div class="news-paragraph"') :]
-    block = block[: block.index("</div>\n                </div>")]
-    assert '<p class="summary">A quake struck; a letter followed.</p>' in block
-    # Three links fold, as a cluster's sources do; the synthetic URL is a label only.
-    assert '<summary lang="en">3 sources</summary>' in block
-    assert '<a href="https://a.test/quake" target="_blank" rel="noopener">Wire A</a>' in block
-    assert '<a href="https://b.test/quake" target="_blank" rel="noopener">Wire B</a>' in block
-    assert "Letters" in block and "newsletter:abc" not in block
+    assert '<p class="summary">A quake struck; a letter followed.</p>' in html
+    pair, letter = _paragraph_rows(html)
+    assert '<a href="https://a.test/quake" target="_blank" rel="noopener">Wire A</a>' in pair
+    assert '<a href="https://b.test/quake" target="_blank" rel="noopener">Wire B</a>' in pair
+    # The synthetic URL is a label only.
+    assert "Letters" in letter and 'href="newsletter:abc"' not in letter
     assert 'class="headline-item"' not in html
+
+
+def test_a_vote_on_a_cited_unit_is_cast_for_every_member_url() -> None:
+    """N4 (a): one vote group per unit, over all its store URLs, as a cluster's is."""
+    html = HtmlDigestWriter(Path("/tmp/html-test")).render(_paragraph_issue())
+    rows = _paragraph_rows(html)
+    voted = [
+        json.loads(html_lib.unescape(u)) for u in re.findall(r"data-urls='([^']*)'", "".join(rows))
+    ]
+    assert voted == [["https://a.test/quake", "https://b.test/quake"], ["newsletter:abc"]]
+    for row in rows:
+        # One group per row, and the votes are the row's last element (ui-language.md §6).
+        assert row.count('class="vote-group"') == 1
+        assert row.rstrip().endswith("</span>")
+        assert row.rstrip().rindex('class="vote-group"') > row.rfind("</a>")

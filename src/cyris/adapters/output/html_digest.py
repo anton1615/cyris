@@ -199,7 +199,6 @@ class HtmlDigestWriter:
             autoescape=select_autoescape(["html", "xml"], default=True),
         )
         self.env.filters["hostname"] = _hostname
-        self.env.filters["paragraph_links"] = paragraph_links
         self.env.filters["plural"] = _plural
         self.env.filters["section_label"] = section_label
         self.env.globals["project_url"] = PROJECT_URL

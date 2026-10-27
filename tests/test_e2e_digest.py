@@ -876,6 +876,11 @@ def check_rewritten_ids_match(r: Receipts) -> None:
     assert [set(p.hrefs()) for p in paragraphs] == [
         {URL[k] for k in unit} for unit in NEWS_UNITS[:-1]
     ]
+    # A vote on a cited unit is cast for every member URL: the cluster unit votes on n1 and n2.
+    assert [
+        [json.loads(g.attrs["data-urls"]) for g in p.find_all("span", "vote-group")]
+        for p in paragraphs
+    ] == [[[URL[k] for k in unit]] for unit in NEWS_UNITS[:-1]]
     # The only row left is the read lane's unlinked letter: no news is a row.
     rows = page.find_all("div", "headline-item")
     assert [UNLINKED_TITLE in row.text() for row in rows] == [True]

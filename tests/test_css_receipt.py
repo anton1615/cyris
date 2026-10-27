@@ -411,6 +411,7 @@ DIGEST_ITEM_PROBES = {
     ".meta",
     ".featured-item",
     ".news-cluster",
+    ".news-paragraph",
     ".article-item",
     ".headline-item",
     ".lead-story h2",
@@ -1072,6 +1073,7 @@ EXPECTED_DIGEST_IDS = {
             "lead-story",
             "featured-item",
             "news-cluster",
+            "news-paragraph",
             "article-item",
             "headline-item",
         )
@@ -1158,7 +1160,7 @@ def _placed_in(html: str, what: str) -> set[str]:
 
 def test_the_digest_probe_page_shows_a_vote_group_in_every_item_kind():
     items = {selector.lstrip(".") for selector in digest_probe.ITEM_SELECTORS}
-    assert len(items) == 5
+    assert len(items) == 6
     assert items <= _placed_in(digest_probe.render_page(), "vote-group")
     # KINDS names the fixtures; the page-side list of item selectors is another name.
     assert "KINDS" not in digest_probe.DIGEST_PRELUDE

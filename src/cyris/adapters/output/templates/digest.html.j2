@@ -23,13 +23,6 @@
 </article>
 {% endfor %}
 {%- endmacro -%}
-{#- A news paragraph's citations: one link per cited article, folded past two as a
-    cluster's sources are. -#}
-{% macro paragraph_sources(paragraph) -%}
-{%- set links = paragraph | paragraph_links -%}
-{%- set inner -%}{% for label, url in links %}{% if url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ label }}</a>{% else %}{{ label }}{% endif %}{{ ' · ' if not loop.last }}{% endfor %}{%- endset -%}
-{% if links | length > 2 %}<details class="src-fold"><summary lang="en">{{ links | length }} sources</summary><span class="src-list">{{ inner }}</span></details>{% else %}<span class="src-links">{{ inner }}</span>{% endif %}
-{%- endmacro -%}
 {% macro source_list(item) -%}
 {%- set urls = item.ref_urls if item.ref_urls else item.urls -%}
 {% if urls | length > 2 %}<details class="src-fold"><summary lang="en">{{ urls | length }} sources</summary><span class="src-list">{{ source_links(item) }}</span></details>{% else %}<span class="src-links">{{ source_links(item) }}</span>{% endif %}
@@ -283,6 +276,10 @@
             padding: var(--s-4) 0 var(--s-4) var(--s-5);
             margin-bottom: var(--s-5);
         }
+
+        /* Each cited unit's row has its own votes, whose 44px tap areas reach past the
+           drawn buttons; the gap keeps one row's from covering the next row's. */
+        .citations { display: flex; flex-direction: column; gap: var(--s-3); }
 
         .news-cluster .summary {
             font-size: calc(18px * var(--type-scale));
@@ -584,7 +581,15 @@
                 {% for paragraph in sec.paragraphs %}
                 <div class="news-paragraph"{% if paragraph.passed_through %} lang=""{% else %} lang="{{ content_lang }}"{% endif %}>
                     <p class="summary">{{ paragraph.text }}</p>
-                    <div class="meta">{{ paragraph_sources(paragraph) }}</div>
+                    {#- One row per cited unit, its votes over every member URL, as a cluster's are. -#}
+                    <div class="citations">
+                    {% for unit in paragraph.units %}
+                    <div class="meta">
+                        {{ source_list(unit) }}
+                        {{ promote_btn(unit) }}
+                    </div>
+                    {% endfor %}
+                    </div>
                 </div>
                 {% endfor %}
             </section>
