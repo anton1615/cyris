@@ -23,6 +23,7 @@ from cyris.adapters.output.html_digest import (
     _hostname,
     _html_lang,
     _stories,
+    paragraph_links,
     section_label,
 )
 from cyris.domain.area_layout import layout_by_area
@@ -40,6 +41,7 @@ _env = Environment(
 )
 _env.filters["hostname"] = _hostname
 _env.filters["section_label"] = section_label
+_env.filters["paragraph_links"] = paragraph_links
 _env.globals["project_url"] = PROJECT_URL
 
 

@@ -270,7 +270,26 @@
 
         .news-cluster h3 { margin-bottom: var(--s-2); }
 
+        /* A news paragraph is drawn as a cluster without its heading (ui-language.md §6). */
+        .news-paragraph {
+            border-left: 2px solid var(--border-strong);
+            padding: var(--s-4) 0 var(--s-4) var(--s-5);
+            margin-bottom: var(--s-5);
+        }
+
+        /* Each cited unit's row has its own votes, whose 44px tap areas reach past the
+           drawn buttons; the gap keeps one row's from covering the next row's. */
+        .citations { display: flex; flex-direction: column; gap: var(--s-3); }
+
         .news-cluster .summary {
+            font-size: calc(18px * var(--type-scale));
+            color: var(--text-dim);
+            line-height: 1.65;
+            margin-bottom: var(--s-2);
+            max-width: var(--measure-wide);
+        }
+
+        .news-paragraph .summary {
             font-size: calc(18px * var(--type-scale));
             color: var(--text-dim);
             line-height: 1.65;
@@ -559,6 +578,20 @@
                     {% endfor %}
                 </div>
                 {% endif %}
+                {% for paragraph in sec.paragraphs %}
+                <div class="news-paragraph"{% if paragraph.passed_through %} lang=""{% else %} lang="{{ content_lang }}"{% endif %}>
+                    <p class="summary">{{ paragraph.text }}</p>
+                    {#- One row per cited unit, its votes over every member URL, as a cluster's are. -#}
+                    <div class="citations">
+                    {% for unit in paragraph.units %}
+                    <div class="meta">
+                        {{ source_list(unit) }}
+                        {{ promote_btn(unit) }}
+                    </div>
+                    {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
             </section>
             {% endfor %}
         </main>

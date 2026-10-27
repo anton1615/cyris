@@ -1,10 +1,15 @@
 ---
-status: accepted
+status: superseded by [ADR-0022](0022-the-preference-order-extends-to-news-units.md)
 date: 2026-10-20
 decision-makers: ""
 ---
 
 # The preference order extends to news clusters
+
+> Superseded by [ADR-0022](0022-the-preference-order-extends-to-news-units.md) (2026-10-27).
+> The rule below still holds, but the clusters and headline rows it ordered inside the issue cap
+> are gone from new issues: news is now written as paragraphs over units, and ADR-0022 applies
+> the same rule to those units before the area quota.
 
 ## Context and Problem Statement
 

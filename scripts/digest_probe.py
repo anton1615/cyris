@@ -46,7 +46,13 @@ from css_computed import find_browser
 
 from cyris.adapters.output.html_digest import HtmlDigestWriter
 from cyris.domain.area_layout import layout_by_area
-from cyris.domain.models import DigestContent, DigestItem, DigestSection, UsageStats
+from cyris.domain.models import (
+    DigestContent,
+    DigestItem,
+    DigestSection,
+    NewsParagraph,
+    UsageStats,
+)
 
 DATE = "2026-01-02"
 PERIOD = "morning"
@@ -63,6 +69,7 @@ ITEM_SELECTORS = (
     ".lead-story",
     ".featured-item",
     ".news-cluster",
+    ".news-paragraph",
     ".article-item",
     ".headline-item",
 )
@@ -72,6 +79,7 @@ ITEM_SELECTORS = (
 PROSE_SELECTORS = (
     ".lead-story .summary",
     ".news-cluster .summary",
+    ".news-paragraph .summary",
     ".article-item .summary",
     ".headline-item .summary",
 )
@@ -147,6 +155,16 @@ def content(grouped_lead: bool = False) -> DigestContent:
                 items=[_item("quiet", "Quiet", ["Wire D", "Wire E"])],
                 story_id=f"{DATE}-{PERIOD}-1",
             ),
+        ],
+        # A paragraph citing a busy unit first: a click on its first votes on three URLs.
+        news_paragraphs=[
+            NewsParagraph(
+                text="Three wires reported one event; a fourth reported another.",
+                units=[
+                    _item("unit-busy", "Busy unit", ["Wire F", "Wire G", "Wire H"]),
+                    _item("unit-quiet", "Quiet unit", ["Wire I"]),
+                ],
+            )
         ],
         # Between the Top story and the first area on the page: the first `.article-item`.
         tracked_topics=[
@@ -249,6 +267,7 @@ def first_vote_urls() -> dict[str, list[str]]:
         ".lead-story": features[0].urls,
         ".featured-item": features[1].urls,
         ".news-cluster": digest.news_clusters[0].items[0].urls,
+        ".news-paragraph": digest.news_paragraphs[0].units[0].urls,
         ".article-item": digest.tracked_topics[0].items[0].urls,
         ".headline-item": layout_by_area(digest).sections[0].rows[0].item.urls,
     }

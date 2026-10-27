@@ -145,17 +145,15 @@ def rank_by_preference[Ranked: (DigestItem, DigestSection)](
 
 
 def preference_moves(baseline: DigestContent, ranked: DigestContent) -> dict[str, int]:
-    """How many headline, Features and cluster positions name other articles than `baseline`'s."""
+    """How many Features positions name other articles than `baseline`'s.
 
-    def moved(before: list, after: list) -> int:
-        pairs = zip_longest((_urls(e) for e in before), (_urls(e) for e in after))
-        return sum(a != b for a, b in pairs)
-
-    return {
-        "headlines": moved(baseline.filtered_headlines, ranked.filtered_headlines),
-        "features": moved(baseline.featured_articles[1:], ranked.featured_articles[1:]),
-        "clusters": moved(baseline.news_clusters, ranked.news_clusters),
-    }
+    The news is ordered later, unit by unit, by the paragraph step (ADR-0022).
+    """
+    pairs = zip_longest(
+        (_urls(e) for e in baseline.featured_articles[1:]),
+        (_urls(e) for e in ranked.featured_articles[1:]),
+    )
+    return {"features": sum(a != b for a, b in pairs)}
 
 
 def _cap_featured(
@@ -199,21 +197,21 @@ def _truncate_sections(sections: list[DigestSection], max_items: int) -> list[Di
 def select_digest_articles(
     content: DigestContent, *, max_items: int, preference: Mapping[str, float] | None = None
 ) -> DigestContent:
-    """Apply priority fill to limit total digest articles.
+    """Apply priority fill to limit the issue's read-lane articles.
 
-    Priority order: featured_articles → thematic_summaries → news_clusters →
-    attention_sections → filtered_headlines. Each category fills completely before
-    the next gets remaining slots. Featured articles are laid out first
-    (`layer_by_score`), so the cap never splits the Top story's group.
-    Summaries lead: the knowledge channel (read lane, inherently small) must
-    never be crowded out of the digest by a heavy news day.
+    Priority order: featured_articles → thematic_summaries → attention_sections. Each
+    category fills completely before the next gets remaining slots. Featured
+    articles are laid out first (`layer_by_score`), so the cap never splits the Top
+    story's group. The news (`news_clusters`, `filtered_headlines`) passes whole and
+    in the model's order: it is written into paragraphs after the areas are stamped,
+    ordered there by unit, and cut by each area's quota (ADR-0022).
 
     Args:
         content: Full processed digest content.
-        max_items: Total article cap.
+        max_items: Cap on the read lane's articles.
         preference: Article URL to the reader's vote preference. When given, the
-            Features, the news clusters and the headlines are ordered by it before
-            the cap cuts them; the Top story is never moved.
+            Features are ordered by it before the cap cuts them; the Top story is
+            never moved.
 
     Returns:
         New DigestContent with limited items.
@@ -231,21 +229,7 @@ def select_digest_articles(
         selected_summaries = _truncate_sections(content.thematic_summaries, remaining)
         remaining = 0
 
-    # Priority 2: news clusters, ordered by preference before the cut so that a
-    # cluster the reader voted into is not the one the tail loses. A cluster stands
-    # on its best-scoring member; one no member of was judged keeps its slot.
-    clusters = rank_by_preference(content.news_clusters, preference)
-    news_count = _count_section_items(clusters)
-    if remaining == 0:
-        selected_clusters = []
-    elif news_count <= remaining:
-        selected_clusters = clusters
-        remaining -= news_count
-    else:
-        selected_clusters = _truncate_sections(clusters, remaining)
-        remaining = 0
-
-    # Priority 3: attention sections
+    # Priority 2: attention sections
     attention_count = _count_section_items(content.attention_sections)
     if remaining == 0:
         selected_attention = []
@@ -256,14 +240,8 @@ def select_digest_articles(
         selected_attention = _truncate_sections(content.attention_sections, remaining)
         remaining = 0
 
-    # Priority 4: filtered headlines
-    if remaining == 0:
-        selected_headlines = []
-    else:
-        headlines = rank_by_preference(content.filtered_headlines, preference)
-        selected_headlines = headlines[:remaining]
-        remaining -= len(selected_headlines)
-
+    selected_clusters = list(content.news_clusters)
+    selected_headlines = list(content.filtered_headlines)
     total_selected = (
         _count_section_items(selected_featured)
         + _count_section_items(selected_clusters)
@@ -307,6 +285,7 @@ def _iter_digest_items(content: DigestContent) -> list[DigestItem]:
         for section in sections:
             items.extend(section.items)
     items.extend(content.filtered_headlines)
+    items.extend(unit for paragraph in content.news_paragraphs for unit in paragraph.units)
     return items
 
 

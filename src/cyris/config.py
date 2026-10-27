@@ -27,6 +27,7 @@ from pydantic import (
 
 from cyris.domain.areas import Area
 from cyris.domain.models import SourceConfig, TrackedTopic
+from cyris.domain.news_units import UNITS_PER_BATCH
 from cyris.service_layer.schedule import validate_schedule
 
 
@@ -181,6 +182,10 @@ class DigestConfig(BaseModel):
     # How many Features cards an issue shows. A reader preference, not a
     # measurement — see docs/architecture.md §5.
     max_featured: int = Field(ge=1)
+    # How many news units the paragraph prompt asks each paragraph to cover. A reader
+    # preference over how fine the news reads — see docs/architecture.md §5.
+    # A paragraph cannot cite more units than one call is given.
+    units_per_paragraph: int = Field(ge=1, le=UNITS_PER_BATCH)
     scoring_snippet_length: int = Field(ge=1)
     summarize_snippet_length: int = Field(ge=1)
     filter_snippet_length: int = Field(ge=1)

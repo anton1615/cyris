@@ -72,6 +72,14 @@
     ],
     "route": "plain"
   },
+  "digest.units_per_paragraph": {
+    "tab": "digest",
+    "label": "News per paragraph",
+    "controls": [
+      "units-per-paragraph"
+    ],
+    "route": "plain"
+  },
   "digest.max_articles_per_digest_output": {
     "tab": "digest",
     "label": "Articles in the digest",

@@ -7,9 +7,10 @@ import pytest
 from cyris.domain.area_layout import (
     LOWER_ROWS_PER_AREA,
     cap_lower_layers,
+    cap_unplaced_news,
     layout_by_area,
 )
-from cyris.domain.models import DigestContent, DigestItem, DigestSection
+from cyris.domain.models import DigestContent, DigestItem, DigestSection, NewsParagraph
 from cyris.domain.selection import digest_urls
 
 pytestmark = pytest.mark.unit
@@ -496,3 +497,156 @@ def test_a_cut_that_removes_nothing_keeps_an_empty_attention_section() -> None:
     )
 
     assert cap_lower_layers(content) == content
+
+
+def _para(text: str, *units: DigestItem) -> NewsParagraph:
+    return NewsParagraph(text=text, units=list(units))
+
+
+def test_a_paragraph_lands_in_its_first_units_area() -> None:
+    content = _content(
+        ["Tech", "Health"],
+        news_paragraphs=[
+            _para("P1", _item("u1", "Health"), _item("u2", "Health")),
+            _para("P2", _item("u3", "Tech")),
+        ],
+        attention_sections=[_sec("Radar", _item("r", "Health", score=4))],
+    )
+    tech, health = layout_by_area(content).sections
+    assert [p.text for p in tech.paragraphs] == ["P2"]
+    assert [p.text for p in health.paragraphs] == ["P1"]
+    assert _rows(health) == ["r"]
+
+
+def test_a_named_area_keeps_its_radar_row_then_paragraphs_and_counts_their_articles() -> None:
+    two = DigestItem(
+        title="pair", summary="", sources=["A", "B"], urls=["https://a", "https://b"], area="Tech"
+    )
+    paragraphs = [_para("P0", two)] + [_para(f"P{n}", _item(f"u{n}", "Tech")) for n in range(1, 7)]
+    content = _content(
+        ["Tech"],
+        articles_included=9,
+        news_paragraphs=paragraphs,
+        attention_sections=[_sec("Radar", _item("r", "Tech", score=4))],
+    )
+    capped = cap_lower_layers(content)
+    (tech,) = layout_by_area(capped).sections
+    # The read lane's row first, so four paragraphs fit.
+    assert _rows(tech) == ["r"]
+    assert [p.text for p in tech.paragraphs] == ["P0", "P1", "P2", "P3"]
+    # Cut: P4, P5 and P6, one article each.
+    assert capped.articles_included == 6
+    assert "https://example.com/u4" not in digest_urls(capped)
+    assert {"https://a", "https://b"} <= digest_urls(capped)
+
+
+def test_the_area_quota_never_cuts_unplaced_paragraphs() -> None:
+    paragraphs = [_para(f"P{n}", _item(f"u{n}")) for n in range(8)]
+    content = _content(["Tech"], articles_included=8, news_paragraphs=paragraphs)
+    capped = cap_lower_layers(content)
+    assert len(capped.news_paragraphs) == 8
+    assert capped.articles_included == 8
+
+
+def _news(text: str, area: str | None, urls: int = 1, items: int | None = None) -> NewsParagraph:
+    unit = DigestItem(
+        title=text,
+        summary="",
+        sources=["Src"] * urls,
+        urls=[f"https://example.com/{text}-{n}" for n in range(urls)],
+        area=area,
+    )
+    if items is None:
+        return NewsParagraph(text=text, units=[unit])
+    return NewsParagraph(text=text, units=[unit], items=items)
+
+
+def test_a_cut_paragraph_subtracts_the_items_it_stands_for_not_its_urls() -> None:
+    """A cluster of two reports was one item when the issue counted it; its cut is one."""
+    paragraphs = [_news(f"p{n}", "World") for n in range(5)] + [
+        _news("cluster", "World", urls=2, items=1)
+    ]
+    content = _content(["World"], articles_included=6, news_paragraphs=paragraphs)
+
+    capped = cap_lower_layers(content)
+
+    assert [p.text for p in capped.news_paragraphs] == [f"p{n}" for n in range(5)]
+    assert capped.articles_included == 5
+
+
+def test_a_paragraph_stands_for_one_item_per_unit_unless_told() -> None:
+    assert _news("p", "World", urls=3).items == 1
+
+
+@pytest.mark.parametrize(
+    ("area_order", "area"),
+    [([], "World"), (["Tech"], None)],
+    ids=["no-area-order", "other"],
+)
+def test_unplaced_news_is_cut_to_the_issue_cap_from_its_tail(area_order, area) -> None:
+    """News outside a named area meets no quota, so the issue cap bounds it, as before L4."""
+    content = _content(
+        area_order,
+        articles_included=2 + 6,
+        featured_articles=[_sec("F", _item("f1", "Tech"), _item("f2", "Tech"))],
+        news_paragraphs=[_news(f"p{n}", area) for n in range(6)],
+    )
+
+    capped = cap_unplaced_news(content, max_items=5)
+
+    assert [p.text for p in capped.news_paragraphs] == ["p0", "p1", "p2"]
+    assert capped.articles_included == 5
+    assert "https://example.com/p3-0" not in digest_urls(capped)
+
+
+def test_news_in_a_named_area_is_left_to_its_quota() -> None:
+    content = _content(
+        ["World"],
+        articles_included=6,
+        news_paragraphs=[_news(f"p{n}", "World") for n in range(6)],
+    )
+    assert cap_unplaced_news(content, max_items=2) == content
+
+
+def test_unplaced_old_form_news_is_bounded_too() -> None:
+    """An issue whose paragraph step failed keeps its clusters and Wire rows."""
+    content = _content(
+        [],
+        articles_included=1 + 4,
+        news_clusters=[_sec("C", _item("c1"))],
+        filtered_headlines=[_item(f"h{n}") for n in range(4)],
+    )
+
+    capped = cap_unplaced_news(content, max_items=3)
+
+    assert [s.heading for s in capped.news_clusters] == ["C"]
+    assert _titles(capped.filtered_headlines) == ["h0", "h1"]
+    assert capped.articles_included == 3
+
+
+def test_named_area_news_takes_no_slot_of_the_cap_unplaced_news_meets() -> None:
+    """Review repro C: three full named areas leave every slot to the four under Other."""
+    named = [_news(f"{a}{n}", a) for a in "ABC" for n in range(5)]
+    other = [_news(f"o{n}", None) for n in range(4)]
+    content = _content(["A", "B", "C"], articles_included=19, news_paragraphs=named + other)
+
+    capped = cap_unplaced_news(cap_lower_layers(content), max_items=15)
+
+    assert [p.text for p in capped.news_paragraphs] == [p.text for p in named + other]
+    assert capped.articles_included == 19
+
+
+def test_the_follow_lane_takes_no_slot_of_the_cap_unplaced_news_meets() -> None:
+    """Review repro D: cap 10 less 3 read-lane summaries leaves 7 slots, the follow lane none."""
+    content = _content(
+        [],
+        articles_included=3 + 8 + 9,
+        thematic_summaries=[_sec("S", *[_item(f"s{n}") for n in range(3)])],
+        fan_sections=[_sec("F", *[_item(f"f{n}") for n in range(8)])],
+        news_paragraphs=[_news(f"n{n}", None) for n in range(9)],
+    )
+
+    capped = cap_unplaced_news(content, max_items=10)
+
+    assert [p.text for p in capped.news_paragraphs] == [f"n{n}" for n in range(7)]
+    assert capped.articles_included == 3 + 8 + 7

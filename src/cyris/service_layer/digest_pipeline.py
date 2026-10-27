@@ -99,7 +99,8 @@ class DigestPipeline:
             period: Digest period ("morning" or "evening").
             timezone: IANA timezone for date formatting.
             preference: Scores the articles this issue kept, by URL, to order the
-                headlines and Features before the cap; None keeps the model's order.
+                Features before the cap and, later, the news units; None keeps the
+                model's order.
             date: The issue's date, YYYY-MM-DD; None means today in `timezone`.
 
         Returns:
@@ -285,7 +286,7 @@ class DigestPipeline:
                 for entry in (
                     *laid_out.filtered_headlines,
                     *(item for section in laid_out.featured_articles[1:] for item in section.items),
-                    # Every member, not one per cluster: a cluster is ordered by its
+                    # Every member, not one per cluster: a news unit is ordered by its
                     # best-scoring member, and which that is is not known yet.
                     *(item for section in laid_out.news_clusters for item in section.items),
                 )
@@ -310,4 +311,5 @@ class DigestPipeline:
             url_to_tags=url_to_tags,
             story_records=story_records,
             preference_moves=moves,
+            preference=dict(scores) if scores is not None else None,
         )

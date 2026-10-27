@@ -2747,7 +2747,8 @@ def _ranking_deps(
 
 
 def _headlines(content: DigestContent) -> list[str]:
-    return [item.title for item in content.filtered_headlines]
+    """The news units in page order: the order the vote preference decides."""
+    return [unit.title for p in content.news_paragraphs for unit in p.units]
 
 
 async def test_the_headline_closer_to_an_upvote_takes_the_last_slot(tmp_path: Path) -> None:
@@ -2757,17 +2758,18 @@ async def test_the_headline_closer_to_an_upvote_takes_the_last_slot(tmp_path: Pa
     await run_digest(on, RunOptions())
     await run_digest(off, RunOptions())
 
+    # No area is set, so the issue cap of one bounds the unplaced news.
     assert _headlines(on_contents[0]) == ["Leans liked"]
     assert _headlines(off_contents[0]) == ["Leans disliked"]
     [on_summary], [off_summary] = on_recorded, off_recorded
+    assert on_summary["unplaced_news_cut"] == len(_KEPT) - 1
     assert on_summary["preference_rank_applied"] is True
-    assert on_summary["preference_rank_moved_headlines"] == 1
+    assert on_summary["preference_rank_moved_units"] == 3
     assert on_summary["preference_rank_moved_features"] == 0
-    assert on_summary["preference_rank_moved_clusters"] == 0
     assert "preference_rank_skipped" not in on_summary
     assert off_summary["preference_rank_applied"] is False
     assert off_summary["preference_rank_skipped"] == "switched off"
-    assert "preference_rank_moved_headlines" not in off_summary
+    assert "preference_rank_moved_units" not in off_summary
 
 
 async def test_the_vote_order_changes_no_verdict_and_stamps_no_vote(tmp_path: Path) -> None:
@@ -2812,7 +2814,7 @@ async def test_without_a_similarity_verdict_nothing_is_reordered(
 
     await run_digest(deps, RunOptions())
 
-    assert _headlines(contents[0]) == ["Leans disliked"]
+    assert _headlines(contents[0])[0] == "Leans disliked"
     [summary] = recorded
     assert summary["preference_rank_applied"] is False
     assert summary["preference_rank_skipped"] == reason
@@ -2825,7 +2827,7 @@ async def test_cosine_names_its_source_and_model_in_the_summary(tmp_path: Path) 
     await run_digest(deps, RunOptions())
 
     [summary] = recorded
-    assert _headlines(contents[0]) == ["Leans liked"]
+    assert _headlines(contents[0])[0] == "Leans liked"
     assert summary["preference_source"] == "cosine"
     assert summary["preference_model"] == "test-embedding-model"
     assert "preference_clef_skipped" not in summary
@@ -2840,7 +2842,7 @@ async def test_clef_orders_the_issue_and_reports_its_spend(tmp_path: Path) -> No
     await run_digest(deps, RunOptions())
 
     [summary] = recorded
-    assert _headlines(contents[0]) == ["Clef pick"]
+    assert _headlines(contents[0])[0] == "Clef pick"
     assert summary["preference_source"] == "clef"
     assert summary["preference_model"] == "clef-flash"
     assert summary["clef"] == {
@@ -2849,7 +2851,7 @@ async def test_clef_orders_the_issue_and_reports_its_spend(tmp_path: Path) -> No
         "input_tokens": 2526,
         "model": "clef-flash",
     }
-    assert summary["preference_rank_moved_headlines"] == 1
+    assert summary["preference_rank_moved_units"] == 3
     assert sorted(clef.calls) == sorted(_KEPT)
 
 
@@ -2861,7 +2863,7 @@ async def test_a_failed_clef_question_leaves_the_cosine_order_and_a_reason(tmp_p
 
     [summary] = recorded
     assert report.status == summary["status"] == "ok"
-    assert _headlines(contents[0]) == ["Leans liked"]
+    assert _headlines(contents[0])[0] == "Leans liked"
     assert summary["preference_source"] == "cosine"
     assert summary["preference_clef_skipped"] == "clef failed: ClefError: x"
 
@@ -2872,7 +2874,7 @@ async def test_clef_without_a_client_leaves_the_cosine_order_and_a_reason(tmp_pa
     await run_digest(deps, RunOptions())
 
     [summary] = recorded
-    assert _headlines(contents[0]) == ["Leans liked"]
+    assert _headlines(contents[0])[0] == "Leans liked"
     assert summary["preference_clef_skipped"] == "no Workers AI token or account id"
     assert "clef" not in summary
 
@@ -2884,7 +2886,7 @@ async def test_ranking_off_ignores_the_clef_source(tmp_path: Path) -> None:
     await run_digest(deps, RunOptions())
 
     [summary] = recorded
-    assert _headlines(contents[0]) == ["Leans disliked"]
+    assert _headlines(contents[0])[0] == "Leans disliked"
     assert summary["preference_rank_applied"] is False
     assert summary["preference_rank_skipped"] == "switched off"
     assert "preference_source" not in summary

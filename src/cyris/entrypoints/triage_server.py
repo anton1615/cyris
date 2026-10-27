@@ -20,6 +20,7 @@ from cyris.config import SETTINGS_FIELDS
 from cyris.diagnostics.doctor import LLM_PROBE_TIMEOUT_SECONDS, probe_discord, probe_embedder
 from cyris.domain.areas import Area, AreaCatalog, meets_birth_threshold
 from cyris.domain.models import NEWSLETTER_SOURCE_TYPE, SourceConfig, TrackedTopic
+from cyris.domain.news_units import UNITS_PER_BATCH
 from cyris.service_layer import area_llm
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ TOPIC_REFUSALS = {
 }
 
 
-def _render_page(template: str) -> str:
+def _render_page(template: str, **context: object) -> str:
     """Render one of this server's pages with the digest pages' own site bar.
 
     The pages live outside `static/` so no unrendered copy is served, and the
@@ -120,11 +121,11 @@ def _render_page(template: str) -> str:
         ),
         autoescape=select_autoescape(["html", "xml"], default=True),
     )
-    return env.get_template(template).render()
+    return env.get_template(template).render(**context)
 
 
 def render_settings_page() -> str:
-    return _render_page("settings.html.j2")
+    return _render_page("settings.html.j2", units_per_batch=UNITS_PER_BATCH)
 
 
 def render_labels_page() -> str:

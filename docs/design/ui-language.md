@@ -43,8 +43,9 @@ page added later.
    digest text, which the model writes in `[digest] output_language`, carries that tag as its `lang`, and
    an English control inside it (a vote group, a sources fold) carries `lang="en"`. An article's own
    title inside such a block, which is a Top story or Features card title and each title under a
-   grouped Top story, is the source's text and carries `lang=""`; a group's heading, the summaries and
-   the Wire's titles, which the filter writes in the output language, keep its tag. The archive
+   grouped Top story, is the source's text and carries `lang=""`; a group's heading, the summaries,
+   the news paragraphs and the Wire's titles, which the model writes in the output language, keep
+   its tag. The archive
    headline card's title follows its lead, so a group's heading keeps the tag and a single article's
    title carries `lang=""`. Text passed through
    untranslated, which is Following, the radar rows, Tracking and every raw row, carries `lang=""`, HTML's unknown
@@ -300,7 +301,7 @@ That is accepted rather than shrinking the issue title role at phone width. The 
 `title-whole-360` check holds the `Default` case.
 
 The body is the Top story, then Tracking, then one section per active area in /settings order, cards above
-rows (`layout_by_area` places every entry). With no areas, one unnamed section holds
+rows and rows above news paragraphs (`layout_by_area` places every entry). With no areas, one unnamed section holds
 them all. Unclaimed entries close the body as "Other". Empty sections are left out, and Discord follows the
 same order, titling the unnamed section "Digest". Each section is one `<section class="section">`, and its name is printed once, only by the opening
 section marker (§4), with no number and no repeated large section title. The section marker is an `h2`; Top
@@ -310,6 +311,16 @@ story is the exception and uses a `div`, because the lead card's title is itself
   lead title; `h3` is the titles of features, news groups and topic blocks; `h4` is the articles inside a
   topic block. `h3` and `h4` are both the title role (§3), with the class
   `.item-title`: `h3` adds `.lg` for 19px, and `h4` uses 18px. A row has no heading element.
+- **News is paragraphs that cite their articles.** An issue's news is one `.news-paragraph` per
+  paragraph, after the area's rows: a left rule like a news group's, the paragraph as a `p.summary` in
+  the body role (§3), then one `.meta` row per cited unit: a link per article in the unit, each
+  labelled with its source (a unit that carries reference links lists those by host instead),
+  folded into `<details>` with the summary text `N sources` past two as a news group's are, and the
+  unit's vote buttons last. One vote is cast for every article in the unit, as a news group's is.
+  An article with no web link is its label alone. The rows sit in one `.citations` column `--s-3`
+  apart, so one row's 44px tap areas do not cover the next row's buttons. A paragraph that holds a unit's own summary or
+  title because the model did not write it carries `lang=""` (§1). An issue stored before the
+  paragraphs keeps its news groups and Wire rows as described below.
 - **A row is its title and the filter's one sentence.** Each row is a number, the title link and,
   below the title, the one-sentence summary the filter wrote for that article, in the small role (§3)
   under a title in `--text`; the source fold and the votes follow, the votes last. The summary takes
@@ -417,7 +428,7 @@ the Worker's `PROTECTED` only matches a path exactly equal to `/settings` (`work
 | hash | Category | Contents |
 |---|---|---|
 | `#model` | Model | LLM provider (a choice list, showing on the right whether the key is ready, with a last option `None — plain excerpts` meaning no LLM is called and only original excerpts are shown), model, a real call to verify before saving; embedding provider and model, the vote similarity switch, the number of votes compared against |
-| `#digest` | Digest | The two publishing periods, the time zone (a select, below), the number of Features cards, the article limit per issue, the output language (a select, below), the style prompt (multi-line input), the font size (a select: Smaller 0.875 / Default 1 / Larger 1.125; shows `Not set` when unset), the vote order (a select: Off / On), which depends on vote similarity being on (§4 *field*), and who judges it (a select: Title similarity / Clef), whose Clef option depends on a Workers AI token, which `GET /api/settings` reports as `clef_ready` |
+| `#digest` | Digest | The two publishing periods, the time zone (a select, below), the number of Features cards, the news per paragraph (a number from 1 to `UNITS_PER_BATCH`, the units one paragraph call is given), the article limit per issue, which counts the read lane and any news outside every named area, never a named area's news or the follow lane, the output language (a select, below), the style prompt (multi-line input), the font size (a select: Smaller 0.875 / Default 1 / Larger 1.125; shows `Not set` when unset), the vote order (a select: Off / On), which depends on vote similarity being on (§4 *field*), and who judges it (a select: Title similarity / Clef), whose Clef option depends on a Workers AI token, which `GET /api/settings` reports as `clef_ready` |
 | `#pipeline` | Pipeline | The hours to look back, the article limit per pass, the two score thresholds, one for grouping the Top story and one for summarizing, how many characters each of the three steps reads, the reasoning effort (a select: Default / Low / Medium / High) |
 | `#notifications` | Notifications | Discord webhook, with a stored value shown masked; a danger `Turn off` uses the destructive confirm, and after it the field is cleared and `Notifications are off.` is shown; then Email to and Email from, shown in full, where an empty Email to means no mail and Save sends a test message before storing the pair |
 | `#sources` | Sources | A type filter (All / RSS / Newsletter) and `Add source`; table columns are name, type, lane, feed or sender, and tags; an RSS source that `cyris doctor` would warn about (the feed health thresholds in `docs/architecture.md` §5) shows one line under its name, in the small role coloured `--warn` because a failing feed is an error (§1), saying why, such as `3 failures in a row · HTTP 503` or `no article in 30 days`, and a healthy one shows nothing; clicking a row, or pressing Enter or Space on it, expands it for editing in place, with focus on the Name field, and `Cancel` puts focus back on the row, or on `Add source` for a new one; a save or retire that fails puts focus back on its button, and a retire that lands puts it on `Add source`; the form shows only the fields that type needs; its `Area` select holds `None` and the active areas, a stored area that is not active or whose list has not loaded shows as `Area N (not active)` or `Area N (list not loaded)` so that a save keeps it, and the select is disabled until the area list loads; `Suggest` selects the area the model suggests, marked by a `Suggested` tag beside the select until the reader changes or saves, or says `No suggestion` beside it when there is none; while no area is active `Suggest` is disabled with the title `Confirm an area first`, and while it asks, `Suggest` reads `Suggesting…` and the select is disabled; `Retire` uses the destructive confirm, and retires the last source like any other: a table with none is a deployment waiting for onboarding |
@@ -630,6 +641,9 @@ by value, from `_tokens.css.j2` and the §2 light palette (`adapters/output/emai
 - **One column.** `--measure` wide, `--s-4` gutters, no breakpoint. Sections keep the page's order, with "Other"
   last. Tracking is not in the mail yet; the page is where it is read. The lead is the headline card's
   square panel; every other item is separated by a `--border` hairline.
+- **A news paragraph is its text and its links.** In the HTML part it is the paragraph in the body role
+  and a line of source links below it, after the area's rows, with no fold; in the plain-text part it
+  is the paragraph, then one indented `source — link` line per cited article.
 - **A Wire row keeps its sentence.** Its summary follows its title as on the page, in the small role in
   the HTML part, breaking an unbroken run as the page does, and on its own indented line in the
   plain-text part; a row with no summary is its title alone.

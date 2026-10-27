@@ -89,6 +89,8 @@ ARTICLES = {
         _article("n1", WIRE, "Proxy outage hits region east", "Region east lost its proxy."),
         _article("n2", WIRE, "Region east proxy restored", "The proxy in region east is back."),
         _article("n3", WIRE, "Unrelated wire item", "Something else happened elsewhere."),
+        _article("n4", WIRE, "Second unrelated wire item", "Another thing happened."),
+        _article("n5", WIRE, "Third unrelated wire item", "A third thing happened."),
         _article("f1", BLOG, "Blog picks this headline", "A headline worth one line."),
         _article("f2", BLOG, "Blog filler the filter drops", "Nothing worth a line."),
     ]
@@ -137,7 +139,16 @@ OWN_SUMMARIES = {
     "b1": "B1 on its own.",
     "b2": "B2 on its own.",
 }
-FILTER_PICKS = {"f1": "F1 in one line.", "n3": "N3 in one line."}
+FILTER_PICKS = {
+    "f1": "F1 in one line.",
+    "n3": "N3 in one line.",
+    "n4": "N4 in one line.",
+    "n5": "N5 in one line.",
+}
+# The news units in the order the paragraph prompt lists them: the cluster, then the
+# filter's picks.
+NEWS_UNITS = (("n1", "n2"), ("f1",), ("n3",), ("n4",), ("n5",))
+PARAGRAPH_TEXT = "News paragraph {}."
 LLM = {
     # A model that echoes each position zero-padded, as a string: "00", "01", ...
     "rewrite_id": "{:02d}",
@@ -151,6 +162,7 @@ LLM = {
     },
     # l1 has none: the model left that Features article out of `summaries`.
     "own_summaries": {TITLE[k]: text for k, text in OWN_SUMMARIES.items()},
+    "paragraph_text": PARAGRAPH_TEXT,
 }
 SETTINGS = harness.settings(
     **{
@@ -168,12 +180,16 @@ SETTINGS = harness.settings(
         "routing.score_threshold": 80,
         "routing.summarize_score_threshold": 50,
         "digest.max_featured": 5,
-        # 4 Top story + 1 Feature + 1 cluster + 1 On the Radar + 1 Wire row: n3, the
-        # filter's second pick, is the one article the cap cuts.
+        "digest.units_per_paragraph": 5,
+        # 4 Top story + 1 Feature + 1 On the Radar: the read lane fits the cap, which
+        # leaves news to the area quota.
         "digest.max_articles_per_digest_output": 8,
     }
 )
-SHOWN = {"a1", "a2", "b1", "b2", "l1", "l2", "n1", "n2", "f1"}
+# Tech's lower layer is l2's radar row and one paragraph per news unit, six entries:
+# the quota of five cuts n5's paragraph, the last.
+CUT = "n5"
+SHOWN = {"a1", "a2", "b1", "b2", "l1", "l2", "n1", "n2", "f1", "n3", "n4"}
 TOP_STORY = ("a1", "a2", "b1", "b2")
 FEATURES = ("l1",)
 SOURCE_OF = {key: a["source"] for key, a in ARTICLES.items()} | {
@@ -312,7 +328,7 @@ EXPECTED_ROUTES = {
     "workers_domains": 1,
     "email_send": 1,
     "discord_webhook": 1,
-    "gemini_generate": 5,
+    "gemini_generate": 6,
     "workers_ai_clef": 0,
     "rss_articles": 1,
     "newsletter_list": 1,
@@ -476,12 +492,12 @@ def test_the_run_records_its_spend_its_outcome_and_its_issue(receipts) -> None:
     assert logged == {
         "digest_date": receipts.date,
         "period": "morning",
-        "articles_received": 11,
-        "articles_included": 8,
+        "articles_received": 13,
+        "articles_included": 10,
         "model": MODEL,
-        "api_calls": 5,
-        "input_tokens": 5000,
-        "output_tokens": 2500,
+        "api_calls": 6,
+        "input_tokens": 6000,
+        "output_tokens": 3000,
         "cost_usd": round(usage.estimated_cost, 6),
     }
 
@@ -494,25 +510,25 @@ def test_the_run_records_its_spend_its_outcome_and_its_issue(receipts) -> None:
         "status": "ok",
         "period": "morning",
         "dry_run": 0,
-        "fetched": 11,
+        "fetched": 13,
         "failed_sources": "[]",
         "build_sha": harness.GIT_SHA,
         "degraded": 1,
     }
     assert {k: summary[k] for k in ("status", "fetched", "received", "included", "degraded")} == {
         "status": "ok",
-        "fetched": 11,
-        "received": 11,
-        "included": 8,
+        "fetched": 13,
+        "received": 13,
+        "included": 10,
         "degraded": True,
     }
     assert summary["digest_url"] == receipts.digest_url
-    assert (summary["llm"]["model"], summary["llm"]["api_calls"]) == (MODEL, 5)
+    assert (summary["llm"]["model"], summary["llm"]["api_calls"]) == (MODEL, 6)
 
     (issue,) = run.rows("SELECT * FROM digests")
     content = json.loads(issue["content"])
     assert (issue["date"], issue["period"], issue["raw_page"]) == (receipts.date, "morning", 1)
-    assert (content["articles_received"], content["articles_included"]) == (11, 8)
+    assert (content["articles_received"], content["articles_included"]) == (13, 10)
 
     members = sorted([URL["n1"], URL["n2"]])
     story_id = (
@@ -548,7 +564,8 @@ def test_every_saved_item_takes_the_area_of_its_source(receipts) -> None:
     items = _digest_items(json.loads(issue["content"]))
     summary = json.loads(receipts.runs[0]["summary"])
     assert items and all(item["area"] == TECH_AREA["name"] for item in items)
-    assert summary["area_stamp"] == {"picked": 0, "source": len(items), "none": 0}
+    # The stamp runs before the area quota, so it also counted the one unit the quota cut.
+    assert summary["area_stamp"] == {"picked": 0, "source": len(items) + 1, "none": 0}
 
 
 def test_the_settings_and_sources_are_read_and_never_written(receipts) -> None:
@@ -648,17 +665,24 @@ def _llm_calls(records: list[dict]) -> list[tuple[str, list[str]]]:
 def test_each_llm_call_names_its_kind_and_the_articles_it_was_given(receipts) -> None:
     calls = by_route(receipts.records, "gemini_generate")
     kinds = [c["llm"]["kind"] for c in calls]
-    assert kinds == ["scoring", "cluster", "filter", "summarize", "summarize"]
+    assert kinds == ["scoring", "cluster", "filter", "summarize", "summarize", "paragraph"]
     # Sorted, not sets: an article listed twice must show. The order within a prompt
     # is the store's, which no setting decides.
     given = [sorted(titles) for _, titles in _llm_calls(receipts.records)]
     assert given[:3] == [
         sorted(TITLE[k] for k in ("a1", "a2", "b1", "b2", "l1", "l2", "f1", "f2")),
-        sorted(TITLE[k] for k in ("n1", "n2", "n3")),
-        sorted(TITLE[k] for k in ("f1", "f2", "n3")),
+        sorted(TITLE[k] for k in ("n1", "n2", "n3", "n4", "n5")),
+        sorted(TITLE[k] for k in ("f1", "f2", "n3", "n4", "n5")),
+    ]
+    # One paragraph call for Tech's five news units: the cluster by its heading, then
+    # each pick by its title.
+    (paragraph,) = [titles for kind, titles in _llm_calls(receipts.records) if kind == "paragraph"]
+    assert [t.split(": ")[0] for t in paragraph] == [
+        CLUSTER["heading"],
+        *(TITLE[k] for (k,) in NEWS_UNITS[1:]),
     ]
     # One call per topic group, in the order the store returns the window.
-    assert sorted(given[3:]) == sorted(
+    assert sorted(given[3:5]) == sorted(
         [sorted(TITLE[k] for k in ("a1", "a2", "b1", "b2")), [TITLE["l1"]]]
     )
     for call in calls:
@@ -791,8 +815,8 @@ def check_cap_leaves_cut_pending(r: Receipts) -> None:
     state = {key: r.articles[URL[key]] for key in URL}
     assert {k for k, row in state.items() if row["state"] == "accepted"} == SHOWN
     assert {k for k in SHOWN if state[k]["digest_date"] == r.date} == SHOWN
-    assert state["n3"]["state"] == "pending"
-    assert state["n3"]["digest_date"] is None
+    assert state[CUT]["state"] == "pending"
+    assert state[CUT]["digest_date"] is None
     assert (state["f2"]["state"], state["f2"]["rejection_reason"]) == ("rejected", "filtered")
 
     updates = [
@@ -806,7 +830,7 @@ def check_cap_leaves_cut_pending(r: Receipts) -> None:
     ]
     page = r.page()
     shown_links = set(page.hrefs())
-    assert URL["n3"] not in shown_links
+    assert URL[CUT] not in shown_links
     # l2's only link is the homepage; its synthetic URL is not one.
     assert {URL[k] for k in SHOWN - {"l2"}} <= shown_links
 
@@ -844,14 +868,22 @@ def test_a_queued_newsletter_reaches_the_digest_through_the_email_parser(receipt
 
 def check_rewritten_ids_match(r: Receipts) -> None:
     page = r.page()
-    cluster = page.one("div", "news-cluster")
-    assert cluster.one("h3").text() == CLUSTER["heading"]
-    assert set(cluster.hrefs()) == {URL["n1"], URL["n2"]}
-    wire = [
-        row for row in page.find_all("div", "headline-item") if UNLINKED_TITLE not in row.text()
+    assert page.find_all("div", "news-cluster") == []
+    paragraphs = page.find_all("div", "news-paragraph")
+    assert [p.one("p", "summary").text() for p in paragraphs] == [
+        PARAGRAPH_TEXT.format(i) for i in range(len(NEWS_UNITS) - 1)
     ]
-    assert [row.hrefs() for row in wire] == [[URL["f1"]]]
-    assert wire[0].one("p", "summary").text() == FILTER_PICKS["f1"]
+    assert [set(p.hrefs()) for p in paragraphs] == [
+        {URL[k] for k in unit} for unit in NEWS_UNITS[:-1]
+    ]
+    # A vote on a cited unit is cast for every member URL: the cluster unit votes on n1 and n2.
+    assert [
+        [json.loads(g.attrs["data-urls"]) for g in p.find_all("span", "vote-group")]
+        for p in paragraphs
+    ] == [[[URL[k] for k in unit]] for unit in NEWS_UNITS[:-1]]
+    # The only row left is the read lane's unlinked letter: no news is a row.
+    rows = page.find_all("div", "headline-item")
+    assert [UNLINKED_TITLE in row.text() for row in rows] == [True]
 
 
 def test_ids_the_model_rewrote_still_match_by_position(receipts) -> None:
@@ -868,12 +900,12 @@ def test_discord_and_mail_each_receive_the_issue_once(receipts) -> None:
     assert UNLINKED_TITLE in tech["description"]
     for key in FEATURES:
         assert f"[{TITLE[key]}]({URL[key]})" in tech["description"], key
-    assert CLUSTER["heading"] in tech["description"]
-    assert f"[{TITLE['f1']}]({URL['f1']})" in tech["description"]
-    assert TITLE["n3"] not in tech["description"]
+    assert PARAGRAPH_TEXT.format(0) in tech["description"]
+    assert f"({URL['f1']})" in tech["description"]
+    assert URL[CUT] not in tech["description"]
     assert f"({receipts.digest_url})" in stats["description"]
-    # 4 sources, 11 articles received, 8 items kept: the cluster is one item.
-    for count in ("**4**", "**11**", "**8**"):
+    # 4 sources, 13 articles received, 10 items kept: the cluster is one item, n5 is cut.
+    for count in ("**4**", "**13**", "**10**"):
         assert count in stats["description"], count
     assert stats["title"].endswith(receipts.date)
     assert stats["title"].split()[0] == "Morning"
@@ -884,8 +916,11 @@ def test_discord_and_mail_each_receive_the_issue_once(receipts) -> None:
     assert (words[0], words[-1]) == ("Morning", receipts.date)
     assert receipts.digest_url in mail["text"]
     assert receipts.digest_url in parse_html(mail["html"]).hrefs()
-    for key in SHOWN - {"n1", "n2"}:
+    for key in SHOWN - {k for unit in NEWS_UNITS for k in unit}:
         assert TITLE[key] in mail["text"], key
+    for unit in NEWS_UNITS[:-1]:
+        assert all(URL[k] in mail["text"] for k in unit), unit
+    assert URL[CUT] not in mail["text"]
 
 
 # ---- a full issue: Discord takes it within its 6000-character embed total --------
@@ -965,7 +1000,7 @@ class TestSelfChecks:
             ),
             pytest.param(
                 check_cap_leaves_cut_pending,
-                lambda r: r.articles[URL["n3"]].update(state="accepted"),
+                lambda r: r.articles[URL[CUT]].update(state="accepted"),
                 id="cap",
             ),
             pytest.param(

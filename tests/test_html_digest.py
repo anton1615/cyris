@@ -1,5 +1,7 @@
 """Tests for HTML digest rendering."""
 
+import html as html_lib
+import json
 import re
 from datetime import UTC, datetime
 from html.parser import HTMLParser
@@ -2701,3 +2703,65 @@ def test_the_interest_page_is_never_an_issue_row_or_counted(tmp_path) -> None:
     assert html.count("2026-10-17") == bare.count("2026-10-17")
     assert "1 issue" in html
     assert "2 issue" not in html
+
+
+def _paragraph_issue():
+    from cyris.domain.models import DigestContent, DigestItem, NewsParagraph
+
+    pair = DigestItem(
+        title="Quake",
+        summary="",
+        sources=["Wire A", "Wire B"],
+        urls=["https://a.test/quake", "https://b.test/quake"],
+        area="World",
+    )
+    letter = DigestItem(
+        title="Letter",
+        summary="",
+        sources=["Letters"],
+        urls=["newsletter:abc"],
+        area="World",
+    )
+    return DigestContent(
+        date="2026-10-27",
+        period="morning",
+        sources_processed=2,
+        articles_received=3,
+        articles_included=3,
+        area_order=["World"],
+        news_paragraphs=[
+            NewsParagraph(text="A quake struck; a letter followed.", units=[pair, letter])
+        ],
+    )
+
+
+def _paragraph_rows(html: str) -> list[str]:
+    """The meta rows of the issue's one news paragraph, in page order."""
+    block = html[html.index('<div class="news-paragraph"') : html.index("</section>")]
+    return re.findall(r'<div class="meta">(.*?)</div>', block, re.DOTALL)
+
+
+def test_a_news_paragraph_is_its_text_then_one_row_per_cited_unit() -> None:
+    html = HtmlDigestWriter(Path("/tmp/html-test")).render(_paragraph_issue())
+    assert '<p class="summary">A quake struck; a letter followed.</p>' in html
+    pair, letter = _paragraph_rows(html)
+    assert '<a href="https://a.test/quake" target="_blank" rel="noopener">Wire A</a>' in pair
+    assert '<a href="https://b.test/quake" target="_blank" rel="noopener">Wire B</a>' in pair
+    # The synthetic URL is a label only.
+    assert "Letters" in letter and 'href="newsletter:abc"' not in letter
+    assert 'class="headline-item"' not in html
+
+
+def test_a_vote_on_a_cited_unit_is_cast_for_every_member_url() -> None:
+    """N4 (a): one vote group per unit, over all its store URLs, as a cluster's is."""
+    html = HtmlDigestWriter(Path("/tmp/html-test")).render(_paragraph_issue())
+    rows = _paragraph_rows(html)
+    voted = [
+        json.loads(html_lib.unescape(u)) for u in re.findall(r"data-urls='([^']*)'", "".join(rows))
+    ]
+    assert voted == [["https://a.test/quake", "https://b.test/quake"], ["newsletter:abc"]]
+    for row in rows:
+        # One group per row, and the votes are the row's last element (ui-language.md §6).
+        assert row.count('class="vote-group"') == 1
+        assert row.rstrip().endswith("</span>")
+        assert row.rstrip().rindex('class="vote-group"') > row.rfind("</a>")

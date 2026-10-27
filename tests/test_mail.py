@@ -518,3 +518,41 @@ class TestAlertMail:
         assert "s3cr3t-token" not in sent["text"]
         assert masked in sent["subject"]
         assert masked in sent["text"]
+
+
+def _paragraph_issue():
+    from cyris.domain.models import DigestContent, DigestItem, NewsParagraph
+
+    pair = DigestItem(
+        title="Quake",
+        summary="",
+        sources=["Wire A", "Wire B"],
+        urls=["https://a.test/quake", "https://b.test/quake"],
+        area="World",
+    )
+    letter = DigestItem(
+        title="Letter",
+        summary="",
+        sources=["Letters"],
+        urls=["newsletter:abc"],
+        area="World",
+    )
+    return DigestContent(
+        date="2026-10-27",
+        period="morning",
+        sources_processed=2,
+        articles_received=3,
+        articles_included=3,
+        area_order=["World"],
+        news_paragraphs=[
+            NewsParagraph(text="A quake struck; a letter followed.", units=[pair, letter])
+        ],
+    )
+
+
+def test_the_plain_text_part_lists_each_paragraph_then_its_links() -> None:
+    _, body = build_digest_mail(_paragraph_issue())
+    assert (
+        "World\nA quake struck; a letter followed.\n"
+        "  Wire A — https://a.test/quake\n  Wire B — https://b.test/quake\n  Letters"
+    ) in body

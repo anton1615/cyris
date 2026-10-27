@@ -11,7 +11,13 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from cyris.domain.area_layout import AreaSection, layout_by_area
 from cyris.domain.graph_layout import layout
 from cyris.domain.interest_graph import InterestGraph
-from cyris.domain.models import DigestContent, DigestItem, DigestSection, StoredArticle
+from cyris.domain.models import (
+    DigestContent,
+    DigestItem,
+    DigestSection,
+    NewsParagraph,
+    StoredArticle,
+)
 from cyris.service_layer.schedule import PERIOD_ORDER
 
 # The upstream project, not this deployment: a fork's pages still credit it, so no
@@ -43,6 +49,28 @@ def _hostname(url: str) -> str:
 # A BCP 47 tag's shape: a two- or three-letter language, then hyphenated subtags. A plain
 # language name, which an older `[digest] output_language` may still hold, never matches.
 _LANGUAGE_TAG = re.compile(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*")
+
+
+def citation_links(unit: DigestItem) -> list[tuple[str, str | None]]:
+    """A news unit's links, one per article, labelled as the page labels them.
+
+    Reference links take their hostname; otherwise each store URL takes the source
+    beside it. A synthetic store URL (newsletter:<id>) is no link.
+    """
+    if unit.ref_urls:
+        return [(_hostname(url), url) for url in unit.ref_urls]
+    return [
+        (
+            unit.sources[i] if i < len(unit.sources) else url,
+            url if url.startswith(("http://", "https://")) else None,
+        )
+        for i, url in enumerate(unit.urls)
+    ]
+
+
+def paragraph_links(paragraph: NewsParagraph) -> list[tuple[str, str | None]]:
+    """Every cited article's link in a news paragraph, unit by unit."""
+    return [link for unit in paragraph.units for link in citation_links(unit)]
 
 
 def _html_lang(value: str) -> str:
