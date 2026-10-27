@@ -1008,8 +1008,10 @@ constructor sets both again on a container it finds running (`Lifecycle.adopt` i
 `workers/app/src/container.js`). `run` exits when its pass ends, so its timer is only a cap on a
 hung run. Since 2026-10 the Worker drives the container through `ctx.container` directly;
 Cloudflare stops maintaining the `Container` class from `@cloudflare/containers` after 2026-12-31.
-Whether the platform's inactivity stop sends SIGTERM with a grace period first, as the class's
-`stop()` did, is unverified.
+The platform's inactivity stop sends SIGTERM first, as the class's `stop()` did, and
+`triage-ui` logs the signal and its finished shutdown. Receipt on trial1, 2026-10-26: last request
+18:39:15Z, `triage-ui: SIGTERM, stopping` at 18:45:28.781Z and `triage-ui: stopped` 90 ms later.
+How long the platform waits before a SIGKILL is not measured.
 
 **`stop()` is one SIGTERM, and the image has to be able to receive it.** For a day the `ui`
 instance never slept: per-instance metrics showed it holding 132 MB at **zero CPU every hour**
