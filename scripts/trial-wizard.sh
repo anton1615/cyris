@@ -319,6 +319,15 @@ access_header_file() {
 
 # bearer_header_file writes the Worker's bearer to a private temp file and prints its path, so
 # the token reaches curl through a file and never through argv.
+# A trial wired before the newsletter Worker has no newsletter KV id in its state: the
+# stages that need the Worker skip it, and --from 5 creates the KV that adds it.
+has_newsletter() {
+  [[ -n "${TRIAL_NEWSLETTER_KV_ID:-}" ]] && return 0
+  note "This trial has no newsletter KV, so it gets no newsletter Worker."
+  note "To add one: bash scripts/trial-wizard.sh $SLUG --from 5"
+  return 1
+}
+
 bearer_header_file() {
   local f
   f=$(mktemp)
@@ -587,28 +596,40 @@ stage_7() {
 # ── 8 ─────────────────────────────────────────────────────────────────────
 stage_8() {
   stage "Render the trial's configs"
+  # ${a[@]+...} because bash 3.2, macOS's, calls an empty array unbound under set -u.
+  local newsletter=() cfgs=("$APP_CFG" "$PROMOTE_CFG" "$RSS_CFG") count=three
+  if has_newsletter; then
+    newsletter=(--newsletter-kv-id "$TRIAL_NEWSLETTER_KV_ID")
+    cfgs+=("$NEWSLETTER_CFG"); count=four
+  fi
   show_run render uv run python scripts/provision_trial.py render --slug "$SLUG" --domain "$DOMAIN" \
     --account-id "$ACCOUNT_ID" --image-digest "$IMAGE_DIGEST" --kv-id "$TRIAL_KV_ID" \
-    --newsletter-kv-id "$TRIAL_NEWSLETTER_KV_ID" --d1-id "$TRIAL_D1_ID" \
+    ${newsletter[@]+"${newsletter[@]}"} --d1-id "$TRIAL_D1_ID" \
     || die "render failed."
-  for f in "$APP_CFG" "$PROMOTE_CFG" "$RSS_CFG" "$NEWSLETTER_CFG"; do
+  for f in "${cfgs[@]}"; do
     [[ -f "$f" ]] || die "$f was not written."
     git check-ignore -q "$f" || die "$f is not gitignored."
   done
-  printf '  %s✓%s four configs written, all gitignored\n' "$GREEN" "$RESET"
+  printf '  %s✓%s %s configs written, all gitignored\n' "$GREEN" "$RESET" "$count"
   next
 }
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
 stage_9() {
-  stage "Dry-run all four configs"
+  stage "Dry-run the trial's configs"
+  local count=three
+  has_newsletter && count=four
   (cd workers/rss && bun install --frozen-lockfile) || die "bun install in workers/rss failed."
-  (cd workers/newsletter && bun install --frozen-lockfile) || die "bun install in workers/newsletter failed."
+  if [[ $count == four ]]; then
+    (cd workers/newsletter && bun install --frozen-lockfile) || die "bun install in workers/newsletter failed."
+  fi
   show_run dry-app bunx wrangler deploy --dry-run --config "$APP_CFG" --env-file /dev/null || die "App dry run failed."
   show_run dry-promote bunx wrangler deploy --dry-run --config "$PROMOTE_CFG" --env-file /dev/null || die "Vote Worker dry run failed."
   show_run dry-rss bunx wrangler deploy --dry-run --config "$RSS_CFG" --env-file /dev/null || die "rss Worker dry run failed."
-  show_run dry-newsletter bunx wrangler deploy --dry-run --config "$NEWSLETTER_CFG" --env-file /dev/null || die "Newsletter Worker dry run failed."
-  printf '\n  %s✓%s all four dry runs passed\n' "$GREEN" "$RESET"
+  if [[ $count == four ]]; then
+    show_run dry-newsletter bunx wrangler deploy --dry-run --config "$NEWSLETTER_CFG" --env-file /dev/null || die "Newsletter Worker dry run failed."
+  fi
+  printf '\n  %s✓%s all %s dry runs passed\n' "$GREEN" "$RESET" "$count"
   next
 }
 
@@ -744,32 +765,36 @@ stage_14() {
   else
     printf '  %s✓%s /poll feeds = %s\n' "$GREEN" "$RESET" "$feeds"
   fi
-  printf 'NEWSLETTER_TOKEN=%s\n' "$TRIAL_WORKER_TOKEN" > "$NEWSLETTER_ENV"
-  [[ "$(fileval "$NEWSLETTER_ENV" NEWSLETTER_TOKEN)" == "$TRIAL_WORKER_TOKEN" ]] || die "$NEWSLETTER_ENV does not hold the token."
-  rc=0
-  gated newsletter "Deploy the newsletter Worker with $NEWSLETTER_CFG?" \
-    bunx wrangler deploy --config "$NEWSLETTER_CFG" --env-file /dev/null --secrets-file "$NEWSLETTER_ENV" || rc=$?
-  [[ $rc -eq 0 || $rc -eq 2 ]] || die "Newsletter Worker deploy failed."
-  if [[ $rc -eq 0 ]]; then
-    TRIAL_NEWSLETTER_URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$LOG_DIR/newsletter.log" | head -1 || true)
+  if has_newsletter; then
+    printf 'NEWSLETTER_TOKEN=%s\n' "$TRIAL_WORKER_TOKEN" > "$NEWSLETTER_ENV"
+    [[ "$(fileval "$NEWSLETTER_ENV" NEWSLETTER_TOKEN)" == "$TRIAL_WORKER_TOKEN" ]] || die "$NEWSLETTER_ENV does not hold the token."
+    rc=0
+    gated newsletter "Deploy the newsletter Worker with $NEWSLETTER_CFG?" \
+      bunx wrangler deploy --config "$NEWSLETTER_CFG" --env-file /dev/null --secrets-file "$NEWSLETTER_ENV" || rc=$?
+    [[ $rc -eq 0 || $rc -eq 2 ]] || die "Newsletter Worker deploy failed."
+    if [[ $rc -eq 0 ]]; then
+      TRIAL_NEWSLETTER_URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$LOG_DIR/newsletter.log" | head -1 || true)
+      write_env TRIAL_NEWSLETTER_URL "$TRIAL_NEWSLETTER_URL"
+    fi
+    ask_match TRIAL_NEWSLETTER_URL "Newsletter Worker URL (Enter keeps the one shown):" '^https://[a-z0-9.-]+\.workers\.dev$'
     write_env TRIAL_NEWSLETTER_URL "$TRIAL_NEWSLETTER_URL"
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$TRIAL_NEWSLETTER_URL/newsletters" || true)
+    [[ "$code" == 401 ]] || die "$TRIAL_NEWSLETTER_URL/newsletters without the bearer answered $code, not 401."
+    printf '  %s✓%s /newsletters without the bearer → 401\n' "$GREEN" "$RESET"
+    hdr=$(bearer_header_file)
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -H "@$hdr" "$TRIAL_NEWSLETTER_URL/newsletters" || true)
+    rm -f "$hdr"
+    [[ "$code" == 200 ]] || die "$TRIAL_NEWSLETTER_URL/newsletters with the bearer answered $code, not 200: the secret did not land."
+    printf '  %s✓%s /newsletters with the bearer → 200\n' "$GREEN" "$RESET"
   fi
-  ask_match TRIAL_NEWSLETTER_URL "Newsletter Worker URL (Enter keeps the one shown):" '^https://[a-z0-9.-]+\.workers\.dev$'
-  write_env TRIAL_NEWSLETTER_URL "$TRIAL_NEWSLETTER_URL"
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$TRIAL_NEWSLETTER_URL/newsletters" || true)
-  [[ "$code" == 401 ]] || die "$TRIAL_NEWSLETTER_URL/newsletters without the bearer answered $code, not 401."
-  printf '  %s✓%s /newsletters without the bearer → 401\n' "$GREEN" "$RESET"
-  hdr=$(bearer_header_file)
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -H "@$hdr" "$TRIAL_NEWSLETTER_URL/newsletters" || true)
-  rm -f "$hdr"
-  [[ "$code" == 200 ]] || die "$TRIAL_NEWSLETTER_URL/newsletters with the bearer answered $code, not 200: the secret did not land."
-  printf '  %s✓%s /newsletters with the bearer → 200\n' "$GREEN" "$RESET"
   in_file "$APP_ENV" write_env CYRIS_WORKER_TOKEN "$TRIAL_WORKER_TOKEN"
   in_file "$APP_ENV" write_env CYRIS_RSS_WORKER_URL "$TRIAL_RSS_URL"
-  in_file "$APP_ENV" write_env CYRIS_NEWSLETTER_WORKER_URL "$TRIAL_NEWSLETTER_URL"
   grep -qx "CYRIS_WORKER_TOKEN=$TRIAL_WORKER_TOKEN" "$APP_ENV" || die "CYRIS_WORKER_TOKEN did not land."
   grep -qx "CYRIS_RSS_WORKER_URL=$TRIAL_RSS_URL" "$APP_ENV" || die "CYRIS_RSS_WORKER_URL did not land."
-  grep -qx "CYRIS_NEWSLETTER_WORKER_URL=$TRIAL_NEWSLETTER_URL" "$APP_ENV" || die "CYRIS_NEWSLETTER_WORKER_URL did not land."
+  if [[ -n "${TRIAL_NEWSLETTER_KV_ID:-}" ]]; then
+    in_file "$APP_ENV" write_env CYRIS_NEWSLETTER_WORKER_URL "$TRIAL_NEWSLETTER_URL"
+    grep -qx "CYRIS_NEWSLETTER_WORKER_URL=$TRIAL_NEWSLETTER_URL" "$APP_ENV" || die "CYRIS_NEWSLETTER_WORKER_URL did not land."
+  fi
   say "Redeploy so the app reads them."
   deploy_app_and_wait app-workers
   next
@@ -778,6 +803,7 @@ stage_14() {
 # ── 15 ────────────────────────────────────────────────────────────────────
 stage_15() {
   stage "Let the tester receive mail"
+  has_newsletter || { next; return; }
   [[ -n "${TRIAL_NEWSLETTER_URL:-}" ]] || die "No newsletter Worker URL is saved. Stage 14 deploys it: re-run with --from 14."
   open_url "https://dash.cloudflare.com/$ACCOUNT_ID"
   step "Email Routing on $DOMAIN: enable it first if the domain does not have it yet."

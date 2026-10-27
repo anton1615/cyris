@@ -43,6 +43,8 @@ case "$*" in
     for f in wrangler.trial-t1.toml workers/promote/wrangler.trial-t1.toml \
       workers/rss/wrangler.trial-t1.toml workers/newsletter/wrangler.trial-t1.toml; do
       [[ -n "${FAKE_RENDER_SKIP:-}" && "$f" == *"workers/$FAKE_RENDER_SKIP/"* ]] && continue
+      # As the real render: no newsletter KV id, no newsletter config.
+      [[ "$f" == workers/newsletter/* && "$*" != *"--newsletter-kv-id"* ]] && continue
       echo rendered > "$f"
     done ;;
   *"cyris settings push"*)
@@ -279,6 +281,30 @@ def test_the_stage_8_render_passes_the_newsletter_kv_and_writes_four(rig) -> Non
     assert "provision_trial.py render --slug t1" in run.calls
     assert f"--kv-id {'c' * 32} --newsletter-kv-id {'d' * 32}" in run.calls
     assert "four configs written, all gitignored" in run.out
+
+
+# A trial wired before the newsletter Worker has no newsletter KV id in its state.
+NO_NEWSLETTER = {"TRIAL_NEWSLETTER_KV_ID": None, "TRIAL_NEWSLETTER_URL": None}
+NO_NEWSLETTER_NOTE = "This trial has no newsletter KV, so it gets no newsletter Worker."
+
+
+def test_a_trial_without_a_newsletter_kv_renders_three_configs(rig) -> None:
+    r = rig(_stages(7), state=NO_NEWSLETTER)
+    run = r.run()
+    assert "provision_trial.py render --slug t1" in run.calls
+    assert "--newsletter-kv-id" not in run.calls
+    assert "three configs written, all gitignored" in run.out
+    assert NO_NEWSLETTER_NOTE in run.out
+    assert "8" in r.done().removeprefix("STAGES_DONE=").split(",")
+
+
+def test_a_trial_without_a_newsletter_kv_dry_runs_three_configs(rig) -> None:
+    r = rig(_stages(8), state=NO_NEWSLETTER)
+    run = r.run()
+    assert "in newsletter" not in run.calls
+    assert "workers/newsletter/" not in run.calls
+    assert "all three dry runs passed" in run.out
+    assert "9" in r.done().removeprefix("STAGES_DONE=").split(",")
 
 
 def test_a_render_that_skips_the_newsletter_config_dies(rig) -> None:
@@ -834,6 +860,30 @@ def test_the_routing_notice_never_prints_the_app_token(rig) -> None:
     run = r.run(stdin=START + "\n\n\n")
     assert "app-tok-NOT-FOR-OUTPUT" not in run.out
     assert "app-tok-NOT-FOR-OUTPUT" not in run.calls
+
+
+def test_a_trial_without_a_newsletter_kv_skips_the_newsletter_worker(rig) -> None:
+    r = rig(_stages(13), FAKE_POLL_FEEDS="1", state=NO_NEWSLETTER)
+    _seed_rss_token(r)
+    # The rss deploy declined, its URL, the app deploy declined, then the pause.
+    run = r.run(stdin=_answers("n", RSS_URL, "n", ""))
+    assert NO_NEWSLETTER_NOTE in run.out
+    assert f"bash scripts/trial-wizard.sh {SLUG} --from 5" in run.out
+    assert "workers/newsletter/" not in run.calls
+    assert "/newsletters" not in run.calls
+    assert not (r.repo / f".env.trial-{SLUG}-newsletter").exists()
+    app_env = (r.repo / f".env.trial-{SLUG}").read_text()
+    assert "CYRIS_NEWSLETTER_WORKER_URL" not in app_env
+    assert f"CYRIS_RSS_WORKER_URL={RSS_URL}" in app_env.splitlines()
+    assert "14" in r.done().removeprefix("STAGES_DONE=").split(",")
+
+
+def test_a_trial_without_a_newsletter_kv_skips_the_routing_notice(rig) -> None:
+    r = rig(_stages(14), state=NO_NEWSLETTER)
+    run = r.run(stdin=START + "\n")
+    assert NO_NEWSLETTER_NOTE in run.out
+    assert "Routing rules" not in run.out
+    assert "15" in r.done().removeprefix("STAGES_DONE=").split(",")
 
 
 def test_the_routing_notice_needs_a_saved_newsletter_url(rig) -> None:
