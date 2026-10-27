@@ -1053,3 +1053,42 @@ class TestDiscordAreaSkeleton:
         for title in ("X1", "X2", "X3"):
             assert title in embeds["⭐ Top story"]
             assert all(title not in text for name, text in embeds.items() if name != "⭐ Top story")
+
+
+def _paragraph_issue():
+    from cyris.domain.models import DigestContent, DigestItem, NewsParagraph
+
+    pair = DigestItem(
+        title="Quake",
+        summary="",
+        sources=["Wire A", "Wire B"],
+        urls=["https://a.test/quake", "https://b.test/quake"],
+        area="World",
+    )
+    letter = DigestItem(
+        title="Letter",
+        summary="",
+        sources=["Letters"],
+        urls=["newsletter:abc"],
+        area="World",
+    )
+    return DigestContent(
+        date="2026-10-27",
+        period="morning",
+        sources_processed=2,
+        articles_received=3,
+        articles_included=3,
+        area_order=["World"],
+        news_paragraphs=[
+            NewsParagraph(text="A quake struck; a letter followed.", units=[pair, letter])
+        ],
+    )
+
+
+def test_a_news_paragraph_in_discord_is_its_text_then_linked_sources() -> None:
+    (world, *_) = build_discord_embeds(_paragraph_issue())
+    assert world["title"] == "World"
+    assert world["description"] == (
+        "A quake struck; a letter followed.\n"
+        "[Wire A](https://a.test/quake) · [Wire B](https://b.test/quake) · Letters"
+    )

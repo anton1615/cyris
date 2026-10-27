@@ -5,9 +5,15 @@ import re
 
 import httpx
 
-from cyris.adapters.output.html_digest import Story, _stories, section_label
+from cyris.adapters.output.html_digest import Story, _stories, citation_links, section_label
 from cyris.domain.area_layout import AreaSection, layout_by_area
-from cyris.domain.models import NO_LLM_MODEL, DigestContent, DigestItem, DigestSection
+from cyris.domain.models import (
+    NO_LLM_MODEL,
+    DigestContent,
+    DigestItem,
+    DigestSection,
+    NewsParagraph,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +146,16 @@ def _render_row(item: DigestItem) -> list[str]:
     return lines
 
 
+def _render_paragraph(paragraph: NewsParagraph) -> str:
+    """A news paragraph as the page draws it: its text, then one link per cited article."""
+    links = " · ".join(
+        _linked(label, link) for unit in paragraph.units for label, link in citation_links(unit)
+    )
+    return f"{paragraph.text}\n{links}\n" if links else f"{paragraph.text}\n"
+
+
 def _render_area_section(section: AreaSection) -> str:
-    """One area's cards, Following groups, clusters and rows, in the order the page draws them."""
+    """One area's cards, Following groups, clusters, rows and paragraphs, in page order."""
     cards = [
         _render_story_embed(Story(item.title, item.summary, (item,)))
         for feature in section.features
@@ -153,6 +167,7 @@ def _render_area_section(section: AreaSection) -> str:
         *(_render_fan_section(group) for group in section.following),
         *(_render_section_embed(cluster) for cluster in section.clusters),
         "\n".join(rows),
+        *(_render_paragraph(paragraph) for paragraph in section.paragraphs),
     ]
     return "\n".join(part for part in parts if part).strip()
 

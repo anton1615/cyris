@@ -724,6 +724,7 @@ TYPE_ROLES = [
     (21, "digest", ".featured-item .summary", "18px"),
     (23, "digest", ".pill", "12px"),
     (25, "digest", ".news-cluster .summary", "18px"),
+    (49, "digest", ".news-paragraph .summary", "18px"),
     (27, "digest", ".thematic-block h3::before", "12px"),
     (28, "digest", ".item-title", "18px"),
     (29, "digest", ".article-item .summary", "18px"),

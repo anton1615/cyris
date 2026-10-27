@@ -627,3 +627,43 @@ def test_a_score_of_zero_shows_its_pill(featured, pills):
     html = render_digest_email(content, DIGEST_URL)
     assert html.count('<span class="pill">0.0</span>') == pills
     assert html.count('class="pill"') == pills
+
+
+def _paragraph_issue():
+    from cyris.domain.models import DigestContent, DigestItem, NewsParagraph
+
+    pair = DigestItem(
+        title="Quake",
+        summary="",
+        sources=["Wire A", "Wire B"],
+        urls=["https://a.test/quake", "https://b.test/quake"],
+        area="World",
+    )
+    letter = DigestItem(
+        title="Letter",
+        summary="",
+        sources=["Letters"],
+        urls=["newsletter:abc"],
+        area="World",
+    )
+    return DigestContent(
+        date="2026-10-27",
+        period="morning",
+        sources_processed=2,
+        articles_received=3,
+        articles_included=3,
+        area_order=["World"],
+        news_paragraphs=[
+            NewsParagraph(text="A quake struck; a letter followed.", units=[pair, letter])
+        ],
+    )
+
+
+def test_a_news_paragraph_in_the_mail_is_its_text_and_its_links() -> None:
+    html = render_digest_email(_paragraph_issue(), DIGEST_URL)
+    assert '<p class="summary">A quake struck; a letter followed.</p>' in html
+    assert (
+        '<a href="https://a.test/quake">Wire A</a> · <a href="https://b.test/quake">Wire B</a>'
+        in html
+    )
+    assert 'class="wire"' not in html

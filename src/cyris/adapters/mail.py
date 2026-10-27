@@ -14,9 +14,9 @@ import httpx
 from cyris.adapters.cloudflare import API_ROOT, TIMEOUT_SECONDS
 from cyris.adapters.notify import period_label, redact_webhook_tokens
 from cyris.adapters.output.email_digest import raw_page_url, render_digest_email
-from cyris.adapters.output.html_digest import Story, _stories, section_label
+from cyris.adapters.output.html_digest import Story, _stories, citation_links, section_label
 from cyris.domain.area_layout import AreaSection, layout_by_area
-from cyris.domain.models import DigestContent, DigestItem
+from cyris.domain.models import DigestContent, DigestItem, NewsParagraph
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,18 @@ def _line(item: DigestItem | Story) -> str:
 
 def _wire_lines(item: DigestItem) -> list[str]:
     return [_line(item), f"  {item.summary}"] if item.summary else [_line(item)]
+
+
+def _paragraph_lines(paragraph: NewsParagraph) -> list[str]:
+    """The paragraph, then each cited article's link on its own indented line."""
+    return [
+        paragraph.text,
+        *(
+            f"  {label} — {link}" if link else f"  {label}"
+            for unit in paragraph.units
+            for label, link in citation_links(unit)
+        ),
+    ]
 
 
 def _story_lines(story: Story) -> list[str]:
@@ -128,6 +140,7 @@ def _area_entries(section: AreaSection) -> list[str]:
         *(_line(i) for s in section.following for i in s.items),
         *(f"- {cluster.heading}" for cluster in section.clusters),
         *(line for row in section.rows for line in _wire_lines(row.item)),
+        *(line for paragraph in section.paragraphs for line in _paragraph_lines(paragraph)),
     ]
 
 

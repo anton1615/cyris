@@ -23,6 +23,13 @@
 </article>
 {% endfor %}
 {%- endmacro -%}
+{#- A news paragraph's citations: one link per cited article, folded past two as a
+    cluster's sources are. -#}
+{% macro paragraph_sources(paragraph) -%}
+{%- set links = paragraph | paragraph_links -%}
+{%- set inner -%}{% for label, url in links %}{% if url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ label }}</a>{% else %}{{ label }}{% endif %}{{ ' · ' if not loop.last }}{% endfor %}{%- endset -%}
+{% if links | length > 2 %}<details class="src-fold"><summary lang="en">{{ links | length }} sources</summary><span class="src-list">{{ inner }}</span></details>{% else %}<span class="src-links">{{ inner }}</span>{% endif %}
+{%- endmacro -%}
 {% macro source_list(item) -%}
 {%- set urls = item.ref_urls if item.ref_urls else item.urls -%}
 {% if urls | length > 2 %}<details class="src-fold"><summary lang="en">{{ urls | length }} sources</summary><span class="src-list">{{ source_links(item) }}</span></details>{% else %}<span class="src-links">{{ source_links(item) }}</span>{% endif %}
@@ -270,7 +277,22 @@
 
         .news-cluster h3 { margin-bottom: var(--s-2); }
 
+        /* A news paragraph is drawn as a cluster without its heading (ui-language.md §6). */
+        .news-paragraph {
+            border-left: 2px solid var(--border-strong);
+            padding: var(--s-4) 0 var(--s-4) var(--s-5);
+            margin-bottom: var(--s-5);
+        }
+
         .news-cluster .summary {
+            font-size: calc(18px * var(--type-scale));
+            color: var(--text-dim);
+            line-height: 1.65;
+            margin-bottom: var(--s-2);
+            max-width: var(--measure-wide);
+        }
+
+        .news-paragraph .summary {
             font-size: calc(18px * var(--type-scale));
             color: var(--text-dim);
             line-height: 1.65;
@@ -559,6 +581,12 @@
                     {% endfor %}
                 </div>
                 {% endif %}
+                {% for paragraph in sec.paragraphs %}
+                <div class="news-paragraph"{% if paragraph.passed_through %} lang=""{% else %} lang="{{ content_lang }}"{% endif %}>
+                    <p class="summary">{{ paragraph.text }}</p>
+                    <div class="meta">{{ paragraph_sources(paragraph) }}</div>
+                </div>
+                {% endfor %}
             </section>
             {% endfor %}
         </main>

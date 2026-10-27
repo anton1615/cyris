@@ -152,8 +152,8 @@ class TestDigestPipeline:
         assert result.rejected_urls == []
         assert result.content.articles_included == 2
 
-    async def test_story_records_keep_full_membership_past_truncation(self, sample_sources):
-        """Story records carry every cluster's full URL list even when the cap drops clusters."""
+    async def test_story_records_name_every_cluster_with_its_full_membership(self, sample_sources):
+        """Story records carry every cluster's full URL list; the issue cap cuts no news."""
         news = [
             Article(
                 id=i,
@@ -180,10 +180,10 @@ class TestDigestPipeline:
             news, sample_sources, period="morning", timezone=TEST_SETTINGS["general.timezone"]
         )
 
-        # The cap truncated the rendered clusters...
-        assert len(result.content.news_clusters) == 1
-        # ...but the records still name both stories with their full memberships,
-        # under content-derived ids a re-run of the same window would reproduce.
+        # The news is outside the issue cap: an area's quota cuts it, after the stamp.
+        assert len(result.content.news_clusters) == 2
+        # The records name both stories with their full memberships, under
+        # content-derived ids a re-run of the same window would reproduce.
         date = result.content.date
         assert [r.id for r in result.story_records] == [
             _expected_story_id(
@@ -288,18 +288,20 @@ class TestVerdictsFollowTheCappedDigest:
                 articles, sample_sources, timezone=TEST_SETTINGS["general.timezone"]
             )
 
-    async def test_a_headline_the_cap_cut_is_neither_accepted_nor_rejected(self, sample_sources):
-        shown, cut, discarded = (_article(i, Lane.SKIM, "TechCrunch") for i in (1, 2, 3))
+    async def test_the_issue_cap_cuts_no_headline_and_the_filters_verdict_stands(
+        self, sample_sources
+    ):
+        kept, also_kept, discarded = (_article(i, Lane.SKIM, "TechCrunch") for i in (1, 2, 3))
 
         result = await self._process(
-            [shown, cut, discarded],
+            [kept, also_kept, discarded],
             sample_sources,
-            headlines=[_item(shown), _item(cut)],
+            headlines=[_item(kept), _item(also_kept)],
             sections=[],
             cap=1,
         )
 
-        assert result.accepted_urls == [shown.url]
+        assert sorted(result.accepted_urls) == sorted([kept.url, also_kept.url])
         assert result.rejected_urls == [discarded.url]
 
     async def test_a_summary_item_the_cap_cut_is_neither_accepted_nor_rejected(
@@ -720,7 +722,9 @@ class TestKeptItemsReachThePreference:
         assert result.preference_moves is None
 
 
-class TestPreferenceScoresOrderTheCap:
+class TestThePreferenceLeavesTheNewsForTheParagraphs:
+    """The news keeps the model's order here; the paragraph step orders its units."""
+
     async def _headlines(self, sample_sources, scores):
         h1, h2 = (_article(i, Lane.SKIM, "TechCrunch") for i in (1, 2))
 
@@ -741,26 +745,29 @@ class TestPreferenceScoresOrderTheCap:
             )
         return h1, h2, result
 
-    async def test_the_higher_score_takes_the_last_slot(self, sample_sources):
+    async def test_the_scores_are_handed_on_and_the_headlines_keep_their_order(
+        self, sample_sources
+    ):
         h1, h2 = (f"https://example.com/{i}" for i in (1, 2))
         _, _, scored = await self._headlines(sample_sources, {h1: 0.1, h2: 0.9})
 
-        assert [i.title for i in scored.content.filtered_headlines] == ["Article 2"]
-        assert scored.preference_moves == {"headlines": 1, "features": 0, "clusters": 0}
+        assert [i.title for i in scored.content.filtered_headlines] == ["Article 1", "Article 2"]
+        assert scored.preference == {h1: 0.1, h2: 0.9}
+        assert scored.preference_moves == {"features": 0}
 
-    async def test_no_scores_keep_the_model_order(self, sample_sources):
-        h1, _, result = await self._headlines(sample_sources, None)
+    async def test_no_scores_hand_on_none(self, sample_sources):
+        _, _, result = await self._headlines(sample_sources, None)
 
-        assert [i.title for i in result.content.filtered_headlines] == [h1.title]
+        assert result.preference is None
         assert result.preference_moves is None
 
-    async def test_an_empty_mapping_orders_nothing_but_still_reports(self, sample_sources):
-        h1, _, result = await self._headlines(sample_sources, {})
+    async def test_an_empty_mapping_still_reports(self, sample_sources):
+        _, _, result = await self._headlines(sample_sources, {})
 
-        assert [i.title for i in result.content.filtered_headlines] == [h1.title]
-        assert result.preference_moves == {"headlines": 0, "features": 0, "clusters": 0}
+        assert result.preference == {}
+        assert result.preference_moves == {"features": 0}
 
-    async def _clusters(self, sample_sources, scores):
+    async def test_every_cluster_passes_in_the_models_order(self, sample_sources):
         wires = [
             _article(i, Lane.SKIM, "Wire").model_copy(update={"source_tags": ["news"]})
             for i in (1, 2, 3, 4)
@@ -771,7 +778,7 @@ class TestPreferenceScoresOrderTheCap:
         ]
 
         async def preference(_kept):
-            return scores
+            return {"https://example.com/1": -0.2, "https://example.com/4": 0.6}
 
         pipeline = DigestPipeline(FakeLLM(), **pipeline_settings(max_digest_output=2))
         with (
@@ -786,22 +793,11 @@ class TestPreferenceScoresOrderTheCap:
                 return_value=(clusters, []),
             ),
         ):
-            return await pipeline.process(
+            result = await pipeline.process(
                 wires,
                 sample_sources,
                 timezone=TEST_SETTINGS["general.timezone"],
                 preference=preference,
             )
 
-    async def test_the_cluster_of_a_voted_article_takes_the_last_slots(self, sample_sources):
-        urls = [f"https://example.com/{i}" for i in (1, 4)]
-        result = await self._clusters(sample_sources, dict(zip(urls, (-0.2, 0.6), strict=True)))
-
-        assert [s.heading for s in result.content.news_clusters] == ["voted"]
-        assert result.preference_moves["clusters"] == 1
-
-    async def test_no_scores_keep_the_models_cluster_order(self, sample_sources):
-        result = await self._clusters(sample_sources, None)
-
-        assert [s.heading for s in result.content.news_clusters] == ["quiet"]
-        assert result.preference_moves is None
+        assert [s.heading for s in result.content.news_clusters] == ["quiet", "voted"]

@@ -137,6 +137,30 @@ class DigestSection(BaseModel):
     story_id: str | None = None
 
 
+class NewsParagraph(BaseModel):
+    """One paragraph of the remaining news, and the units it cites.
+
+    Each unit is one story, merged into one item with every member article's links
+    and sources (`domain.news_units.merge_unit`); a unit is cited by one paragraph only.
+    """
+
+    text: str
+    units: list[DigestItem] = Field(default_factory=list)
+    # True when the text is the units' own excerpt rather than a model's paragraph, so
+    # the page cannot tag it with the output language.
+    passed_through: bool = False
+    # The digest items the units stood for when the issue counted them
+    # (`articles_included`): a cluster is one however many reports it holds, a cosine
+    # group one per headline. Unset, each unit is one.
+    items: int | None = None
+
+    @model_validator(mode="after")
+    def _one_item_per_unit_unless_told(self) -> "NewsParagraph":
+        if self.items is None:
+            self.items = len(self.units)
+        return self
+
+
 # USD per million tokens, (input, output), keyed by the exact model id the
 # adapter reports. Read off each vendor's own pricing page on 2026-08-25.
 # Only models this repo actually runs are here on purpose: a miss returns None,
@@ -243,6 +267,9 @@ class DigestContent(BaseModel):
     attention_sections: list[DigestSection] = Field(default_factory=list)
     filtered_headlines: list[DigestItem] = Field(default_factory=list)
     fan_sections: list[DigestSection] = Field(default_factory=list)
+    # The remaining news, written as paragraphs after the areas are stamped. It replaces
+    # `news_clusters` and `filtered_headlines`, which an issue from before it still holds.
+    news_paragraphs: list[NewsParagraph] = Field(default_factory=list)
     # One section per tracked topic with a hit this run, headed by the topic's name.
     # Outside the issue's cap and its article count: a hit changes no article's state.
     tracked_topics: list[DigestSection] = Field(default_factory=list)
@@ -359,8 +386,11 @@ class ProcessResult(BaseModel):
     rejected_urls: list[str]
     url_to_tags: dict[str, list[str]] = Field(default_factory=dict)
     story_records: list[StoryRecord] = Field(default_factory=list)
-    # Headline and Features positions the vote preference changed; None when none was given.
+    # Features positions the vote preference changed; None when none was given.
     preference_moves: dict[str, int] | None = None
+    # The vote preference by article URL, for the paragraph step's unit order; None
+    # when none was given or it could not be computed.
+    preference: dict[str, float] | None = None
 
 
 class TriageFeedbackData(BaseModel):

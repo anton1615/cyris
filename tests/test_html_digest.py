@@ -2701,3 +2701,46 @@ def test_the_interest_page_is_never_an_issue_row_or_counted(tmp_path) -> None:
     assert html.count("2026-10-17") == bare.count("2026-10-17")
     assert "1 issue" in html
     assert "2 issue" not in html
+
+
+def _paragraph_issue():
+    from cyris.domain.models import DigestContent, DigestItem, NewsParagraph
+
+    pair = DigestItem(
+        title="Quake",
+        summary="",
+        sources=["Wire A", "Wire B"],
+        urls=["https://a.test/quake", "https://b.test/quake"],
+        area="World",
+    )
+    letter = DigestItem(
+        title="Letter",
+        summary="",
+        sources=["Letters"],
+        urls=["newsletter:abc"],
+        area="World",
+    )
+    return DigestContent(
+        date="2026-10-27",
+        period="morning",
+        sources_processed=2,
+        articles_received=3,
+        articles_included=3,
+        area_order=["World"],
+        news_paragraphs=[
+            NewsParagraph(text="A quake struck; a letter followed.", units=[pair, letter])
+        ],
+    )
+
+
+def test_a_news_paragraph_is_its_text_then_one_link_per_cited_article() -> None:
+    html = HtmlDigestWriter(Path("/tmp/html-test")).render(_paragraph_issue())
+    block = html[html.index('<div class="news-paragraph"') :]
+    block = block[: block.index("</div>\n                </div>")]
+    assert '<p class="summary">A quake struck; a letter followed.</p>' in block
+    # Three links fold, as a cluster's sources do; the synthetic URL is a label only.
+    assert '<summary lang="en">3 sources</summary>' in block
+    assert '<a href="https://a.test/quake" target="_blank" rel="noopener">Wire A</a>' in block
+    assert '<a href="https://b.test/quake" target="_blank" rel="noopener">Wire B</a>' in block
+    assert "Letters" in block and "newsletter:abc" not in block
+    assert 'class="headline-item"' not in html
