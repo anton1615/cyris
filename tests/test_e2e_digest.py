@@ -168,6 +168,7 @@ SETTINGS = harness.settings(
         "routing.score_threshold": 80,
         "routing.summarize_score_threshold": 50,
         "digest.max_featured": 5,
+        "digest.units_per_paragraph": 5,
         # 4 Top story + 1 Feature + 1 cluster + 1 On the Radar + 1 Wire row: n3, the
         # filter's second pick, is the one article the cap cuts.
         "digest.max_articles_per_digest_output": 8,

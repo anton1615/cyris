@@ -4,6 +4,7 @@ import math
 
 import pytest
 
+from cyris.config import DigestConfig
 from cyris.domain.models import DigestItem
 from cyris.domain.news_units import (
     GROUPING_COSINE,
@@ -12,6 +13,7 @@ from cyris.domain.news_units import (
     group_by_cosine,
     merge_unit,
 )
+from cyris.entrypoints.triage_server import render_settings_page
 
 pytestmark = pytest.mark.unit
 
@@ -94,3 +96,13 @@ def test_a_merged_unit_without_reference_links_has_none() -> None:
     a = DigestItem(title="A", summary="", sources=["S1"], urls=["https://a"])
     assert merge_unit([a]).ref_urls == []
     assert merge_unit([a]).score is None
+
+
+def test_the_setting_tops_out_at_one_batch_on_the_model_and_the_page() -> None:
+    """The units per paragraph a reader may ask for is UNITS_PER_BATCH, named once."""
+
+    bounds = DigestConfig.model_fields["units_per_paragraph"].metadata
+    assert [getattr(b, "le", None) for b in bounds if hasattr(b, "le")] == [UNITS_PER_BATCH]
+    page = render_settings_page()
+    assert f'id="units-per-paragraph" type="number" min="1" max="{UNITS_PER_BATCH}"' in page
+    assert f"aims to cover, from 1 to {UNITS_PER_BATCH}." in page

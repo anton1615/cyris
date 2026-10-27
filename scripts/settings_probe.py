@@ -357,6 +357,7 @@ _PROBE_VALUES = {
     "digest.max_articles_per_digest": 200,
     "digest.max_articles_per_digest_output": 15,
     "digest.max_featured": 5,
+    "digest.units_per_paragraph": 5,
     "digest.scoring_snippet_length": 1000,
     "digest.summarize_snippet_length": 1000,
     "digest.filter_snippet_length": 500,
