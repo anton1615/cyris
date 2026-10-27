@@ -372,6 +372,20 @@ def test_the_newsletter_worker_gets_the_shared_token_and_its_own_config(rig) -> 
     assert "TRIAL_NEWSLETTER_URL=https://n-t1.x.workers.dev" in run.state.splitlines()
 
 
+@pytest.mark.parametrize("existing", [False, True])
+def test_the_newsletter_secrets_file_is_mode_600(rig, existing: bool) -> None:
+    """A file an earlier run left world-readable is made private too."""
+    r = rig(_stages(13), FAKE_POLL_FEEDS="1")
+    _seed_rss_token(r)
+    path = r.repo / f".env.trial-{SLUG}-newsletter"
+    if existing:
+        path.write_text("NEWSLETTER_TOKEN=old\n")
+        path.chmod(0o644)
+    r.run(stdin=START + "y\n\ny\n\n" + TAIL)
+    assert path.read_text() == f"NEWSLETTER_TOKEN={RSS_TOKEN}\n"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 def test_the_newsletter_token_stays_out_of_output_and_calls(rig) -> None:
     r = rig(_stages(13), FAKE_POLL_FEEDS="1")
     _seed_rss_token(r)

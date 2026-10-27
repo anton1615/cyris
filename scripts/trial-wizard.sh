@@ -766,7 +766,8 @@ stage_14() {
     printf '  %s✓%s /poll feeds = %s\n' "$GREEN" "$RESET" "$feeds"
   fi
   if has_newsletter; then
-    printf 'NEWSLETTER_TOKEN=%s\n' "$TRIAL_WORKER_TOKEN" > "$NEWSLETTER_ENV"
+    # write_env's mktemp makes the file 0600; the token is the rss and app bearer too.
+    in_file "$NEWSLETTER_ENV" write_env NEWSLETTER_TOKEN "$TRIAL_WORKER_TOKEN"
     [[ "$(fileval "$NEWSLETTER_ENV" NEWSLETTER_TOKEN)" == "$TRIAL_WORKER_TOKEN" ]] || die "$NEWSLETTER_ENV does not hold the token."
     rc=0
     gated newsletter "Deploy the newsletter Worker with $NEWSLETTER_CFG?" \
