@@ -1011,15 +1011,23 @@ def triage_ui(
         # SIGTERM is ignored, the instance never sleeps, and it bills all day.
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
+
+        # The platform's idle stop leaves no other trace, so these lines are
+        # what tell a SIGTERM with a grace period from an outright kill.
+        def on_signal(sig: signal.Signals) -> None:
+            logger.info("triage-ui: %s, stopping", sig.name)
+            stop.set()
+
         for sig in (signal.SIGTERM, signal.SIGINT):
             with contextlib.suppress(NotImplementedError):
-                loop.add_signal_handler(sig, stop.set)
+                loop.add_signal_handler(sig, on_signal, sig)
         try:
             await stop.wait()
         except asyncio.CancelledError:
             pass
         finally:
             await server.stop()
+            logger.info("triage-ui: stopped")
 
     try:
         asyncio.run(_run())
