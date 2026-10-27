@@ -900,6 +900,15 @@ def test_a_trial_without_a_newsletter_kv_skips_the_routing_notice(rig) -> None:
     assert "15" in r.done().removeprefix("STAGES_DONE=").split(",")
 
 
+def test_a_trial_without_a_newsletter_kv_still_adds_the_tester_address(rig) -> None:
+    r = rig(_stages(14), state=NO_NEWSLETTER, email="tester@example.com")
+    run = r.run(stdin=START + "\n\n")
+    assert "Routing rules" not in run.out
+    assert "Destination Addresses" in run.out
+    assert "tester@example.com" in run.out
+    assert "15" in r.done().removeprefix("STAGES_DONE=").split(",")
+
+
 def test_the_routing_notice_needs_a_saved_newsletter_url(rig) -> None:
     run = rig(_stages(14), state={"TRIAL_NEWSLETTER_URL": None}).run(stdin=START)
     assert run.code == 1
