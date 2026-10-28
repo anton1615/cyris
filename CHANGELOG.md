@@ -46,7 +46,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - An area cannot be named `Other`. The digest already closes with an `Other`
   section for entries no area claims, so `/settings` refuses that name on a
   rename, and an `Other` the model proposes is not kept as a proposal. An area
-  already named `Other` keeps its name until you rename it in `/settings`.
+  already named `Other` keeps its name until you rename it in `/settings`, and
+  a proposal by that name cannot be confirmed before it is renamed.
 
 ### Changed
 

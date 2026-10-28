@@ -1265,6 +1265,18 @@ class TriageServer:
             }
         )
 
+    @staticmethod
+    def _unplaced_proposal(area: Area) -> web.Response:
+        """409 for activating a proposal stored as "Other" before the name was reserved."""
+        return web.json_response(
+            {
+                "ok": False,
+                "error": f"{area.name} is the page's label for entries no area claims: "
+                "rename it before confirming it.",
+            },
+            status=409,
+        )
+
     def _not_proposed(self, area_id: int) -> web.Response:
         """409 for a proposal-only action on an area that is not a proposal; 404 if it is gone."""
         area = self._area_store.get(area_id)
@@ -1282,6 +1294,9 @@ class TriageServer:
             return self._no_area_table()
         area_id = int(request.match_info["id"])
         try:
+            area = self._area_store.get(area_id)
+            if area is not None and area.status == "proposed" and is_unplaced_label(area.name):
+                return self._unplaced_proposal(area)
             if not self._area_store.activate(area_id):
                 return self._not_proposed(area_id)
             area = self._area_store.get(area_id)
@@ -1438,6 +1453,8 @@ class TriageServer:
                         {"ok": False, "error": f"{area.name} is {area.status}, not assignable."},
                         status=409,
                     )
+                if area.status == "proposed" and is_unplaced_label(area.name):
+                    return self._unplaced_proposal(area)
                 targets[area_id] = area
             for area in sorted(
                 (a for a in targets.values() if a.status == "proposed"), key=_area_order

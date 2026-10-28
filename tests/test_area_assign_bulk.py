@@ -280,3 +280,15 @@ async def test_a_failing_activation_reports_nothing_landed(db: SqliteD1) -> None
     assert data["activated"] == []
     assert _statuses(db)["P"] == "proposed"
     assert _area_ids(db, "A") is None
+
+
+async def test_assigning_to_a_proposal_named_other_is_a_409_and_writes_nothing(
+    db: SqliteD1,
+) -> None:
+    other = _area(db, "Other", "proposed")
+
+    status, _ = await _post(db, {"assignments": {"A": other}})
+
+    assert status == 409
+    assert _statuses(db)["Other"] == "proposed"
+    assert _area_ids(db, "A") is None

@@ -205,3 +205,14 @@ async def test_assigning_to_a_proposal_is_a_409(db: SqliteD1) -> None:
         await client.close()
 
     assert response.status == 409
+
+
+async def test_activating_a_proposal_named_other_is_a_409_and_changes_nothing(
+    client: TestClient, db: SqliteD1
+) -> None:
+    _row(db, 7, "other", "proposed")
+
+    response = await client.post("/api/areas/7/activate")
+
+    assert response.status == 409
+    assert D1AreaStore(db).get(7).status == "proposed"
