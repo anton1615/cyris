@@ -18,7 +18,7 @@ from cyris.adapters.store.d1 import MAX_BOUND_PARAMS
 from cyris.adapters.store.feed_health import FeedHealth
 from cyris.config import SETTINGS_FIELDS
 from cyris.diagnostics.doctor import LLM_PROBE_TIMEOUT_SECONDS, probe_discord, probe_embedder
-from cyris.domain.areas import Area, AreaCatalog, meets_birth_threshold
+from cyris.domain.areas import Area, AreaCatalog, is_unplaced_label, meets_birth_threshold
 from cyris.domain.models import NEWSLETTER_SOURCE_TYPE, SourceConfig, TrackedTopic
 from cyris.domain.news_units import UNITS_PER_BATCH
 from cyris.service_layer import area_llm
@@ -1576,7 +1576,7 @@ class TriageServer:
         placements = [
             entry
             for entry in placements
-            if entry[2].kind != "dismissed" and not html_digest.is_unplaced_label(entry[0])
+            if entry[2].kind != "dismissed" and not is_unplaced_label(entry[0])
         ]
         new_names = [name for name, _, placed in placements if placed.kind == "unknown"]
         # The new rows go in one statement so a failure writes none, and D1 binds
@@ -1652,7 +1652,7 @@ class TriageServer:
                     {"ok": False, "error": f"No area with id {area_id}: reload the page."},
                     status=404,
                 )
-            if html_digest.is_unplaced_label(name):
+            if is_unplaced_label(name):
                 return web.json_response(
                     {
                         "ok": False,

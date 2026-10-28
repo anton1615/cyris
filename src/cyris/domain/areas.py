@@ -30,6 +30,16 @@ def fold_name(name: str) -> str:
     return name.strip().casefold()
 
 
+# The marker every surface draws above the section no active area claims. It lives here,
+# not with the renderer, because no area may take it (docs/architecture.md §5).
+UNPLACED_SECTION_LABEL = "Other"
+
+
+def is_unplaced_label(name: str) -> bool:
+    """Whether an area by this name would read as the section no area claims."""
+    return fold_name(name) == fold_name(UNPLACED_SECTION_LABEL)
+
+
 class AreaCatalog:
     def __init__(self, areas: Sequence[Area]) -> None:
         self._by_id = {area.id: area for area in areas}

@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from cyris.domain.area_layout import AreaSection, layout_by_area
-from cyris.domain.areas import fold_name
+from cyris.domain.areas import UNPLACED_SECTION_LABEL
 from cyris.domain.graph_layout import layout
 from cyris.domain.interest_graph import InterestGraph
 from cyris.domain.models import (
@@ -30,16 +30,6 @@ INTEREST_MAP_WIDTH = 480
 INTEREST_MAP_HEIGHT = 360
 # A copy of website/assets/favicon.svg, because the image ships `src/` only.
 FAVICON = Path(__file__).parent / "favicon.svg"
-
-
-# The marker the surfaces draw above a section no active area claims. The layout gives only
-# the role, so the words stay out of domain/ (docs/architecture.md §5, section labels).
-UNPLACED_SECTION_LABEL = "Other"
-
-
-def is_unplaced_label(name: str) -> bool:
-    """Whether an area by this name would read as the section no area claims."""
-    return fold_name(name) == fold_name(UNPLACED_SECTION_LABEL)
 
 
 def section_label(section: AreaSection) -> str | None:

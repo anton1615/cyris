@@ -12,9 +12,8 @@ from collections.abc import Mapping, Sequence
 
 from pydantic import ValidationError
 
-from cyris.adapters.output.html_digest import is_unplaced_label
 from cyris.adapters.store.d1 import D1Queryable
-from cyris.domain.areas import Area, fold_name
+from cyris.domain.areas import Area, fold_name, is_unplaced_label
 
 logger = logging.getLogger(__name__)
 
