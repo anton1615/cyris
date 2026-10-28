@@ -91,3 +91,13 @@ def test_a_line_break_in_a_name_is_stored_as_a_space() -> None:
     D1AreaStore(db).record_proposals({"Line\nBreak": 2}, "r1")
 
     assert _row(db, "Line Break")["proposal_articles"] == 2
+
+
+def test_a_suggestion_of_the_unplaced_label_grows_no_row() -> None:
+    db = SqliteD1()
+    store = D1AreaStore(db)
+
+    store.record_proposals({"OTHER": 4, "Space": 1}, "r1")
+
+    assert _count(db) == 1
+    assert _row(db, "Space") is not None

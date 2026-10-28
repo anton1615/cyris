@@ -18,7 +18,7 @@ from cyris.adapters.store.d1 import MAX_BOUND_PARAMS
 from cyris.adapters.store.feed_health import FeedHealth
 from cyris.config import SETTINGS_FIELDS
 from cyris.diagnostics.doctor import LLM_PROBE_TIMEOUT_SECONDS, probe_discord, probe_embedder
-from cyris.domain.areas import Area, AreaCatalog, meets_birth_threshold
+from cyris.domain.areas import Area, AreaCatalog, is_unplaced_label, meets_birth_threshold
 from cyris.domain.models import NEWSLETTER_SOURCE_TYPE, SourceConfig, TrackedTopic
 from cyris.domain.news_units import UNITS_PER_BATCH
 from cyris.service_layer import area_llm
@@ -1265,6 +1265,18 @@ class TriageServer:
             }
         )
 
+    @staticmethod
+    def _unplaced_proposal(area: Area) -> web.Response:
+        """409 for activating a proposal stored as "Other" before the name was reserved."""
+        return web.json_response(
+            {
+                "ok": False,
+                "error": f"{area.name} is the page's label for entries no area claims: "
+                "rename it before confirming it.",
+            },
+            status=409,
+        )
+
     def _not_proposed(self, area_id: int) -> web.Response:
         """409 for a proposal-only action on an area that is not a proposal; 404 if it is gone."""
         area = self._area_store.get(area_id)
@@ -1282,6 +1294,9 @@ class TriageServer:
             return self._no_area_table()
         area_id = int(request.match_info["id"])
         try:
+            area = self._area_store.get(area_id)
+            if area is not None and area.status == "proposed" and is_unplaced_label(area.name):
+                return self._unplaced_proposal(area)
             if not self._area_store.activate(area_id):
                 return self._not_proposed(area_id)
             area = self._area_store.get(area_id)
@@ -1438,6 +1453,8 @@ class TriageServer:
                         {"ok": False, "error": f"{area.name} is {area.status}, not assignable."},
                         status=409,
                     )
+                if area.status == "proposed" and is_unplaced_label(area.name):
+                    return self._unplaced_proposal(area)
                 targets[area_id] = area
             for area in sorted(
                 (a for a in targets.values() if a.status == "proposed"), key=_area_order
@@ -1573,7 +1590,11 @@ class TriageServer:
 
         # Every name is placed before the first write, so a refused reply writes nothing.
         placements = [(name, members, catalog.place(name)) for name, members in grouping.items()]
-        placements = [entry for entry in placements if entry[2].kind != "dismissed"]
+        placements = [
+            entry
+            for entry in placements
+            if entry[2].kind != "dismissed" and not is_unplaced_label(entry[0])
+        ]
         new_names = [name for name, _, placed in placements if placed.kind == "unknown"]
         # The new rows go in one statement so a failure writes none, and D1 binds
         # one parameter per name; chunking would give up the all-or-nothing write.
@@ -1647,6 +1668,15 @@ class TriageServer:
                 return web.json_response(
                     {"ok": False, "error": f"No area with id {area_id}: reload the page."},
                     status=404,
+                )
+            if is_unplaced_label(name):
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": f"{name} is the page's label for entries no area claims.",
+                        "field": "name",
+                    },
+                    status=409,
                 )
             if self._area_store.name_taken(name, area_id):
                 return web.json_response(
