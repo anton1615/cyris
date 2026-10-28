@@ -10,6 +10,7 @@ so it is correct only for feeds whose snapshot outlives the window.
 from __future__ import annotations
 
 import asyncio
+import html
 import io
 import logging
 from collections.abc import Mapping
@@ -114,7 +115,8 @@ class RssSource:
             articles.append(
                 Article(
                     id=getattr(entry, "id", "") or url,
-                    title=getattr(entry, "title", ""),
+                    # A CDATA title keeps its entities as text, and the page escapes it again.
+                    title=html.unescape(getattr(entry, "title", "")),
                     url=url,
                     content=content,
                     author=getattr(entry, "author", None) or None,

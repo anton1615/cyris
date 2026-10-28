@@ -180,3 +180,18 @@ async def test_a_read_below_the_ceiling_logs_no_warning(caplog):
 
     assert route.call_count == 1
     assert not caplog.records
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_entities_left_in_a_buffered_title_are_decoded():
+    """The Worker's parser leaves a CDATA title's entities as text, as feedparser does."""
+    row = {**ROW, "title": "Highly &amp; Readwise: We&#x27;re"}
+    route = respx.get(f"{WORKER}/articles").mock(return_value=httpx.Response(200, json=[row]))
+
+    articles = await CloudflareRssSource(WORKER, "tok").fetch_articles(
+        after=AFTER, before=BEFORE, sources={}
+    )
+
+    assert route.call_count == 1
+    assert articles[0].title == "Highly & Readwise: We're"

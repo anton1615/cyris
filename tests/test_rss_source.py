@@ -168,3 +168,22 @@ async def test_a_body_naming_a_local_file_is_parsed_as_text_not_opened(tmp_path)
     )
 
     assert articles == []
+
+
+@pytest.mark.asyncio
+async def test_entities_inside_a_cdata_title_are_decoded():
+    """CDATA keeps `&amp;` as text, so the page would show it after escaping once more."""
+    item = _item(
+        "<![CDATA[Highly &amp; Readwise: Ukraine&#8217;s]]>",
+        "https://a.test/1",
+        "Tue, 18 Mar 2026 10:00:00 GMT",
+    )
+    source = RssSource(_http_returning(_feed(item)))
+
+    articles = await source.fetch_articles(
+        after=AFTER,
+        before=BEFORE,
+        sources={"F": SourceConfig(name="F", url="https://a.test/feed")},
+    )
+
+    assert articles[0].title == "Highly & Readwise: Ukraine’s"
