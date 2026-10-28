@@ -65,6 +65,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A feed title written inside CDATA, such as `Highly &amp; Readwise`, no longer
   shows `&amp;` or `&#8217;` on the page. Its entities are decoded when the
   article is fetched, on both the RSS Worker path and direct polling.
+  An article already stored keeps the title it was stored with.
 - An entry a feed lists late now reaches the next digest. The RSS Worker selected
   and pruned its buffer by the date the feed gave an entry; it now uses the time
   the entry entered the buffer, and a read that hits the row ceiling keeps the
