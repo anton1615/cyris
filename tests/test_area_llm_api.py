@@ -549,3 +549,18 @@ async def test_an_unreadable_area_table_is_refused_before_the_model_is_asked(
     assert response.status == 500
     assert data["error"] == "The area table could not be read."
     assert len(llm.calls) == 0
+
+
+async def test_a_group_under_the_unplaced_label_is_dropped_unwritten(db: SqliteD1) -> None:
+    sources = D1SourceStore(db)
+    sources.upsert(SourceConfig(name="a", url="https://a.example/f"))
+    llm = FakeLLM(json.dumps({"Tech": ["a"], "Other": ["a"]}))
+    client = await _client(db, lambda values: llm)
+    try:
+        data = await (await client.post("/api/areas/propose")).json()
+    finally:
+        await client.close()
+
+    assert [(p["id"], p["name"]) for p in data["proposals"]] == [(1, "Tech")]
+    assert data["created"] == 0
+    assert len(D1AreaStore(db).list_areas()) == 2

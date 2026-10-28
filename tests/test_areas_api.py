@@ -211,3 +211,15 @@ async def test_a_duplicate_or_a_proposed_id_is_refused(client: TestClient, db: S
     with_proposed = await client.put("/api/areas/order", json={"ids": [one, two, 3, proposed]})
 
     assert (duplicate.status, with_proposed.status) == (400, 400)
+
+
+async def test_a_rename_onto_the_unplaced_label_is_refused_case_insensitively(
+    client: TestClient, db: SqliteD1
+) -> None:
+    tech = _area(db, "Tech", "active", position=0)
+
+    response = await client.put(f"/api/areas/{tech}", json={"name": " other "})
+
+    assert response.status == 409
+    assert (await response.json())["field"] == "name"
+    assert D1AreaStore(db).get(tech).name == "Tech"

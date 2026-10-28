@@ -43,6 +43,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `/settings` retires the last source like any other. A source that cannot be
   fetched at all — an RSS source with no feed URL, a newsletter with no sender
   match — still stops the run.
+- An area cannot be named `Other`. The digest already closes with an `Other`
+  section for entries no area claims, so `/settings` refuses that name on a
+  rename, and an `Other` the model proposes is not kept as a proposal.
 
 ### Changed
 

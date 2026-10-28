@@ -1573,7 +1573,11 @@ class TriageServer:
 
         # Every name is placed before the first write, so a refused reply writes nothing.
         placements = [(name, members, catalog.place(name)) for name, members in grouping.items()]
-        placements = [entry for entry in placements if entry[2].kind != "dismissed"]
+        placements = [
+            entry
+            for entry in placements
+            if entry[2].kind != "dismissed" and not html_digest.is_unplaced_label(entry[0])
+        ]
         new_names = [name for name, _, placed in placements if placed.kind == "unknown"]
         # The new rows go in one statement so a failure writes none, and D1 binds
         # one parameter per name; chunking would give up the all-or-nothing write.
@@ -1647,6 +1651,15 @@ class TriageServer:
                 return web.json_response(
                     {"ok": False, "error": f"No area with id {area_id}: reload the page."},
                     status=404,
+                )
+            if html_digest.is_unplaced_label(name):
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": f"{name} is the page's label for entries no area claims.",
+                        "field": "name",
+                    },
+                    status=409,
                 )
             if self._area_store.name_taken(name, area_id):
                 return web.json_response(

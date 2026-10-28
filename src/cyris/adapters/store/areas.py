@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 
 from pydantic import ValidationError
 
+from cyris.adapters.output.html_digest import is_unplaced_label
 from cyris.adapters.store.d1 import D1Queryable
 from cyris.domain.areas import Area, fold_name
 
@@ -44,10 +45,11 @@ class D1AreaStore:
 
         Only a `proposed` row takes counts: an active, merged or dismissed name is left as it
         is. A run counts once toward a proposal's issues, however many batches named it.
+        A name that reads as the page's unplaced label is skipped: that section already exists.
         """
         for raw_name, articles in counts.items():
             name = re.sub(r"[\r\n]+", " ", raw_name).strip()
-            if not name:
+            if not name or is_unplaced_label(name):
                 continue
             rows = self._db.query("SELECT id, name, status, last_proposed_run FROM areas").rows
             match = next((row for row in rows if fold_name(row["name"]) == fold_name(name)), None)
