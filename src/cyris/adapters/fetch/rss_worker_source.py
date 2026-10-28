@@ -7,6 +7,7 @@ crashed digest simply reads the same window again.
 
 from __future__ import annotations
 
+import html
 import logging
 import math
 from datetime import UTC, datetime
@@ -93,7 +94,9 @@ class CloudflareRssSource:
                 articles.append(
                     Article(
                         id=row.get("guid") or row["url"],
-                        title=row.get("title", ""),
+                        # The Worker's parser, like feedparser, leaves a CDATA title's
+                        # entities as text, and the page would escape them again.
+                        title=html.unescape(row.get("title", "")),
                         url=row["url"],
                         content=row.get("content", ""),
                         author=row.get("author") or None,
